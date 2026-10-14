@@ -4,7 +4,7 @@
 //   node scripts/copy-harness/run.mjs [--dry-run] [--headed] [--gap 20] [--scenarios base,3,4,…]
 //        [--profile default|stage-caps|ratio-floor|stage-like] [--web http://localhost:3000] [--api http://localhost:3100] [--worker http://localhost:3010]
 //        [--leader 0x… --watch-min 15] [--contention] [--worker-log .claude/logs/worker-3010.log] [--evidence-max-ms 3500]
-//        [--measure-workers http://localhost:3010,…]
+//        [--measure-workers http://localhost:3010,…] [--mainnet-dexes 11]
 //
 // 1. leader and follower balances: too little stops the run (exit 3) before anything is signed;
 // 2. cleanup: running copies of the harness leader are stopped, waiting setups cancelled, the leader flattened;
@@ -27,7 +27,9 @@
 //    each reconciled by reconcile.mjs with the profile's rules (fixed size, leverage cap, refusal allowlist, flat),
 //    and each order's evidence read from the worker's live_execution_timing lines (--worker-log, default
 //    .claude/logs/worker-3010.log): under --evidence-max-ms (3500), and no attempt failed live_risk_stale or
-//    a generation proof (lib.mjs EVIDENCE_FAILURES);
+//    a generation proof (lib.mjs EVIDENCE_FAILURES). A testnet order is judged without its dex fan-out (the
+//    run's testnet perpDexs count; criteria.mjs dexFanout), a mainnet order on its raw evidence; both shown,
+//    with the fan-out's ms/dex and a projection to --mainnet-dexes (11) mainnet venues;
 // 7. a copy still running at the end is stopped; a summary table (pass/fail per check, latency p50/p95),
 //    then one line per scenario: pass/fail and its orders' evidence p50/p95/max; then the MEASUREMENTS block
 //    (measure.mjs; recorded, never pass/fail): the POST round trip, close and leg attempts, the delay after a
@@ -53,6 +55,7 @@ import { resolve } from "node:path";
 import { EVIDENCE_FAILURES, EVIDENCE_MAX_MS, EXIT, GATE_SCENARIOS, HARNESS_LEADER, ROOT, SCENARIOS, evidenceStats, fundingGate, lastStartRtt, loadEnv, parseScenarios, parseStuckRows, planCleanup, profileEnv,
   renderGateSummary, renderSpans, renderSummary, scanWorkerLog, stopSettled, stuckRowsSql, termsFor, waitFor, zeroCodeCounts } from "./lib.mjs";
 import { apiClient, confirmFromPortfolio, launch, login } from "./follower.mjs";
+import { MAINNET_DEXES, evidenceDetail, judgeOrders, judgedStats } from "./criteria.mjs";
 import { attemptDelays, claimWaitSummary, dispatchMeasures, heartbeatDeltas, heartbeatReading, measureSql, renderMeasurements, scanMeasureLog } from "./measure.mjs";
 
 const args = process.argv.slice(2);
@@ -68,6 +71,8 @@ catch (error) { console.error(error.message); process.exit(EXIT.usage); }
 const WORKER_LOG = resolve(flag("worker-log", resolve(ROOT, ".claude/logs/worker-3010.log")));
 const EVIDENCE_MAX = Number(flag("evidence-max-ms", String(EVIDENCE_MAX_MS)));
 if (!(EVIDENCE_MAX > 0)) { console.error("--evidence-max-ms: a positive number of ms"); process.exit(EXIT.usage); }
+const MAINNET_DEX_COUNT = Number(flag("mainnet-dexes", String(MAINNET_DEXES)));
+if (!Number.isSafeInteger(MAINNET_DEX_COUNT) || MAINNET_DEX_COUNT < 1) { console.error("--mainnet-dexes: a positive integer (perpDexs entries, the main dex included)"); process.exit(EXIT.usage); }
 const MEASURE_WORKERS = flag("measure-workers", WORKER).split(",").map((u) => u.trim().replace(/\/+$/, "")).filter(Boolean);
 const OUT = resolve(ROOT, ".claude/logs/copy-harness"); mkdirSync(OUT, { recursive: true });
 const runId = new Date().toISOString().replace(/[:.]/g, "-");
@@ -125,6 +130,16 @@ async function heartbeats() {
       return heartbeatReading(url, await r.json());
     } catch (error) { return { url, error: `/health unreachable (${error.name})` }; }
   }));
+}
+/** The testnet perp venues every order's observation subscribes (perpDexs entries, the main dex
+ * included), read once per run from the testnet info API; null when it can't be read (raw evidence is judged). */
+let testnetDexes;
+async function testnetVenues() {
+  if (testnetDexes === undefined) {
+    try { const list = await info({ type: "perpDexs" }); testnetDexes = Array.isArray(list) && list.length ? { venues: list.length, at: new Date().toISOString(), source: "testnet info perpDexs" } : null; }
+    catch (error) { log("perp_dexs_unread", { error: error.message }); testnetDexes = null; }
+  }
+  return testnetDexes;
 }
 async function health(url) { try { const r = await fetch(url, { signal: AbortSignal.timeout(8000) }); return r.status < 500; } catch { return false; } }
 
@@ -328,7 +343,9 @@ try {
     const reconcileArgs = ["--leader", HARNESS_LEADER, "--leader-network", "testnet", "--follower", copy.account, "--network", "testnet", "--since", since, "--db", "env",
       "--portfolio-url", `${API}/me/copy/live/portfolio`,
       ...(TERMS.sizingMode === "ratio" ? ["--ratio-floor-max-usd", String(TERMS.ratioFloorMaxUsd)] : ["--per-trade-usd", String(TERMS.perTradeUsd), "--max-per-trade-usd", String(TERMS.maxPerTradeUsd)]),
-      "--max-leverage", String(TERMS.maxLeverage), ...allow.flatMap((a) => ["--allow-refusal", a])];
+      "--max-leverage", String(TERMS.maxLeverage), ...allow.flatMap((a) => ["--allow-refusal", a]),
+      // harness_timing's fallback when no coverage row is read: the testnet source's poll interval.
+      "--source-poll-ms", String(Number(profileEnv(TERMS.profile).COPY_LIVE_TESTNET_SOURCE_INTERVAL_MS) || 60_000)];
     let reconcile = null;
     const t0 = Date.now();
     for (let attempt = 1; ; attempt++) {
@@ -338,12 +355,16 @@ try {
       // Terminal refused legs cannot catch up. Preserve the failed reconcile
       // immediately and proceed to ordinary stop/return cleanup.
       const terminal = reconcile.failures?.some(f => ['refusal_not_allowed', 'signal_expired'].includes(f.check));
-      if (r.code === 0 || terminal || Date.now() - t0 > 240_000) break;
+      // A leader order the source has not read yet (harness_timing) is waited for like a failure:
+      // it only stands as harness_timing when the scenario ends (the deadline) or aborts (terminal).
+      if ((r.code === 0 && !reconcile.harnessTiming?.length) || terminal || Date.now() - t0 > 240_000) break;
       await sleep(15_000);
     }
     writeFileSync(resolve(OUT, `${runId}-${label}-reconcile.json`), `${JSON.stringify(reconcile, null, 2)}\n`);
-    check(`${label}_reconcile`, reconcile.failures?.length === 0, reconcile.failures?.length ? reconcile.failures.map((f) => f.check).join(", ")
-      : `${reconcile.leader?.orders} leader orders, ${reconcile.dispatches?.count} dispatches, ${reconcile.follower?.fills} follower fills`);
+    const timing = reconcile.harnessTiming ?? [];
+    const timingNote = timing.length ? `; harness_timing ${timing.length} (not failures: ${timing.map((h) => `${h.check} ${h.coin}${h.cause ? ` ${h.cause.rule}` : ""}`).join(", ")})` : "";
+    check(`${label}_reconcile`, reconcile.failures?.length === 0, (reconcile.failures?.length ? reconcile.failures.map((f) => f.check).join(", ")
+      : `${reconcile.leader?.orders} leader orders, ${reconcile.dispatches?.count} dispatches, ${reconcile.follower?.fills} follower fills`) + timingNote);
     lastReconcile = reconcile;
     return reconcile;
   }
@@ -399,14 +420,18 @@ try {
    * evidence's age or generation proof. `required`: a scenario whose legs
    * must have produced orders (a gate scenario); otherwise none is a skip.
    */
-  function evidenceCheck(label, mark, { required }) {
+  async function evidenceCheck(label, mark, { required }) {
     if (mark.offset === null) { check(`${label}_evidence`, required ? false : null, `no worker log at ${WORKER_LOG} (--worker-log)`); return []; }
-    const { orders, failures } = scanWorkerLog(readLogFrom(mark.offset), { since: mark.at - 1000 });
-    const stats = evidenceStats(orders, EVIDENCE_MAX);
-    writeFileSync(resolve(OUT, `${runId}-${label}-evidence.json`), `${JSON.stringify({ maxMs: EVIDENCE_MAX, stats, orders, failures }, null, 2)}\n`);
-    const slowest = orders.reduce((a, b) => (!a || b.evidenceMs > a.evidenceMs ? b : a), null);
+    const scanned = scanWorkerLog(readLogFrom(mark.offset), { since: mark.at - 1000 }), failures = scanned.failures;
+    // Testnet orders: judged without the dex fan-out (criteria.mjs); mainnet orders: raw.
+    const venues = scanned.orders.some((o) => o.network === "testnet") ? await testnetVenues() : null;
+    const dexes = { venues: venues?.venues ?? null, mainnetDexes: MAINNET_DEX_COUNT };
+    const orders = judgeOrders(scanned.orders, dexes);
+    const stats = judgedStats(orders, EVIDENCE_MAX);
+    writeFileSync(resolve(OUT, `${runId}-${label}-evidence.json`), `${JSON.stringify({ maxMs: EVIDENCE_MAX, dexes: { ...dexes, read: venues }, stats, orders, failures }, null, 2)}\n`);
+    const slowest = orders.reduce((a, b) => (!a || b.judgedMs > a.judgedMs ? b : a), null);
     check(`${label}_evidence_under_${EVIDENCE_MAX}ms`, orders.length ? stats.over === 0 : required ? false : null,
-      orders.length ? `${orders.length} order(s), evidence p50 ${stats.p50} / p95 ${stats.p95} / max ${stats.max} ms, ${stats.over} at or over; slowest phases ${JSON.stringify(slowest.phases)}`
+      orders.length ? `${evidenceDetail(orders, EVIDENCE_MAX, dexes)}; slowest phases ${JSON.stringify(slowest.phases)}`
         : `no live_execution_timing line in ${WORKER_LOG} since the scenario began`);
     const bad = failures.filter((f) => EVIDENCE_FAILURES.includes(f.reason));
     const count = (list) => JSON.stringify(Object.fromEntries([...new Set(list.map((f) => f.reason))].map((r) => [r, list.filter((f) => f.reason === r).length])));
@@ -639,7 +664,7 @@ try {
     log("scenario_start", { scenario: name, about: SCENARIOS[name].about, strategyId: copy.strategyId, account: copy.account });
     const first = checks.length, mark = { offset: logSize(), at: Date.now() };
     if (!(await scenarios[name](copy))) copy = null;
-    const orders = evidenceCheck(name.replace(/-/g, "_"), mark, { required: GATE_SCENARIOS.includes(name) });
+    const orders = await evidenceCheck(name.replace(/-/g, "_"), mark, { required: GATE_SCENARIOS.includes(name) });
     scenarioRows.push({ name, ok: !checks.slice(first).some((c) => c.ok === false), orders });
     if (checks.some((c) => c.ok === false)) {
       log("scenarios_stopped_after_failure", { scenario: name });
@@ -652,7 +677,12 @@ try {
   await stuckCheck();
   if (checks.some((c) => c.ok === false) && (await leaderState()).positions.length) await leaderRun("failure_cleanup", ["flatten"]);
 
-  const latency = lastReconcile?.latencySeconds ? { "signal received": lastReconcile.latencySeconds.received, "order sent": lastReconcile.latencySeconds.sent, "first follower fill": lastReconcile.latencySeconds.filled } : null;
+  // Signal latency in two parts: leader fill → dispatch created (the source's poll, a harness fact on
+  // testnet: measured only) and dispatch created → order sent (ours: the part any latency judgement uses).
+  const split = lastReconcile?.signalLatencySeconds;
+  const latency = lastReconcile?.latencySeconds ? { "signal received": lastReconcile.latencySeconds.received,
+    ...(split ? { "fill → dispatch created (source poll)": split.leaderToCreated, "dispatch created → sent (ours)": split.createdToSent } : {}),
+    "order sent": lastReconcile.latencySeconds.sent, "first follower fill": lastReconcile.latencySeconds.filled } : null;
   await finish(checks.some((c) => c.ok === false) ? EXIT.failed : EXIT.green, { latency, weightPerOrder: "n/a (the testnet bucket is not exposed by the worker)" });
 } catch (error) {
   check("harness_error", false, `${error.name}: ${error.message}`);

@@ -1,4 +1,5 @@
 import {createFixedClaimValidator} from './fixed-claim-proof.mjs';
+import { harnessTimingCause } from "./criteria.mjs";
 // Copy harness — the reconciliation rules (pure; reconcile.mjs gathers the
 // sources, harness.test.mjs feeds fixtures). Nothing here reads the network.
 //
@@ -22,6 +23,17 @@ import {createFixedClaimValidator} from './fixed-claim-proof.mjs';
 //   follower_order_without_dispatch  the follower traded an order that is neither a dispatched
 //                                    leg nor a stop's / owner's reduce-only close (a double send
 //                                    after a worker restart, or a stranger's order; needs D).
+//
+// harness_timing (counted in `harnessTiming`, listed, never a failure): the scenario ended or
+// aborted before the copy's source could have read a leader order (`input.sourceTiming`,
+// criteria.mjs harnessTimingCause):
+//   leader_order_without_dispatch    the order is later than the stream's last completed read
+//                                    (coverage_through), or, with no coverage to read, later
+//                                    than the scenario's end minus one source poll interval.
+//                                    An order a completed read covered still FAILS;
+//   direction_mismatch               the coin has such an order and the follower holds the
+//                                    leader's direction from just before the first of them
+//                                    (the follower is where the copy's last read left it).
 
 /** Refusals a run may show: the follower held nothing to reduce, or the
  * market can't be traded (a HIP-3 dex). Merged legs are judged by their lead. */
@@ -112,14 +124,21 @@ export function evaluate(input) {
   const fixedClaimValidator = input.fixedClaimTools ? createFixedClaimValidator(input.fixedClaimTools) : null;
   const { leaderFills, dispatches, followerFills, leaderPositions, followerPositions, followerLeverage = new Map(), szDecimals = new Map(), rules = {}, closeCloids = new Set() } = input;
   const allowList = rules.allowedRefusals ?? DEFAULT_ALLOWED_REFUSALS;
-  const failures = [];
+  const failures = [], harnessTiming = [];
   const fail = (check, detail) => failures.push({ check, ...detail });
   const db = dispatches !== null;
   const rows = dispatches ?? [];
   const leaderOrders = new Map();
-  for (const f of leaderFills) { const o = leaderOrders.get(f.oid) ?? { oid: f.oid, coin: f.coin, side: f.side, time: f.time, tids: [] }; o.tids.push(String(f.tid)); leaderOrders.set(f.oid, o); }
+  for (const f of leaderFills) { const o = leaderOrders.get(f.oid) ?? { oid: f.oid, coin: f.coin, side: f.side, time: f.time, tids: [], fills: [] }; o.tids.push(String(f.tid)); o.fills.push(f); o.time = Math.min(o.time, f.time); leaderOrders.set(f.oid, o); }
   const byTid = new Map(rows.map((d) => [d.tid, d]));
-  if (db) for (const o of leaderOrders.values()) if (!o.tids.some((tid) => byTid.has(tid))) fail("leader_order_without_dispatch", { oid: o.oid, coin: o.coin, side: o.side, at: new Date(o.time).toISOString() });
+  /** Leader orders the source could not have read before the scenario ended (harness_timing). */
+  const unread = [];
+  if (db) for (const o of leaderOrders.values()) if (!o.tids.some((tid) => byTid.has(tid))) {
+    const detail = { oid: o.oid, coin: o.coin, side: o.side, at: new Date(o.time).toISOString() };
+    const cause = harnessTimingCause(o.time, input.sourceTiming);
+    if (cause) { harnessTiming.push({ check: "leader_order_without_dispatch", ...detail, cause }); unread.push(o); }
+    else fail("leader_order_without_dispatch", detail);
+  }
   for (const d of rows) if (/signal_expired/.test(d.reason)) fail("signal_expired", { dispatch: d.id, reason: d.reason });
   const fillsByCloid = new Map();
   for (const f of followerFills) if (f.cloid) fillsByCloid.set(f.cloid.toLowerCase(), [...(fillsByCloid.get(f.cloid.toLowerCase()) ?? []), f]);
@@ -174,10 +193,28 @@ export function evaluate(input) {
   for (const coin of new Set([...leaderPositions.keys(), ...followerPositions.keys()])) {
     const l = Math.sign(leaderPositions.get(coin) ?? 0), c = Math.sign(followerPositions.get(coin) ?? 0);
     if ((!db || rows.some((d) => d.coin === coin)) && l !== c &&
-        !(l !== 0 && c === 0 && minimumReductionClosed(coin, input)))
-      fail("direction_mismatch", { coin, leader: leaderPositions.get(coin) ?? 0, follower: followerPositions.get(coin) ?? 0 });
+        !(l !== 0 && c === 0 && minimumReductionClosed(coin, input))) {
+      const detail = { coin, leader: leaderPositions.get(coin) ?? 0, follower: followerPositions.get(coin) ?? 0 };
+      // The follower still holds the leader's direction from before the first unread order of the coin.
+      const first = unread.filter((o) => o.coin === coin).sort((a, b) => a.time - b.time)[0];
+      const before = first ? positionBefore(first.fills) : null;
+      if (before !== null && Math.sign(before) === c) harnessTiming.push({ check: "direction_mismatch", ...detail, leaderBefore: before, after: { oid: first.oid, at: new Date(first.time).toISOString() } });
+      else fail("direction_mismatch", detail);
+    }
   }
   const leaderFlat = [...leaderPositions.values()].every((v) => !v);
-  if (leaderFlat) for (const [coin, size] of followerPositions) if (size && !failures.some((f) => f.check === "direction_mismatch" && f.coin === coin)) fail("follower_not_flat", { coin, follower: size });
-  return { failures, fillsByCloid, leaderOrders };
+  if (leaderFlat) for (const [coin, size] of followerPositions) if (size && ![...failures, ...harnessTiming].some((f) => f.check === "direction_mismatch" && f.coin === coin)) fail("follower_not_flat", { coin, follower: size });
+  return { failures, harnessTiming, fillsByCloid, leaderOrders };
+}
+
+/** The leader's position just before an order: the startPosition of its first fill (the
+ * chunk whose start is no other chunk's end; the earliest by time). Null when unknown. */
+export function positionBefore(fills) {
+  const rows = fills.filter((f) => Number.isFinite(Number(f.startPosition)) && f.startPosition !== undefined && f.startPosition !== null && f.startPosition !== "");
+  if (!rows.length) return null;
+  const earliest = Math.min(...rows.map((f) => f.time));
+  const first = rows.filter((f) => f.time === earliest);
+  const end = (f) => Number(f.startPosition) + (f.side === "B" ? 1 : -1) * Number(f.sz);
+  const start = first.find((f) => !first.some((g) => g !== f && Math.abs(end(g) - Number(f.startPosition)) < 1e-12)) ?? first[0];
+  return Number(start.startPosition);
 }

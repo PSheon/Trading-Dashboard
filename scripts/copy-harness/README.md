@@ -50,12 +50,43 @@ Pass criteria (exit 0, `ALL GREEN`, and every row of the gate table `PASS`):
 - `stack_worker_db_rtt`: the worker's latest start ran with the profile's round trip (8 ms);
 - `<scenario>_reconcile`: every leader leg has a dispatch that settled with the follower's fill, or was
   refused for an allowed reason (`no_follower_position`, a HIP-3 market, or merged into another leg's
-  order); positions match the leader's direction and end flat;
-- `<scenario>_evidence_under_3500ms`: every order's evidence, read from the worker's
+  order); positions match the leader's direction and end flat. **harness_timing** (counted and listed in
+  the check's detail and in `<run>-<scenario>-reconcile.json` `harnessTiming`, never a failure): the
+  scenario ended or aborted before the copy's source could have read a leader order
+  (`criteria.mjs` harnessTimingCause, `checks.mjs`):
+  - `leader_order_without_dispatch` whose order is later than `copy_live_source_streams.coverage_through`
+    (what the stream's last completed read covered; read before the dispatches, so a read landing in
+    between can only add dispatches). With no coverage row (no database, no stream), an order later than
+    the reconcile's time minus one source poll interval (`--source-poll-ms`, the profile's
+    `COPY_LIVE_TESTNET_SOURCE_INTERVAL_MS`, 60 s). Coverage, when read, decides alone: **an order a
+    completed read covered that has no dispatch remains a FAIL**;
+  - `direction_mismatch` on a coin with such an order when the follower holds the leader's direction from
+    just before the first of them (the first fill's `startPosition`): the follower is where the copy's
+    last read left it. Any other mismatch FAILS, and so does `follower_not_flat`.
+
+  `run.mjs` keeps retrying the reconcile (every 15 s, up to 4 min) while an order is unread, as it does
+  for a failure, so harness_timing only stands when the deadline passes or a terminal failure
+  (`signal_expired`, `refusal_not_allowed`) ends the scenario;
+- `<scenario>_evidence_under_3500ms`: every order's **judged** evidence, read from the worker's
   `live_execution_timing` lines (`.claude/logs/worker-3010.log`, `--worker-log`), is under 3500 ms
   (`--evidence-max-ms`). Evidence is the runtime's `execute` mark to `runtime_hold` plus the executor's to
   `executor_submit_gate`: from the preparation's start to the last evidence check before the exchange, an
-  upper bound of the age the 5 s window must hold. A gate scenario with no order fails;
+  upper bound of the age the 5 s window must hold. A gate scenario with no order fails. Judged
+  (`criteria.mjs` dexFanout):
+  - a **mainnet** order (its timings' `network`): the raw evidence, unchanged;
+  - a **testnet** order: the raw evidence minus the testnet dex fan-out. Each observation subscribes
+    `openOrders` once per perp venue (perpDexs: the main dex and every HIP-3 dex; testnet ~270, mainnet
+    11) plus one `allDexsClearinghouseState`, for the follower and for the leader. The run reads the
+    venue count once from the testnet info API (`perpDexs`); unreadable, the raw number is judged. Of S =
+    venues + 1 subscriptions, all but the aggregate state and the main dex (2 fixed) are fan-out: share =
+    (S − 2) / S. The spans give a critical-path attribution: per role, the subscribe path of one socket
+    (`(ws_messages + quota_subscribe_queue + quota_subscribe_tx) / sockets`, sockets = `ws_messages`'
+    count; the roles and their sockets run at the same time, so summed totals overlap) × share, at most
+    that role's `observer_ws`; the fan-out is how much earlier the later role's `observer_ws` would end
+    without it;
+  - recorded beside it (never judged): the fan-out's unit cost, ms per dex on one socket of the critical
+    role, and the projection to mainnet, judged evidence + unit × (`--mainnet-dexes` − 1) (11 by default:
+    one socket carries them all). The raw number stays in the detail and in the gate table;
 - `<scenario>_no_evidence_failures`: no attempt failed `live_risk_stale`, a generation proof
   (`live_generation_unproven`, `live_risk_generation_unproven`, …) or another `EVIDENCE_FAILURES` code,
   even if a retry later settled;
@@ -65,6 +96,11 @@ Pass criteria (exit 0, `ALL GREEN`, and every row of the gate table `PASS`):
   row with an issue in a non-final state, nor `copy_funding_operations` row (no issue column) in a non-final
   status, unchanged for over 2 minutes (those tables have no retry column, so `updated_at`). Whole local
   database; the failure lists table, id and issue;
+- signal latency (the summary's latency block, measured, not a check): `fill → dispatch created (source
+  poll)` is the leader fill to `copy_live_dispatches.created_at`, the testnet source's REST poll interval
+  (60 s): a harness fact, recorded only; `dispatch created → sent (ours)` is `created_at` to `sent_at`,
+  the copy's own part and the one any latency judgement uses. Both are in the reconcile's
+  `signalLatencySeconds`;
 - the 1 h follow: `follow_legs_settled`, `follow_no_unexpected_refusal`, `follow_zero_<code>` = 0 for
   `live_risk_stale`, `hyperliquid_busy`, `live_generation_unproven` and `live_risk_generation_unproven`
   (failed attempts and boundary failures in the worker log, and the dispatches' reasons: a retry that later
@@ -93,10 +129,12 @@ covered by unit and database tests only):
   `clockSkew.warning` true.
 
 The summary (its path is the last line printed: `.claude/logs/copy-harness/<run>-summary.txt`) has every
-check, then the gate table — per scenario the result and its orders' evidence p50 / p95 / max (ms) — then
+check, then the gate table — per scenario the result, its orders' judged evidence p50 / p95 / max (ms), the
+raw max and the mainnet projection's max — then
 each order's evidence spans summed per role (follower / leader / target / other_account / none) and each
 span's p50 / p95 / max over the orders, so a regression shows which segment grew. Each scenario's orders,
-spans and failed attempts are also in `.claude/logs/copy-harness/<run>-<scenario>-evidence.json`. The
+spans and failed attempts are also in `.claude/logs/copy-harness/<run>-<scenario>-evidence.json`, with the
+venue count read and each order's `fanout` (per role, the critical role, fan-out, adjusted, ms/dex, projection). The
 evidence and failed-attempt checks run after every scenario on every profile.
 
 ## Measurements (gate run 9)

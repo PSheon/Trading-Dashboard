@@ -104,7 +104,7 @@ const ORDER = [
 ].map((t) => ({ network: "testnet", clockValid: true, ...t }));
 
 test("orderEvidence: from the preparation's start to the last evidence check before the exchange", () => {
-  assert.deepEqual(orderEvidence(ORDER), { evidenceMs: 2842 + 1051, orderMs: 2842 + 2042, submitted: true,
+  assert.deepEqual(orderEvidence(ORDER), { network: "testnet", evidenceMs: 2842 + 1051, orderMs: 2842 + 2042, submitted: true,
     phases: { prepare: 2631, collect: 2317, execute: 2842, hold: 172, sign: 584, submit: 226 } });
   // An order refused before the exchange: its evidence up to the last executor stage it reached.
   const refused = ORDER.filter((t) => !["executor_persist_submitting", "executor_submit_gate", "executor_submit"].includes(t.stage) && t.phase !== "submit");
@@ -148,11 +148,12 @@ test("evidenceStats and the gate's table: p50/p95/max per scenario and over all"
   assert.equal(evidenceStats([{ evidenceMs: EVIDENCE_MAX_MS }]).over, 1);
   const table = renderGateSummary([{ name: "new-coin", ok: true, orders: orders.slice(0, 2) }, { name: "flip", ok: false, orders: orders.slice(2) }, { name: "stop-open", ok: null, orders: [] }]);
   const rows = table.split("\n");
-  assert.match(rows[0], /each order's evidence < 3500 ms/);
-  assert.match(rows[2], /^new-coin\s+PASS\s+2\s+1000\s+2000\s+2000$/);
-  assert.match(rows[3], /^flip\s+FAIL\s+2\s+3000\s+3600\s+3600$/);
-  assert.match(rows[4], /^stop-open\s+SKIP\s+0\s+—\s+—\s+—$/);
-  assert.match(rows[5], /^all\s+FAIL\s+4\s+2000\s+3600\s+3600$/);
+  assert.match(rows[0], /each order's judged evidence < 3500 ms/);
+  // Without a judged number (no fan-out computed) the raw one is judged; no projection.
+  assert.match(rows[2], /^new-coin\s+PASS\s+2\s+1000\s+2000\s+2000\s+2000\s+—$/);
+  assert.match(rows[3], /^flip\s+FAIL\s+2\s+3000\s+3600\s+3600\s+3600\s+—$/);
+  assert.match(rows[4], /^stop-open\s+SKIP\s+0\s+—\s+—\s+—\s+—\s+—$/);
+  assert.match(rows[5], /^all\s+FAIL\s+4\s+2000\s+3600\s+3600\s+3600\s+—$/);
 });
 
 test("lastStartRtt: the round trip of the worker's latest start", () => {

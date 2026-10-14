@@ -343,3 +343,11 @@ export const SOURCE_MID_MAX_AGE_MS = 10_000;
 /** basis: derived — leader capital is the paper sizing's 60 s cache; 120 s bounds it
  */
 export const SOURCE_EQUITY_MAX_AGE_MS = 120_000;
+
+/** basis: guessed — one rejected 60 s testnet source read cost gate run 9 a trade (2026-10-14); verify: gate 10 records source retry delays
+ * After a failed or incomplete testnet-leader source read, the next read
+ * comes this long later, doubling per consecutive failure, never later than
+ * the poll interval (COPY_LIVE_TESTNET_SOURCE_INTERVAL_MS). A budget wait's
+ * own later deadline still wins.
+ */
+export const TESTNET_SOURCE_RETRY_MS = 5_000;

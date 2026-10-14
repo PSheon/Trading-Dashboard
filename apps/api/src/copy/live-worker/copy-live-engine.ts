@@ -128,7 +128,7 @@ const HOLD_HEADROOM = '1.1';
 export { describeUnexpected, safeErrorText } from '../../runtime/safe-error-text.js';
 import { LIVE_STANDBY_RENEW_MS, SHARED_CAPACITY_RETRY_MS } from '../../config/constants/hyperliquid.js';
 import { ABSTRACTION_ATTEMPT_LIMIT, CLOSE_ATTEMPT_LIMIT, MAX_LIVE_LEG_ATTEMPTS } from '../../config/constants/limits.js';
-import { HOLD_MARGIN_MS, PLANNING_MARGIN_MS } from '../../config/constants/timings.js';
+import { HOLD_MARGIN_MS, PLANNING_MARGIN_MS, TESTNET_SOURCE_RETRY_MS } from '../../config/constants/timings.js';
 const reasonOf = (error: unknown) => errorCode(error);
 /** A source read's failure for the log: its code, and which evidence check refused it (if one did). */
 const sourceReason = (error: unknown) => [reasonOf(error), liveSourceEvidenceDetail(error)].filter(Boolean).join(' ');
@@ -144,6 +144,8 @@ const sourceReason = (error: unknown) => [reasonOf(error), liveSourceEvidenceDet
 export class CopyLiveEngine {
   private readonly lastTestnetRead = new Map<string, number>();
   private readonly testnetSourceRetryAt = new Map<string, number>();
+  /** Failed testnet source reads in a row, per stream (retryTestnetSoon). */
+  private readonly testnetFailures = new Map<string, number>();
   /** A leg's next first-submission attempt after a failed one (retryDelayMs). */
   private readonly legRetryAt = new Map<string, number>();
   private readonly lastFastRead = new Map<string, number>();
@@ -366,16 +368,34 @@ export class CopyLiveEngine {
           if (error instanceof HyperliquidBudgetWait && Number.isFinite(error.retryMs))
             this.testnetSourceRetryAt.set(key, this.now() + Math.max(error.retryMs,
               error.reason === 'shared_capacity' ? SHARED_CAPACITY_RETRY_MS : 1000));
+          else this.retryTestnetSoon(key);
           throw error;
         }
       }
     }
     if (!result) return null; // The watcher has not proven this span yet.
-    const read = result, applied = await this.deps.uow.run(tx => this.deps.sources.apply(tx, current.revision, read, this.now()));
+    const read = result;
+    let applied: Awaited<ReturnType<CopyLiveSourceRepository['apply']>>;
+    try { applied = await this.deps.uow.run(tx => this.deps.sources.apply(tx, current.revision, read, this.now())); }
+    catch (error) { if (network === 'testnet') this.retryTestnetSoon(key); throw error; }
+    if (network === 'testnet') {
+      if (applied.stream.state === 'gap') this.retryTestnetSoon(key); else this.testnetFailures.delete(key);
+    }
     if (applied.stream.state === 'gap' && applied.stream.lastIssue !== current.lastIssue)
       this.deps.log?.(`source ${key} in gap (${applied.stream.lastIssue}): read [${new Date(read.from).toISOString()}, ${new Date(read.to).toISOString()}] ${viaFast ? 'fast' : 'watched'}, ` +
         `fresh ${read.fresh}, complete ${read.complete}, ${read.completedAt - read.observedAt} ms`);
     return { fast: viaFast, fills: read.fills.length, kind: applied.kind, state: applied.stream.state, through: applied.stream.coverageThrough?.getTime() ?? null };
+  }
+
+  /** A testnet source read failed (thrown, refused, or left a gap): the next
+   * one comes TESTNET_SOURCE_RETRY_MS later, doubling per failure in a row,
+   * never later than the poll interval. One bad read used to cost the whole
+   * 60 s interval, and with it a trade (gate run 9, 2026-10-14). */
+  private retryTestnetSoon(key: string): void {
+    const failures = (this.testnetFailures.get(key) ?? 0) + 1;
+    this.testnetFailures.set(key, failures);
+    const delay = Math.min(this.options.testnetSourceIntervalMs, TESTNET_SOURCE_RETRY_MS * 2 ** Math.min(failures - 1, 16));
+    this.testnetSourceRetryAt.set(key, Math.max(this.testnetSourceRetryAt.get(key) ?? 0, this.now() + delay));
   }
 
   /** Enqueues each copy's new legs, then merges what waits together into

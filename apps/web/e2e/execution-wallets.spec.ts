@@ -22,8 +22,8 @@ for (const width of [1440, 390]) test(`execution wallet settings explain unavail
   await expect(section.getByRole("button", { name: "Prepare dedicated wallet", exact: true })).toBeDisabled();
   const funding = section.getByRole("region", { name: "Strategy funding" });
   await expect(funding).toBeVisible();
-  await expect(funding).toContainText("Mainnet strategy funding is not available yet, or the wallet provider is unavailable.");
-  await expect(funding).toContainText("Once it is credited and the copy consent is signed, copying starts on testnet. Your paper balance does not change.");
+  await expect(funding).toContainText("Strategy funding is not available right now, or the wallet provider is unavailable.");
+  await expect(funding).toContainText("Once it is credited and the copy consent is signed, copying starts. Your paper balance does not change.");
   await expect(funding.getByRole("button", { name: "Confirm and sign transfer" })).toHaveCount(0);
   // Demo authentication never supplies authority for the real account lifecycle or ledger.
   for (const name of ["Strategy agent approval", "Strategy account mode", "Actual follower statement"]) {

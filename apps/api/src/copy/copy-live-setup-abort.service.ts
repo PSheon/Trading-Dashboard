@@ -18,8 +18,7 @@ import { WORKER_MASTER_SIGNER, type WorkerMasterSigner } from './live/privy-poli
 import type { SetupAbortFlatObservation } from './live/live-account-observer.js';
 import { deploymentNetwork, liveExecutionEnabled } from './live-deployment.js';
 import { abortDepositSettled } from './copy-live-setup-abort-deposit.js';
-import { fundingBackoffMs } from './copy-funding-scan.js';
-import { classify, type ErrorClassification } from './live/error-class.js';
+import { backoffMs, classify, FUNDING_RETRY_POLICY, type ErrorClassification } from './live/error-class.js';
 import type { DbTransaction } from '../db/unit-of-work.js';
 
 export const SETUP_ABORT_OBSERVER = Symbol('SETUP_ABORT_OBSERVER');
@@ -163,8 +162,8 @@ export class CopyLiveSetupAbortService {
     };
     /** A step that cannot go on, through the classifier (live/error-class):
      * only permanent and needs_owner block. Transient and budget wait in the
-     * step they were in, on the row's own backoff (fundingBackoffMs: 3 s
-     * doubling to 60 s, or the error's own later time), never an attempt;
+     * step they were in, on the row's own backoff (backoffMs under
+     * FUNDING_RETRY_POLICY: 3 s doubling to 60 s, or the error's own later time), never an attempt;
      * the same wait again is bookkeeping only (no revision). */
     const settle = async (classified: ErrorClassification, reason: string) => {
       const current = row!, at = this.now();
@@ -177,7 +176,7 @@ export class CopyLiveSetupAbortService {
       }
       if (blocks(classified)) { await block(reason); return; }
       const failures = (current.backoff?.failures ?? 0) + 1;
-      const delayMs = Math.max(fundingBackoffMs(failures), classified.retryAfterMs ?? 0);
+      const delayMs = Math.max(backoffMs(failures - 1, FUNDING_RETRY_POLICY), classified.retryAfterMs ?? 0);
       // The step it waits in: the stop it delegated to, its refund, else its proof.
       const state: SetupAbortRow['state'] = current.stopId ? 'delegated' : current.returnOperationId ? 'returning' : 'proving';
       const changes = { nextAttemptAt: new Date(at + delayMs), backoff: { failures, nextAt: at + delayMs, ...(since === null ? {} : { notFlatSince: since }) } };

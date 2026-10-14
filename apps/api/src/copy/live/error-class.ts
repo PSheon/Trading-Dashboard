@@ -223,6 +223,18 @@ export const WAIT_FLOOR_MS = 1_000;
  * (legs and stops have their own limits: the signal's age, CLOSE_ATTEMPT_LIMIT);
  * a wait without a time is back in a second. */
 export const LIVE_LEG_RETRY_POLICY: RetryPolicy = Object.freeze({ baseMs: 3_000, maxMs: 3_000, attempts: Number.MAX_SAFE_INTEGER, needsOwnerMs: 3_000, waitDefaultMs: WAIT_FLOOR_MS });
+/** A funding confirmation's and a setup abort's policy: their rows back off
+ * by their own failure count whatever the class (every failed pass, the
+ * explorer unreachable included, doubles the wait: 3 s to 60 s), and have
+ * their own exit points (a credit, a block, the not-flat escalation), so
+ * only `backoffMs` of it is used. */
+export const FUNDING_RETRY_POLICY: RetryPolicy = Object.freeze({ baseMs: 3_000, maxMs: 60_000, attempts: Number.MAX_SAFE_INTEGER, needsOwnerMs: 15_000, waitDefaultMs: 3_000 });
+
+/** THE back-off of a counted failure: `policy.baseMs` × 2^priorAttempts, at
+ * most `policy.maxMs` (the exponent is capped so the product stays finite). */
+export function backoffMs(priorAttempts: number, policy: RetryPolicy): number {
+  return Math.min(policy.maxMs, policy.baseMs * 2 ** Math.min(Math.max(priorAttempts, 0), 16));
+}
 
 /** What a failed step does next (decideRetry). `delayMs` is from now. */
 export type RetryDecision =
@@ -261,7 +273,7 @@ export function decideRetry(error: unknown, priorAttempts: number, policy: Retry
         if (classified.exhaustedAs === 'needs_owner') return { kind: 'owner', delayMs: policy.needsOwnerMs, attempts, exhausted: true, classified };
         return { kind: 'end', attempts, exhausted: true, classified };
       }
-      const backoff = Math.min(policy.maxMs, policy.baseMs * 2 ** Math.min(priorAttempts, 5));
+      const backoff = backoffMs(priorAttempts, policy);
       const providerRead = PROVIDER_READ_FAILURES.has(code) || code.startsWith('hyperliquid_quota_');
       return { kind: 'retry', delayMs: providerRead ? Math.max(backoff, PROVIDER_READ_RETRY_MS) : backoff, attempts, classified };
     }

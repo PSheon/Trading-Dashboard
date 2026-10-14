@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { backoffMs, FUNDING_RETRY_POLICY } from "./live/error-class.js";
 
 /** Hyperliquid permits a nonce up to one day ahead of block time. */
 export const FUNDING_NONCE_SKEW_MS = 86_400_000;
@@ -7,13 +8,11 @@ export const FUNDING_NONCE_SKEW_MS = 86_400_000;
  * An hour of margin on top. */
 export const FUNDING_NONCE_EXPIRY_MS = 2 * 86_400_000 + 3_600_000;
 /** A confirmation pass that failed (the explorer or the ledger unreachable,
- * the budget refused) waits base × 2^(failures − 1) before the row's next
- * background pass, at most the cap. Kept on the row (scan_state.backoff), so
- * a restart or another replica honours it too. */
-export const FUNDING_BACKOFF_BASE_MS = 3_000;
-export const FUNDING_BACKOFF_MAX_MS = 60_000;
-export const fundingBackoffMs = (failures: number): number =>
-  Math.min(FUNDING_BACKOFF_MAX_MS, FUNDING_BACKOFF_BASE_MS * 2 ** Math.min(Math.max(failures, 1) - 1, 16));
+ * the budget refused) waits before the row's next background pass:
+ * backoffMs(failures − 1, FUNDING_RETRY_POLICY) (live/error-class.ts, THE
+ * back-off table: 3 s doubling to 60 s). Kept on the row
+ * (scan_state.backoff), so a restart or another replica honours it too. */
+export const fundingBackoffMs = (failures: number): number => backoffMs(Math.max(failures, 1) - 1, FUNDING_RETRY_POLICY);
 const hash = z.string().regex(/^0x[0-9a-f]{64}$/);
 const time = z.number().int().nonnegative().safe();
 const units = z.string().max(32).regex(/^\d+(?:\.\d{1,6})?$/);

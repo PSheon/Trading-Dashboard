@@ -1,8 +1,9 @@
 import { BadGatewayException, ConflictException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import { assertSetupTimings, DEFAULT_LIVE_SETUP_TIMINGS, setupStepBudgetMs } from '../src/config/live-timings.js';
-import { classify, decideRetry, exhausted, IDENTITY_UNVERIFIED_ISSUE, LIVE_LEG_RETRY_POLICY, liveRetryDelayMs, PRIVY_IDENTITY_EVIDENCE_CODES, PROVIDER_READ_RETRY_MS, StepFail, StepWait, WAIT_FLOOR_MS } from '../src/copy/live/error-class.js';
+import { backoffMs, classify, decideRetry, exhausted, FUNDING_RETRY_POLICY, IDENTITY_UNVERIFIED_ISSUE, LIVE_LEG_RETRY_POLICY, liveRetryDelayMs, PRIVY_IDENTITY_EVIDENCE_CODES, PROVIDER_READ_RETRY_MS, StepFail, StepWait, WAIT_FLOOR_MS } from '../src/copy/live/error-class.js';
 import { errorCode } from '../src/runtime/safe-error-text.js';
+import { fundingBackoffMs } from '../src/copy/copy-funding-scan.js';
 import { setupRetryPolicy } from '../src/config/live-timings.js';
 import { AgentIdentityEvidenceExpired } from '../src/copy/copy-agent.service.js';
 import { LiveBoundaryError } from '../src/copy/live/wallet-authorization.js';
@@ -163,5 +164,19 @@ describe('THE retry policy of a live step (decideRetry): a leg, a stop and a set
   });
   it('a permanent failure ends at once with its attempts unchanged', () => {
     expect(decideRetry(new StepFail('setup_account_mode_failed'), 2, setup)).toMatchObject({ kind: 'end', attempts: 2, exhausted: false });
+  });
+});
+
+describe('THE back-off table (backoffMs): a funding confirmation and a setup abort back off by it too', () => {
+  it("a funding row's failures 1… wait 3 s doubling to 60 s, exactly as before (fundingBackoffMs is backoffMs under FUNDING_RETRY_POLICY)", () => {
+    expect([1, 2, 3, 4, 5, 6, 7, 20].map(fundingBackoffMs)).toEqual([3_000, 6_000, 12_000, 24_000, 48_000, 60_000, 60_000, 60_000]);
+    expect([1, 2, 3, 4, 5, 6, 7, 20].map(failures => backoffMs(failures - 1, FUNDING_RETRY_POLICY))).toEqual([3_000, 6_000, 12_000, 24_000, 48_000, 60_000, 60_000, 60_000]);
+    expect(fundingBackoffMs(0)).toBe(3_000);
+  });
+  it("the setup's transient back-off is the same table under its own policy; a leg's is flat", () => {
+    expect([0, 1, 2, 5, 6].map(prior => backoffMs(prior, setupRetryPolicy(DEFAULT_LIVE_SETUP_TIMINGS)))).toEqual([3_000, 6_000, 12_000, 60_000, 60_000]);
+    expect([0, 1, 9].map(prior => backoffMs(prior, LIVE_LEG_RETRY_POLICY))).toEqual([3_000, 3_000, 3_000]);
+    // A huge count never overflows to Infinity (the exponent is capped).
+    expect(backoffMs(1_000, FUNDING_RETRY_POLICY)).toBe(60_000);
   });
 });

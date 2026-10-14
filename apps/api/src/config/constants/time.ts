@@ -1,12 +1,6 @@
 /**
  * Clock units every other group and the rest of the api count in.
- *
- * Every constant states its basis on the first comment line (AGENTS.md):
- * measured (a gate, a harness or the provider's docs), derived (from another
- * constant), copied (from another check, with no reason of its own) or
- * guessed (a number that looked right; it says how it will be verified).
- * test/tuning-constants.spec.ts keeps every tuning constant here, unique,
- * with its basis.
+ * Basis lines: see AGENTS.md (checked by test/tuning-constants.spec.ts).
  */
 
 /** basis: derived — 60 s

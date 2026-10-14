@@ -35,7 +35,7 @@ const events = () => db.select().from(schema.copyControlEvents).orderBy(schema.c
 beforeEach(async () => {
   db = getTestDb(); await preparationFixture(db);
   repository = new CopyRepository(db); uow = new UnitOfWork(db);
-  system = new CopyLiveSystemStops(db, uow, new CopyLiveStopRepository(db, new CopyLiveMandateRepository(db, liveConfig())), liveConfig());
+  system = new CopyLiveSystemStops(db, uow, new CopyLiveStopRepository(new CopyLiveMandateRepository(db, liveConfig())), liveConfig());
   system.now = () => now;
   controls = service(system);
 });

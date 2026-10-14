@@ -23,7 +23,7 @@ beforeEach(async () => { db = getTestDb(); seed = await preparationFixture(db); 
 afterAll(closeTestDb);
 
 it.each(['accepted', 'credited'] as const)('the owner reads the original delegated stop %s refund, including after an old completed parent', async status => {
-  const config = testConfig(), mandates = new CopyLiveMandateRepository(db, config), stops = new CopyLiveStopRepository(db, mandates);
+  const config = testConfig(), mandates = new CopyLiveMandateRepository(db, config), stops = new CopyLiveStopRepository(mandates);
   const original = (await db.select().from(copyLiveMandates))[0]!;
   const stop = await db.transaction(tx => stops.request(tx, 1, original.id,
     { idempotencyKey: 'delegated-refund-stop-key', expectedMandateRevision: original.revision }, Date.now));
@@ -298,7 +298,7 @@ it('plain agent provisioning cannot poison the original abort with a newly admit
 });
 
 it.each(['edit', 'renewal', 'start'] as const)('a pending %s abort admits only its permitted genuine generation stop return', async kind => {
-  const mandates = new CopyLiveMandateRepository(db, testConfig()), stops = new CopyLiveStopRepository(db, mandates);
+  const mandates = new CopyLiveMandateRepository(db, testConfig()), stops = new CopyLiveStopRepository(mandates);
   const original = (await db.select().from(copyLiveMandates))[0]!;
   const stop = await db.transaction(tx => stops.request(tx, 1, original.id,
     { idempotencyKey: 'genuine-old-generation-stop-key', expectedMandateRevision: original.revision }, Date.now));

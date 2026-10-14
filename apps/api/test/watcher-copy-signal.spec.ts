@@ -9,7 +9,6 @@ import type { TradeFeedService } from '../src/watcher/trade-feed.service.js';
 import type { WatcherRepository } from '../src/watcher/watcher.repository.js';
 import { COPY_LEADER_TRADED_EVENT, COPY_LEADER_VERIFIED_EVENT } from '../src/watcher/copy-leader-events.js';
 import { WatcherService } from '../src/watcher/watcher.service.js';
-import { testConfig } from './config-test-utils.js';
 import { COPIED_CATCH_UP_MS } from '../src/config/constants/background.js';
 
 const T0 = 1_790_000_000_000;
@@ -19,7 +18,7 @@ function setup(active: string[], copied: string[], mainnet: string[]) {
   const emit = vi.fn(), order: string[] = [];
   const catchUp = vi.fn(async (address: string) => { order.push(address); return { inserted: 0, actions: 0, complete: true, through: 0 }; });
   const repository = { activeAddresses: async () => active, copiedAddresses: async () => ({ copied: new Set(copied), mainnet: new Set(mainnet) }) };
-  const watcher = new WatcherService(testConfig(), { setWatched: vi.fn(), status: () => ({}), start: async () => {}, stop: async () => {} } as unknown as TradeFeedService,
+  const watcher = new WatcherService({ setWatched: vi.fn(), status: () => ({}), start: async () => {}, stop: async () => {} } as unknown as TradeFeedService,
     { sync: vi.fn(async () => ({ fetched: 0, inserted: 0, actions: 0, missingTids: [], latestFillTime: null })), catchUp,
       getLastFillAt: () => null, getFastPathStats: () => ({ verified: 0, corrected: 0 }) } as unknown as FillSyncService,
     { getEquityUsd: () => null, dropBooks: vi.fn() } as unknown as AccountStateService,

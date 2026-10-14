@@ -21,8 +21,7 @@ import { DAY_MS, HOUR_MS } from '../config/constants/time.js';
  * every shape the sources describe and throws on anything else, so a
  * wrong assumption stops the cursor instead of storing wrong fills.
  */
-export const ARCHIVE_BUCKET = "hl-mainnet-node-data";
-export const ARCHIVE_REGION = "ap-northeast-1";
+
 /** First hour of `node_fills` (legacy, one event per line). */
 export const ARCHIVE_FIRST_HOUR = Date.UTC(2025, 4, 25, 14);
 /** The hour in which the node switched to `node_fills_by_block` (one block

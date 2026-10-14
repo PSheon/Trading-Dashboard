@@ -101,7 +101,7 @@ export const liveEngineProvider: FactoryProvider<CopyLiveEngine | null> = {
     // A copy is stopped a day before its agent expires (the stop's closes
     // need it), and an admin close-all the api did not finish is resumed.
     const stopTimings = live.stop ?? DEFAULT_LIVE_STOP_TIMINGS;
-    const systemStops = new CopyLiveSystemStops(db, uow, new CopyLiveStopRepository(db, new CopyLiveMandateRepository(db, config)), config);
+    const systemStops = new CopyLiveSystemStops(db, uow, new CopyLiveStopRepository(new CopyLiveMandateRepository(db, config)), config);
     const stopper = new CopyLiveStopper({ repository: stops, closer, log: message => logger.warn(message), revokeDeadlineMs: live.revokeDeadlineMs, timings: stopTimings,
       systemStops: { agentExpiryMarginMs: stopTimings.agentExpiryMarginMs, stopExpiring: marginMs => systemStops.stopExpiring(marginMs), stopLiquidated: () => systemStops.stopLiquidated(), resumePendingCloseAll: () => systemStops.resumePendingCloseAll() },
       canceller: new StopCanceller(network, pool, db, walletConfig, walletGlobal, walletBudget, stops, (account, key) => closer.reconcile(account, key)),

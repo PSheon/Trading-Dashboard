@@ -1,6 +1,4 @@
-import { AppConfig } from "../config/app-config.js";
 import { Optional } from "@nestjs/common";
-import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { Injectable, Logger } from "@nestjs/common";
 import {
   type LeaderCopyActivity,
@@ -130,13 +128,11 @@ export class TradersService {
   readonly spotPrices: SpotPriceService;
 
   constructor(
-    private readonly config: AppConfig,
     private readonly repository: TradersRepository,
     private readonly info: HyperliquidInfoClient,
     private readonly roundTrips: RoundTripService,
     private readonly ingest: LeaderboardIngestService,
     private readonly settings: SettingsService,
-    @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
     @Optional() spotPrices?: SpotPriceService,
     @Optional() private readonly kols?: KolAvatarRepository,
     @Optional() private readonly history?: AnalysisHistoryService,

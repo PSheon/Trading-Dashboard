@@ -137,7 +137,7 @@ export class ActionStreamService implements OnModuleDestroy {
   private deliveries = new Set<Promise<void>>();
 
   constructor(
-    private readonly config: AppConfig,
+    config: AppConfig,
     private readonly actions: ActionsService,
     @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
     @Optional() @Inject(ACTION_STREAM_OPTIONS) options?: Partial<ActionStreamOptions>,

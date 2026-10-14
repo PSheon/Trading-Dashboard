@@ -1,12 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
-import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, desc, eq, getTableColumns, inArray, isNotNull, ne, or, sql } from 'drizzle-orm';
 import { ACTUAL_STRATEGY_MODE, liveCopyStopSchema, type RequestLiveCopyStop } from '@trading-dashboard/shared/contracts';
 import { copyAgentSetups, copyExecutionAccounts, copyLiveExecutions, copyLiveIntentProvenance, copyLiveManualCloses, copyLiveMandates,
   copyLiveRiskReservations, copyLiveStopOperations, copyStrategies } from '@trading-dashboard/shared/database';
-import { DRIZZLE_CLIENT } from '../db/db.constants.js';
-import type { DrizzleDb } from '../db/drizzle.provider.js';
 import type { DbTransaction } from '../db/unit-of-work.js';
 import { CopyLiveMandateRepository } from './copy-live-mandate.repository.js';
 import { liveSourceDigest } from './live/copy-live-source-evidence.js';
@@ -17,7 +15,7 @@ type StopRow = typeof copyLiveStopOperations.$inferSelect;
 const conflict = (code = 'live_stop_binding_changed'): never => { throw new ConflictException({ statusCode: 409, code, message: 'Refresh the original stop operation' }); };
 @Injectable()
 export class CopyLiveStopRepository {
-  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb, private readonly mandates: CopyLiveMandateRepository) {}
+  constructor(private readonly mandates: CopyLiveMandateRepository) {}
   async lock(tx: DbTransaction, userId: number, system = false) { return this.mandates.lock(tx, userId, system); }
   fence(tx: DbTransaction) { return this.mandates.fence(tx); }
   private async context(tx: DbTransaction, userId: number, mandateId: string, system = false) {

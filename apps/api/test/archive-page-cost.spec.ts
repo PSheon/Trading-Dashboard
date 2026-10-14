@@ -78,8 +78,8 @@ describe("what a cold trader page costs for an address the archive covers", { ti
    * (the page's lists come from REST; the analytics build is driven by hand). */
   function services(info: HyperliquidInfoClient, trust: "none" | "regular" | "all", archive = true) {
     const history = new AnalysisHistoryService(new AnalysisHistoryRepository(db), info, undefined, config(trust));
-    const traders = new TradersService(testConfig(), new TradersRepository(db), info, new RoundTripService(new RoundTripRepository(db)),
-      new LeaderboardIngestService(testConfig(), new LeaderboardIngestRepository(db), new UnitOfWork(db), settings), settings, undefined, undefined, undefined, archive ? history : undefined);
+    const traders = new TradersService(new TradersRepository(db), info, new RoundTripService(new RoundTripRepository(db)),
+      new LeaderboardIngestService(testConfig(), new LeaderboardIngestRepository(db), new UnitOfWork(db), settings), settings, undefined, undefined, archive ? history : undefined);
     const analytics = new TradeAnalyticsService(new TradeAnalyticsRepository(db), traders, info, undefined, history);
     return { history, traders, analytics };
   }

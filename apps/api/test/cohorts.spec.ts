@@ -1,7 +1,7 @@
 import type { INestApplication } from "@nestjs/common";
 import { TUNING_DEFAULTS } from "../src/config/runtime-config.js";
 import { cohortMembers, cohortSnapshots, discoveryTraders, kolTraders, traderAnalytics, traderStats } from "@trading-dashboard/shared/database";
-import { COHORT_HEADLINE_MIN_COVERAGE, cohortHeadlineReady, discoverySettingsSchema, wireCohortDetailSchema, wireCohortHistorySchema } from "@trading-dashboard/shared/contracts";
+import { COHORT_HEADLINE_MIN_COVERAGE, cohortHeadlineReady, wireCohortDetailSchema, wireCohortHistorySchema } from "@trading-dashboard/shared/contracts";
 import { eq } from "drizzle-orm";
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -16,7 +16,6 @@ import type { DiscoveryService } from "../src/discovery/discovery.service.js";
 import { InsightsController } from "../src/insights/insights.controller.js";
 import { InsightsRepository } from "../src/insights/insights.repository.js";
 import { InsightsService } from "../src/insights/insights.service.js";
-import type { SettingsService } from "../src/settings/settings.service.js";
 import { createAuthedApp, stubPrivy } from "./auth-test-utils.js";
 import { testConfig } from "./config-test-utils.js";
 import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
@@ -97,8 +96,6 @@ describe("cohort aggregation (CopyDog's cohorts)", () => {
 describe("cohort job and endpoints (real Postgres)", () => {
   const db = getTestDb();
   const repository = new CohortRepository(db);
-  const settingsValue = discoverySettingsSchema.parse({});
-  const settings = { get: vi.fn(async () => settingsValue) } as unknown as SettingsService;
   const info = {
     clearinghouseStates: vi.fn(async (address: string, dexes: readonly string[], _rank: number, onDispatch: () => void): Promise<ReturnType<typeof state>[]> => {
       onDispatch();
@@ -124,7 +121,7 @@ describe("cohort job and endpoints (real Postgres)", () => {
   beforeEach(async () => {
     await truncateAll(db);
     vi.clearAllMocks();
-    service = new CohortService(config, repository, info as unknown as HyperliquidInfoClient, settings, undefined, discovery as unknown as DiscoveryService);
+    service = new CohortService(config, repository, info as unknown as HyperliquidInfoClient, undefined, discovery as unknown as DiscoveryService);
   });
   afterAll(async () => {
     await closeTestDb();
@@ -176,7 +173,7 @@ describe("cohort job and endpoints (real Postgres)", () => {
   it("paces its refreshes by the cap the budgeter accounts with (scaled to the budget), not the configured weight", async () => {
     // The budgeter scaled the configured 150/min down to 30.
     const budgeter = { consumerCap: vi.fn((label: string) => (label === "cohort" ? 30 : undefined)) };
-    const paced = new CohortService(config, { nextDue: vi.fn(async () => [{ address: addr(1) }]) } as never, info as unknown as HyperliquidInfoClient, settings, undefined,
+    const paced = new CohortService(config, { nextDue: vi.fn(async () => [{ address: addr(1) }]) } as never, info as unknown as HyperliquidInfoClient, undefined,
       discovery as unknown as DiscoveryService, budgeter as never);
     const refresh = vi.spyOn(paced, "refreshOne").mockResolvedValue({ weight: 6, ok: true });
     vi.spyOn(paced as unknown as { writeSnapshots: () => Promise<void> }, "writeSnapshots").mockResolvedValue(undefined);

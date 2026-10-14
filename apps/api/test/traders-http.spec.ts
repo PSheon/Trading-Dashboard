@@ -119,7 +119,7 @@ describe("public discovery routes over HTTP", () => {
         {
           provide: TradersService,
           useFactory: (s: SettingsService) =>
-            new TradersService(testConfig(), new TradersRepository(db), info as unknown as HyperliquidInfoClient, new RoundTripService(new RoundTripRepository(db)), new LeaderboardIngestService(testConfig(), new LeaderboardIngestRepository(db), new UnitOfWork(db), s), s, undefined, undefined, undefined, undefined, orderReader as unknown as TraderOrdersReader, twapReader as unknown as TraderTwapReader, accountReader as unknown as TraderAccountReader),
+            new TradersService(new TradersRepository(db), info as unknown as HyperliquidInfoClient, new RoundTripService(new RoundTripRepository(db)), new LeaderboardIngestService(testConfig(), new LeaderboardIngestRepository(db), new UnitOfWork(db), s), s, undefined, undefined, undefined, orderReader as unknown as TraderOrdersReader, twapReader as unknown as TraderTwapReader, accountReader as unknown as TraderAccountReader),
           inject: [SettingsService],
         },
         { provide: InsightsService, useValue: new InsightsService(new InsightsRepository(db)) },

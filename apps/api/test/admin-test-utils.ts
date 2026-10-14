@@ -38,5 +38,5 @@ export async function insertUser(
 /** The real system-stop path AdminUsersService stops a disabled owner's
  * actual copies with (testConfig: this deployment executes none). */
 export function copyStopsFor(db: TestDb, config: AppConfig = testConfig()): CopyLiveSystemStops {
-  return new CopyLiveSystemStops(db, new UnitOfWork(db), new CopyLiveStopRepository(db, new CopyLiveMandateRepository(db, config)), config);
+  return new CopyLiveSystemStops(db, new UnitOfWork(db), new CopyLiveStopRepository(new CopyLiveMandateRepository(db, config)), config);
 }

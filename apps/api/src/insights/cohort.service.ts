@@ -11,7 +11,6 @@ import { budgetConsumer, BudgetWaitError, ESSENTIAL_RANK, PAGE_RANK, pacedWeight
 import { sharedCapacityWait } from '../hyperliquid/hyperliquid-budget-wait.js';
 import { sharedRestRetryAfterMs } from "../hyperliquid/hyperliquid-capacity-error.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
-import { SettingsService } from "../settings/settings.service.js";
 import { TtlCache } from "../traders/ttl-cache.js";
 import { COHORT_TIERS, aggregate, candleInterval, cohortEligible, cohortHistoryReady, dexOf, positionsFrom, WINDOW_MS, type MemberSnapshot } from "./cohorts.js";
 import { CohortRepository, type CohortCandidate, type CohortMemberRow } from "./cohort.repository.js";
@@ -78,7 +77,6 @@ export class CohortService implements OnModuleDestroy {
     private readonly config: AppConfig,
     private readonly repository: CohortRepository,
     private readonly info: HyperliquidInfoClient,
-    private readonly settings: SettingsService,
     @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
     @Optional() private readonly discovery?: DiscoveryService,
     @Optional() private readonly budgeter?: RequestBudgeterService,

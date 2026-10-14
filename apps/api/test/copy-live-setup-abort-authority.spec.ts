@@ -15,7 +15,7 @@ const id = '00000000-0000-4000-8000-000000000010';
 const key = 'abort-authority-original-key';
 beforeEach(async () => {
   db = getTestDb(); const seed = await preparationFixture(db), config = testConfig();
-  const mandates = new CopyLiveMandateRepository(db, config), stops = new CopyLiveStopRepository(db, mandates);
+  const mandates = new CopyLiveMandateRepository(db, config), stops = new CopyLiveStopRepository(mandates);
   repository = new CopyLiveSetupAbortRepository(db, config, mandates, stops);
   await db.insert(copyLiveSetups).values({ id, userId: 1, strategyId: 9, accountId: 'account', kind: 'edit', stage: 'awaiting_consent',
     idempotencyKey: 'original-edit-request-key', leaderAddress: seed.consent.leaderAddress, sourceNetwork: 'testnet', budgetUsd: '100', settings: seed.f.strategy.settings });
@@ -27,7 +27,7 @@ it('concurrent aborts establish one persistent authority and recover it after re
   expect(second.id).toBe(first.id);
   expect(await db.select().from(copyLiveSetupAborts)).toHaveLength(1);
   const config = testConfig(), mandates = new CopyLiveMandateRepository(db, config);
-  const restarted = new CopyLiveSetupAbortRepository(db, config, mandates, new CopyLiveStopRepository(db, mandates));
+  const restarted = new CopyLiveSetupAbortRepository(db, config, mandates, new CopyLiveStopRepository(mandates));
   expect(await restarted.find(1, first.id)).toMatchObject({ id: first.id, setupId: id, kind: 'edit', destination: first.ownerAddress });
   expect((await db.select().from(copyLiveSetups).where(eq(copyLiveSetups.id, id)))[0]!.stage).toBe('awaiting_consent');
 });
@@ -56,7 +56,7 @@ it('persistent worker leases survive restart and fence results from a replaced h
   expect(await repository.lease(abort.id)).toBeNull();
   await db.update(copyLiveSetupAborts).set({ leaseUntil: sql`now() - interval '1 second'` }).where(eq(copyLiveSetupAborts.id, abort.id));
   const config = testConfig(), mandates = new CopyLiveMandateRepository(db, config);
-  const restarted = new CopyLiveSetupAbortRepository(db, config, mandates, new CopyLiveStopRepository(db, mandates));
+  const restarted = new CopyLiveSetupAbortRepository(db, config, mandates, new CopyLiveStopRepository(mandates));
   const next = await restarted.lease(abort.id);
   expect(next!.leaseToken).not.toBe(first!.leaseToken);
   expect(await repository.transition(first!, { state: 'blocked', issue: 'stale_driver' })).toBeNull();

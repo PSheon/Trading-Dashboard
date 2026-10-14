@@ -54,7 +54,7 @@ beforeEach(async () => {
   for (const strategyId of [paperId, liveId]) await db.insert(copyStrategyVersions).values({ strategyId, version: 1, settings, createdByUserId: uid });
   policies = new CopyRiskPolicyService(repository, uow, market, null as never);
   planner = new CopyOrderPlanner(repository);
-  controls = new CopyControlService(repository, uow, market, planner, policies, new CopyLiveSystemStops(db, uow, new CopyLiveStopRepository(db, new CopyLiveMandateRepository(db, testConfig())), testConfig()));
+  controls = new CopyControlService(repository, uow, market, planner, policies, new CopyLiveSystemStops(db, uow, new CopyLiveStopRepository(new CopyLiveMandateRepository(db, testConfig())), testConfig()));
   service = new CopyStrategyService(testConfig(), repository, uow, market, planner, policies, controls, site as never);
   execution = new CopyExecutionService(repository, uow, market, policies, site as never);
   performance = new CopyPerformanceService(repository, uow, market, testConfig());

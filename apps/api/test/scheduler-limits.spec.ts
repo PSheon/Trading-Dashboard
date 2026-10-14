@@ -1,4 +1,3 @@
-import { testConfig } from "./config-test-utils.js";
 import { expect, it, vi } from "vitest";
 import { SchedulerService } from "../src/scheduler/scheduler.service.js";
 import type { WatcherService } from "../src/watcher/watcher.service.js";
@@ -44,7 +43,7 @@ it("revisits already-processed addresses when a new catch-up arrives during a sw
     if (address === "b" && sync.mock.calls.length <= 2) await barrier;
     return { inserted: 0, complete: true };
   });
-  const watcher = new WatcherService(testConfig(), {} as TradeFeedService, { catchUp: sync } as unknown as FillSyncService,
+  const watcher = new WatcherService({} as TradeFeedService, { catchUp: sync } as unknown as FillSyncService,
     {} as AccountStateService, {} as import("../src/watcher/feed-actions.service.js").FeedActionsService, {} as WatcherRepository);
   vi.spyOn(watcher, "activeAddresses").mockResolvedValue(["a", "b"]);
   const first = watcher.sweep();

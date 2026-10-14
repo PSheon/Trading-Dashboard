@@ -196,7 +196,6 @@ describe.skipIf(process.env.E2E_RUN_LIVE !== '1')(
             tagged('fast'),
           );
           const watcher = new WatcherService(
-            testConfig(),
             feed,
             fillSync,
             accounts,

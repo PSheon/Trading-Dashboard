@@ -238,7 +238,7 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
     await db.delete(appSettings);
     await settings.patch({ discovery: {} }, null); // resets the 30 s settings cache to the defaults
     info = fakeInfo();
-    service = new TradersService(testConfig(),
+    service = new TradersService(
       new TradersRepository(db),
       info as unknown as HyperliquidInfoClient,
       new RoundTripService(new RoundTripRepository(db)),

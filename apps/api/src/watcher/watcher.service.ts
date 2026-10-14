@@ -1,7 +1,6 @@
 import { Injectable, Logger, Optional, type OnModuleDestroy } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 
-import { AppConfig } from "../config/app-config.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { budgetConsumer } from "../hyperliquid/request-budgeter.service.js";
 import { forEachConcurrent } from "../runtime/concurrency.js";
@@ -90,7 +89,6 @@ export class WatcherService implements OnModuleDestroy {
   private watched = new Set<string>();
 
   constructor(
-    private readonly config: AppConfig,
     private readonly feed: TradeFeedService,
     private readonly fillSync: FillSyncService,
     private readonly accounts: AccountStateService,

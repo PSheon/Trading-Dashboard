@@ -12,7 +12,6 @@ function code(value: string): string {
 function uuid(value: string): string { if (typeof value !== 'string' || !UUID.test(value)) throw new BadRequestException('Invalid referral operation identity'); return value.toLowerCase(); }
 export interface ReferralPage { cursor?: string; limit?: number }
 export interface ReferralCursor { at: Date; id: string }
-export function referralCursor(at: Date, id: string): string { return Buffer.from(JSON.stringify([at.toISOString(), id])).toString('base64url'); }
 function page(input: ReferralPage): { cursor: ReferralCursor | null; limit: number } {
   const limit = input.limit ?? 50;
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new BadRequestException('Invalid referral page size');

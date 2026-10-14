@@ -862,7 +862,7 @@ it('safe abort: a driver waiting to activate cannot create a generation after th
   });
   later(5_000); const driving = service.tick(); await entered.promise;
   const mandates = new CopyLiveMandateRepository(db, testConfig());
-  const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(db, mandates));
+  const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(mandates));
   await aborts.request(uid, setup.id, 'abort-before-generation-key', () => clock);
   release.resolve(); await driving; spy.mockRestore();
   expect(await db.select().from(copyLiveMandates)).toHaveLength(0);
@@ -872,7 +872,7 @@ it('safe abort: a driver waiting to activate cannot create a generation after th
 it('safe abort: reload reads the permanent abort authority and no longer offers the old consent', async () => {
   const setup = await start();
   const mandates = new CopyLiveMandateRepository(db, testConfig());
-  const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(db, mandates));
+  const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(mandates));
   await aborts.request(uid, setup.id, 'abort-reload-original-key', () => clock);
   expect(await service.get(uid, setup.id)).toMatchObject({ abortRequested: true, consent: null, stage: 'awaiting_consent' });
   expect(await service.recover(uid, 'setup-start-key-000001')).toMatchObject({ abortRequested: true, consent: null });
@@ -917,7 +917,7 @@ function flatAbortProof(): SetupAbortFlatObservation {
 it('safe abort: zero balance alone cannot complete while the original deposit is still accepted', async () => {
   const setup = await start(); await service.confirm(uid, setup.id, await sign(setup.consent!));
   const mandates = new CopyLiveMandateRepository(db, testConfig()), returns = new CopyLiveReturnRepository(db, testConfig());
-  const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(db, mandates));
+  const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(mandates));
   const requested = await aborts.request(uid, setup.id, 'abort-zero-pending-deposit-key', () => clock), authority = (await aborts.lease(requested.id))!;
   const refunds = new CopyLiveSetupAbortReturnRepository(db, testConfig(), mandates, returns), proof = flatAbortProof();
   Object.assign(proof.snapshot, { withdrawable: '0', perpEquity: '0' });
@@ -933,7 +933,7 @@ it('safe abort: zero balance alone cannot complete while the original deposit is
 it('safe abort: proven zero with the original deposit resolved can complete without inventing a return or stop', async () => {
   const setup = await start(); await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit();
   const mandates = new CopyLiveMandateRepository(db, testConfig()), returns = new CopyLiveReturnRepository(db, testConfig());
-  const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(db, mandates));
+  const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(mandates));
   const requested = await aborts.request(uid, setup.id, 'abort-already-zero-original-key', () => clock), authority = (await aborts.lease(requested.id))!;
   const refunds = new CopyLiveSetupAbortReturnRepository(db, testConfig(), mandates, returns), proof = flatAbortProof();
   Object.assign(proof.snapshot, { withdrawable: '0', perpEquity: '0' });
@@ -946,7 +946,7 @@ it('safe abort: proven zero with the original deposit resolved can complete with
 it.each(['policy_unknown', 'wallet_unknown'] as const)('safe abort: expired driver plus fresh zero cannot clear an unresolved %s SDK child', async state => {
   const setup = await start(); await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit();
   const mandates = new CopyLiveMandateRepository(db, testConfig()), returns = new CopyLiveReturnRepository(db, testConfig());
-  const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(db, mandates));
+  const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(mandates));
   await db.update(copyLiveSetups).set({ leaseToken: 'paused-original-driver', leaseUntil: new Date(Date.now() - 1) }).where(eq(copyLiveSetups.id, setup.id));
   await db.update(copyAgentSetups).set({ state }).where(eq(copyAgentSetups.liveSetupId, setup.id));
   const requested = await aborts.request(uid, setup.id, 'abort-sdk-unknown-original-key', () => clock), authority = (await aborts.lease(requested.id))!;
@@ -961,7 +961,7 @@ it.each(['policy_unknown', 'wallet_unknown'] as const)('safe abort: expired driv
 it('safe abort: a never-attempted original deposit can cancel with fresh zero proof but cannot authorize a refund without genuine consent', async () => {
   const setup = await start();
   const mandates = new CopyLiveMandateRepository(db, testConfig()), returns = new CopyLiveReturnRepository(db, testConfig());
-  const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(db, mandates));
+  const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(mandates));
   const requested = await aborts.request(uid, setup.id, 'abort-unfunded-original-key', () => clock), authority = (await aborts.lease(requested.id))!;
   await new CopyFundingRepository(db).cancel(uid, setup.consent!.fundingOperationId);
   const refunds = new CopyLiveSetupAbortReturnRepository(db, testConfig(), mandates, returns), proof = flatAbortProof();
@@ -976,7 +976,7 @@ it('safe abort: a never-attempted original deposit can cancel with fresh zero pr
 it('safe abort: lost answers and concurrent passes preserve one original proof-bound refund and one attempt', async () => {
   const setup = await start(); await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit();
   const mandates = new CopyLiveMandateRepository(db, testConfig()), returns = new CopyLiveReturnRepository(db, testConfig());
-  const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(db, mandates));
+  const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(mandates));
   const requested = await aborts.request(uid, setup.id, 'abort-refund-original-key', () => clock), authority = (await aborts.lease(requested.id))!;
   const refunds = new CopyLiveSetupAbortReturnRepository(db, testConfig(), mandates, returns);
   const [first, second] = await Promise.all([refunds.reserve(authority, flatAbortProof(), () => clock), refunds.reserve(authority, flatAbortProof(), () => clock)]);
@@ -995,7 +995,7 @@ it('safe abort: lost answers and concurrent passes preserve one original proof-b
 it('safe abort: a proof that ages before refund admission never creates a transfer attempt', async () => {
   const setup = await start(); await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit();
   const mandates = new CopyLiveMandateRepository(db, testConfig()), returns = new CopyLiveReturnRepository(db, testConfig());
-  const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(db, mandates));
+  const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(mandates));
   const requested = await aborts.request(uid, setup.id, 'abort-refund-stale-proof-key', () => clock), authority = (await aborts.lease(requested.id))!;
   const refunds = new CopyLiveSetupAbortReturnRepository(db, testConfig(), mandates, returns), proof = flatAbortProof();
   const row = (await refunds.reserve(authority, proof, () => clock))!;
@@ -1007,7 +1007,7 @@ it('safe abort: a proof that ages before refund admission never creates a transf
 it('safe abort: a refund never handed to the exchange goes back to prepared with its nonce and is sent on a later pass; a slow signature is proven again; a possibly-sent one is never resent', async () => {
   const setup = await start(); await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit();
   const mandates = new CopyLiveMandateRepository(db, testConfig()), returns = new CopyLiveReturnRepository(db, testConfig());
-  const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(db, mandates));
+  const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(mandates));
   const refunds = new CopyLiveSetupAbortReturnRepository(db, testConfig(), mandates, returns);
   const observer = { observeSetupAbortFlat: vi.fn(async () => flatAbortProof()) };
   const ok = { status: 'ok', response: { type: 'default' } };
@@ -1046,7 +1046,7 @@ it('safe abort: a refund never handed to the exchange goes back to prepared with
 it.each(['late-credit', 'prepared-deposit', 'claimed-deposit', 'prepared-return'] as const)('safe abort: worker restart seals original driver and the unattempted ordinary %s before one verified refund', async ordinaryKind => {
   const setup = await start(); await service.confirm(uid, setup.id, await sign(setup.consent!));
   const mandates = new CopyLiveMandateRepository(db, testConfig()), returns = new CopyLiveReturnRepository(db, testConfig());
-  const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(db, mandates));
+  const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(mandates));
   const refunds = new CopyLiveSetupAbortReturnRepository(db, testConfig(), mandates, returns);
   const observer = { observeSetupAbortFlat: vi.fn(async () => flatAbortProof()) };
   // The copy account's balance read: the late credit has not landed yet.
@@ -1242,7 +1242,7 @@ it('request recovery: HTTP recovery is no-store, owner-only and strictly read-on
 
 it('safe abort: HTTP establishes one original authority without signatures, provider work or client-selected refund fields', async () => {
   const prepared = await start(), mandates = new CopyLiveMandateRepository(db, testConfig()), returns = new CopyLiveReturnRepository(db, testConfig());
-  const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(db, mandates));
+  const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(mandates));
   const observer = { observeSetupAbortFlat: vi.fn(async () => flatAbortProof()) }, exchange = { acquire: vi.fn(), send: vi.fn() }, signer = { available: true, sign: vi.fn() };
   const worker = new CopyLiveSetupAbortService(config(), aborts, new CopyLiveSetupAbortReturnRepository(db, testConfig(), mandates, returns), new CopyLiveSetupRepository(db),
     new CopyFundingRepository(db), fakes.funding as never, fakes.agents as never, fakes.modes as never, {} as never, returns, exchange as never, signer as never, observer, new BackgroundJobs(), () => clock);
@@ -1400,7 +1400,7 @@ it('mainnet recovery fences setup, reserves one original refund, and rejects wro
   expect(setup.consent!.network).toBe('mainnet');
   await service.confirm(uid, setup.id, await sign(setup.consent!)); await credit();
   const mandates = new CopyLiveMandateRepository(db, testConfig()), returns = new CopyLiveReturnRepository(db, testConfig());
-  const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(db, mandates));
+  const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(mandates));
   const requested = await aborts.request(uid, setup.id, 'mainnet-abort-original-key', () => clock), authority = (await aborts.lease(requested.id))!;
   expect(authority.network).toBe('mainnet');
   const refunds = new CopyLiveSetupAbortReturnRepository(db, testConfig(), mandates, returns);
@@ -1505,7 +1505,7 @@ describe('cancel and refund a confirmed setup awaiting its credit (funding_submi
    * worker's exchange and observer read `world.balance` (the copy account). */
   function cancelWorld(funding: object = fakes.funding) {
     const mandates = new CopyLiveMandateRepository(db, testConfig()), returns = new CopyLiveReturnRepository(db, testConfig());
-    const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(db, mandates));
+    const aborts = new CopyLiveSetupAbortRepository(db, testConfig(), mandates, new CopyLiveStopRepository(mandates));
     const refunds = new CopyLiveSetupAbortReturnRepository(db, testConfig(), mandates, returns);
     const world = { balance: '0' };
     const observer = { observeSetupAbortFlat: vi.fn(async () => proofOf(world.balance)) };

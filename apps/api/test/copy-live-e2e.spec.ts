@@ -306,7 +306,7 @@ describe('testnet copy of a mainnet leader, end to end against provider doubles'
     await db.update(schema.copyLiveRiskReservations).set({ network: 'testnet' }).where(eq(schema.copyLiveRiskReservations.key, heldReservation!.key));
     if (stopped) {
       const [m] = await db.select().from(schema.copyLiveMandates);
-      const stopService = new CopyLiveStopService(new CopyLiveStopRepository(db, new CopyLiveMandateRepository(db, testConfig())), new UnitOfWork(db));
+      const stopService = new CopyLiveStopService(new CopyLiveStopRepository(new CopyLiveMandateRepository(db, testConfig())), new UnitOfWork(db));
       await stopService.request(1, 'mandate', { idempotencyKey: 'terminal-held-stop-key', expectedMandateRevision: m!.revision });
       const [barrier] = await db.select().from(schema.copyLiveStopOperations);
       expect(barrier!.targetManifest.executions).toEqual(expect.arrayContaining([expect.objectContaining({ state: 'filled', reservationState: 'unknown' })]));
@@ -626,7 +626,7 @@ describe('testnet copy of a mainnet leader, end to end against provider doubles'
     let e = engine(); await e.tick(); await leaderOpens(1001); await e.tick(); await new Promise(resolve => setTimeout(resolve, 5)); await e.tick();
     expect((await db.select().from(schema.copyLiveDispatches))[0]).toMatchObject({ state: 'settled' });
     const [mandate] = await db.select().from(schema.copyLiveMandates);
-    await new CopyLiveStopService(new CopyLiveStopRepository(db, new CopyLiveMandateRepository(db, testConfig())), new UnitOfWork(db))
+    await new CopyLiveStopService(new CopyLiveStopRepository(new CopyLiveMandateRepository(db, testConfig())), new UnitOfWork(db))
       .request(1, 'mandate', { idempotencyKey: 'e2e-stop-request-0001', expectedMandateRevision: mandate!.revision });
     budget.onModuleDestroy(); budget = new RequestBudgeterService(config);
     e = engine('100', new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(new UnitOfWork(drizzle(pool, { schema }))), { egressKey: 'e2e-stop-egress', ownerId: 'e2e-stop' }, raw), true);
@@ -653,7 +653,7 @@ describe('testnet copy of a mainnet leader, end to end against provider doubles'
     let e = engine(); await e.tick(); await leaderOpens(1001); await e.tick(); await new Promise(resolve => setTimeout(resolve, 5)); await e.tick();
     expect((await db.select().from(schema.copyLiveDispatches))[0]).toMatchObject({ state: 'settled' });
     const [mandate] = await db.select().from(schema.copyLiveMandates);
-    await new CopyLiveStopService(new CopyLiveStopRepository(db, new CopyLiveMandateRepository(db, testConfig())), new UnitOfWork(db))
+    await new CopyLiveStopService(new CopyLiveStopRepository(new CopyLiveMandateRepository(db, testConfig())), new UnitOfWork(db))
       .request(1, 'mandate', { idempotencyKey: 'e2e-stop-request-0002', expectedMandateRevision: mandate!.revision });
     const fresh = (name: string) => new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(new UnitOfWork(drizzle(pool, { schema }))), { egressKey: name, ownerId: name }, raw);
     budget.onModuleDestroy(); budget = new RequestBudgeterService(config); e = engine('100', fresh('e2e-stop-privy-down'), true);

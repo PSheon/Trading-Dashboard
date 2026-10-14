@@ -8,7 +8,6 @@ import type { DrizzleDb } from "../db/drizzle.provider.js";
 import { COHORT_HISTORY_MIN_COVERAGE, COHORT_MAX_PERP_EQUITY, COHORT_TIERS, TIER_BOUNDS } from "./cohorts.js";
 
 export type CohortMemberRow = typeof cohortMembers.$inferSelect;
-export type CohortSnapshotRow = typeof cohortSnapshots.$inferSelect;
 
 /** A candidate member before it is stored. */
 export interface CohortCandidate {

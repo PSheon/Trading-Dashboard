@@ -575,7 +575,7 @@ describe('testnet copy execution engine', () => {
   });
 
   it('keeps one order\'s need free on the shared meter while a copy mirrors its leader: the standby is renewed every 10 s', async () => {
-    const standby = vi.fn(async () => undefined);
+    const standby = vi.fn(async (mandates: readonly { activated: boolean; accountAddress: string }[]) => { void mandates; });
     // No copy running yet: nothing is kept.
     clock = now + 500; await engine({ standby }).tick();
     expect(standby).not.toHaveBeenCalled();
@@ -583,6 +583,8 @@ describe('testnet copy execution engine', () => {
     const worker = engine({ standby });
     clock = now + 1000; await worker.tick();
     expect(standby).toHaveBeenCalledTimes(1);
+    // It is given the running generations, so it keeps their actual need (liveStandbyNeed), not the startup bound.
+    expect(standby.mock.calls[0]![0]).toEqual(expect.arrayContaining([expect.objectContaining({ activated: true, accountAddress: expect.any(String) })]));
     clock = now + 6000; await worker.tick(); await worker.pollTestnetSources();
     expect(standby).toHaveBeenCalledTimes(1);
     clock = now + 11_000; await worker.tick();

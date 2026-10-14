@@ -27,5 +27,6 @@ export function testConfig(): AppConfig {
     copy: { mode: (process.env.COPY_TRADING_MODE === "disabled" ? "disabled" : "paper") as "paper" | "disabled", workerIntervalMs: 2000 },
     // Read on every access, so a case can set DISCOVERY_* / RETENTION_* for itself.
     tuning: tuningConfig(process.env),
+    egressIdentity: { mode: "off" as "off" | "observe" | "enforce", intervalMs: 300_000, timeoutMs: 3000, echoUrls: ["https://api.ipify.org"], peers: [] as string[], expectedIps: [] as string[] },
   }; } };
 }

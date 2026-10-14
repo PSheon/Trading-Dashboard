@@ -127,8 +127,13 @@ export type RetentionStatus = z.infer<typeof retentionStatusSchema>;
  *   reported its terminal settlement loop on.
  * - snapshots_stale: WORKER_READ_URL is set and the read worker's
  *   heartbeats have shown no snapshot in the last 15 minutes.
+ * - egress_identity_shared: a public IP the copy worker reports (its
+ *   heartbeat's egressIdentity) is also the api's own or the read
+ *   worker's: they share an egress, so the copy worker's per-IP Hyperliquid
+ *   limit is not its own. `ips`: the shared addresses; `peers`: whose.
  * `lastOkAt`: when it was last seen fine (or the api's start). */
-export const workerAlertSchema = z.object({ code: z.enum(["terminal_settlement_unowned", "snapshots_stale"]), lastOkAt: iso });
+export const workerAlertSchema = z.object({ code: z.enum(["terminal_settlement_unowned", "snapshots_stale", "egress_identity_shared"]), lastOkAt: iso,
+  ips: z.array(z.string()).optional(), peers: z.array(z.enum(["api", "read"])).optional() });
 export type WorkerAlert = z.infer<typeof workerAlertSchema>;
 export const adminSystemSchema = z.object({
   sampledAt: iso,
@@ -144,7 +149,10 @@ export const adminSystemSchema = z.object({
      * reads them (its wallet network egress): demands alive, what each
      * lane's charges hold, when the last demand ends; the page lane (no
      * demand): its reads alive, what they hold, when the last ends. Additive. */
-    setupDemand: wireMeterLaneDemandSchema.optional(), liveDemand: wireMeterLaneDemandSchema.optional(), pageLane: wireMeterLaneDemandSchema.optional() }),
+    setupDemand: wireMeterLaneDemandSchema.optional(), liveDemand: wireMeterLaneDemandSchema.optional(), pageLane: wireMeterLaneDemandSchema.optional(),
+    /** This api process's public egress identity (HL_EGRESS_IDENTITY;
+     * absent while off). Additive. */
+    egressIdentity: s.egressIdentitySchema.optional() }),
   /** WORKER_URL's worker (the `copy` worker, or the single `all` one). While
    * the `read` worker (WORKER_READ_URL) is active, this sample's heartbeat
    * carries its snapshot, sweep, discovery, archive and dry-run fields, and
@@ -297,6 +305,7 @@ export interface HttpRouteContract {
 export const httpRouteContracts: HttpRouteContract[] = [
   { method: "GET", path: "/health", status: 200, auth: "public; raw", raw: true, response: publicHealthSchema },
   { method: "GET", path: "/health/ready", status: 200, auth: "public; raw", raw: true, response: z.object({ ready: z.literal(true) }) },
+  { method: "GET", path: "/health/egress", status: 200, auth: "worker monitor key (else 404); raw", raw: true, response: s.egressIdentitySchema },
   { method: "GET", path: "/actions", status: 200, auth: "public; favorites requires user", response: z.array(wireActionSchema) },
   { method: "GET", path: "/actions/stream", status: 200, auth: "public; favorites requires user; SSE", response: z.never(),
     stream: { contentType: "text/event-stream", events: actionStreamEventSchemas } },

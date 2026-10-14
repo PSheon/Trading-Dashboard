@@ -1,9 +1,10 @@
-import { Injectable, Logger, Optional, type OnApplicationBootstrap, type OnModuleDestroy } from "@nestjs/common";
+import { Inject, Injectable, Logger, Optional, type OnApplicationBootstrap, type OnModuleDestroy } from "@nestjs/common";
 import { workerMonitorSchema, type HeartbeatResponse, type WorkerAlert } from "@trading-dashboard/shared/contracts";
 import type { z } from "zod";
 
 import { AppConfig } from "../../config/app-config.js";
 import { terminalSettlementApplies } from "../../copy/live-worker/copy-live-api-settlement.service.js";
+import { EgressIdentityMonitor, egressIdentity, sharedIps } from "../../runtime/egress-identity.js";
 import { workerCallHeaders, workerMonitorKey } from "../../runtime/worker-calls.js";
 import { runsCopy, runsRead } from "../../runtime/worker-role.js";
 
@@ -59,6 +60,12 @@ export function mergeHeartbeats<T extends HeartbeatResponse | WireHeartbeat>(mai
  * - snapshots_stale (WORKER_READ_URL set): the read worker's heartbeats
  *   have shown no snapshot newer than SNAPSHOT_STALE_MS (it is down, on
  *   standby, or its snapshots fail).
+ * - egress_identity_shared (HL_EGRESS_IDENTITY observe or enforce): a
+ *   public IP the copy worker's heartbeat reports (its egressIdentity, every
+ *   address seen in the last day) is also one of the api's own or one the
+ *   read worker's heartbeat reports. The sets are compared, not one address:
+ *   a static egress gateway has several. Until the copy worker reports an
+ *   address the api's start counts as fine.
  *
  * Each is an ALERT log line at most every WORKER_ALERT_EVERY_MS and the
  * admin overview's `alerts`. Every heartbeat the api reads counts (an admin
@@ -78,15 +85,24 @@ export class WorkerFleetService implements OnApplicationBootstrap, OnModuleDestr
   private snapshotAt: number | null = null;
   private readonly alertedAt = new Map<WorkerAlert["code"], number>();
   private timer: ReturnType<typeof setInterval> | undefined;
+  /** The public IPs the copy (WORKER_URL) and read (WORKER_READ_URL) workers' heartbeats last reported. */
+  private copyIps: readonly string[] = [];
+  private readIps: readonly string[] = [];
+  /** When the copy worker's addresses were last seen apart from the api's and the read worker's. */
+  private egressOkAt: number;
 
   constructor(private readonly config: AppConfig,
-    @Optional() private readonly now: () => number = Date.now) {
+    @Optional() private readonly now: () => number = Date.now,
+    /** This api process's own egress identity (tests pass their own). */
+    @Optional() @Inject(EgressIdentityMonitor) private readonly identity: EgressIdentityMonitor = egressIdentity) {
     this.startedAt = this.now();
     this.settlementOwnerSeenAt = this.startedAt;
+    this.egressOkAt = this.startedAt;
   }
 
   onApplicationBootstrap(): void {
-    if (this.config.value.app.nodeEnv === "test" || (!this.settlementGuardApplies() && !this.readUrl())) return;
+    const egressGuard = this.identity.mode !== "off" && !!this.config.value.app.workerUrl;
+    if (this.config.value.app.nodeEnv === "test" || (!this.settlementGuardApplies() && !this.readUrl() && !egressGuard)) return;
     this.timer = setInterval(() => void this.check(), WORKER_GUARD_CHECK_MS);
     this.timer.unref();
   }
@@ -149,13 +165,25 @@ export class WorkerFleetService implements OnApplicationBootstrap, OnModuleDestr
   }
 
   /** Notes what a worker's heartbeat proves. `read`: it came from WORKER_READ_URL. */
-  private observe(heartbeat: Pick<HeartbeatResponse | WireHeartbeat, "worker" | "lastSnapshotAt">, read: boolean): void {
+  private observe(heartbeat: Pick<HeartbeatResponse | WireHeartbeat, "worker" | "lastSnapshotAt" | "egressIdentity">, read: boolean): void {
     const worker = heartbeat.worker;
     if (worker && runsCopy(worker.role) && worker.terminalSettlement === true) this.settlementOwnerSeenAt = this.now();
     // Snapshot freshness is the read worker's to prove (a worker that
     // predates the role field is taken at its URL's word).
     const snapshot = heartbeat.lastSnapshotAt ? Date.parse(String(heartbeat.lastSnapshotAt)) : NaN;
     if (read && (!worker || runsRead(worker.role)) && Number.isFinite(snapshot)) this.snapshotAt = Math.max(this.snapshotAt ?? snapshot, Math.min(snapshot, this.now()));
+    // Egress identities: what each worker reports now (none: nothing known).
+    const ips = heartbeat.egressIdentity?.publicIps ?? [];
+    if (read) this.readIps = ips;
+    else if (!worker || runsCopy(worker.role)) this.copyIps = ips;
+    if (this.copyIps.length && !this.egressShared()) this.egressOkAt = this.now();
+  }
+
+  /** The copy worker's addresses that the api (its own) or the read worker also report; null when none. */
+  private egressShared(): { ips: string[]; peers: ("api" | "read")[] } | null {
+    const api = sharedIps(this.copyIps, this.identity.ips()), read = sharedIps(this.copyIps, this.readIps);
+    if (!api.length && !read.length) return null;
+    return { ips: [...new Set([...api, ...read])].sort(), peers: [...(api.length ? ["api" as const] : []), ...(read.length ? ["read" as const] : [])] };
   }
 
   /** What is wrong now, from what the api has seen. */
@@ -166,6 +194,8 @@ export class WorkerFleetService implements OnApplicationBootstrap, OnModuleDestr
     const snapshotAt = this.snapshotAt ?? this.startedAt;
     if (this.readUrl() && now - snapshotAt > SNAPSHOT_STALE_MS)
       alerts.push({ code: "snapshots_stale", lastOkAt: new Date(snapshotAt).toISOString() });
+    const shared = this.egressShared();
+    if (shared) alerts.push({ code: "egress_identity_shared", lastOkAt: new Date(this.egressOkAt).toISOString(), ips: shared.ips, peers: shared.peers });
     return alerts;
   }
 
@@ -192,4 +222,5 @@ export class WorkerFleetService implements OnApplicationBootstrap, OnModuleDestr
 const ALERT_CONTEXT: Record<WorkerAlert["code"], Record<string, string>> = {
   terminal_settlement_unowned: { reason: "API_TERMINAL_SETTLEMENT=off and no copy worker heartbeat in the last 2 minutes reports WORKER_TERMINAL_SETTLEMENT on: terminal copies are not settled" },
   snapshots_stale: { reason: "the read worker (WORKER_READ_URL) has shown no snapshot in the last 15 minutes" },
+  egress_identity_shared: { reason: "the copy worker shares a public IP with the api or the read worker: its Hyperliquid per-IP limit is not its own (check its static egress gateway)" },
 };

@@ -304,10 +304,10 @@ One `HyperliquidEgress` per HL host (mainnet, testnet) in worker-copy. It implem
 - `snapshots_stale` (only with `WORKER_READ_URL`): worker-read's heartbeats have shown no snapshot for 15 minutes (it is down, on standby, or its snapshots fail).
 - While a guard applies the api reads the workers itself every 30 s. Its start counts as the last good reading, so a restarted api waits a full window before it alerts.
 
-**Egress identity guard:**
-- At startup each process records `(service role, egress key, observed public IP)` in a `hl_egress_identity` table, using an optional IP echo behind a flag.
-- It alerts, and in `copy` refuses to start, if one IP maps to two keys or one key to two IPs.
-- A wrong key silently breaks the limiter.
+**Egress identity guard (as built, 2026-10-14; no table):**
+- `HL_EGRESS_IDENTITY=off|observe|enforce` (default `off`; `enforce` on a worker only). At startup (3 samples) and every `HL_EGRESS_IDENTITY_INTERVAL_MINUTES` (default 5) each process asks an IP echo (`HL_EGRESS_ECHO_URLS`, default api.ipify.org then checkip.amazonaws.com, `HL_EGRESS_ECHO_TIMEOUT_MS` 3000) for its public IPv4, keeps every address seen in the last 24 h (the HA gateway has 3 and a request may leave from any), logs `egress_identity {role, egressKey, publicIp, publicIps, observedAt}` and reports it: the worker heartbeat's `egressIdentity`, the admin overview's `api.egressIdentity`, and `GET /health/egress` (api and worker health port, worker monitor key, else 404). `observe` never waits for the echo.
+- The api (`WorkerFleetService`) compares the copy worker's set with its own and the read worker's: any common address is the `egress_identity_shared` alert (ALERT line at most every 10 min, admin overview `alerts` with `ips` and `peers`).
+- `enforce` on a worker that runs copy work (`copy`, `all`): before each lease attempt (re-decided at most every minute) it reads `HL_EGRESS_PEERS` (the api's and worker-read's `/health/egress`) and takes no lease, staying on standby with `ALERT egress_identity_lease_refused`, while its own address is unknown (fail closed), outside `HL_EGRESS_EXPECTED_IPS` (when set: the gateway is not in use), or in a peer's set. An unreadable peer proves nothing and is logged; the api's guard keeps comparing afterwards.
 
 **Railway features to verify on Paul's plan.** I couldn't access Railway from this session, so none of these are confirmed:
 1. Static outbound IPs: available on the plan? Per service, or shared per project/environment?

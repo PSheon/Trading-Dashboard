@@ -525,6 +525,44 @@ export function validateEnvironment(source: Environment = process.env) {
     expensivePerMinute: integerValue("API_EXPENSIVE_PER_MINUTE", source.API_EXPENSIVE_PER_MINUTE, 10, 1, 1000000),
     favoritesPerUser: integerValue("MAX_FAVORITES_PER_USER", source.MAX_FAVORITES_PER_USER, 100, 1, 10000),
   };
-  return { app, database, limits, http, auth: { serviceToken, permissions, adminEmails, appId, appSecret, verificationKey, deletionMarker }, telegram, hyperliquid, alert, stream, copy: copyTrading(source, hyperliquid.wallet.network, egressKey), archive: archive(source), tuning: tuningConfig(source) };
+  return { app, database, limits, http, auth: { serviceToken, permissions, adminEmails, appId, appSecret, verificationKey, deletionMarker }, telegram, hyperliquid, alert, stream, copy: copyTrading(source, hyperliquid.wallet.network, egressKey), archive: archive(source), tuning: tuningConfig(source),
+    egressIdentity: egressIdentityConfig(source, isWorker) };
 }
+
+/**
+ * The egress identity guard (runtime/egress-identity.ts; design §8 I-15).
+ * - HL_EGRESS_IDENTITY: `off` (default) learns nothing; `observe` learns
+ *   this process's public IPv4 from an IP echo at startup and every
+ *   HL_EGRESS_IDENTITY_INTERVAL_MINUTES (default 5), reports it (heartbeat,
+ *   admin overview, GET /health/egress) and logs it, never blocking
+ *   anything; `enforce` also makes a worker that runs copy work refuse its
+ *   lease while its IP is unknown, outside HL_EGRESS_EXPECTED_IPS, or one
+ *   the api or the read worker reports (HL_EGRESS_PEERS).
+ * - HL_EGRESS_ECHO_URLS: the echoes tried in order (an https URL answering
+ *   the caller's IPv4 as plain text); default api.ipify.org, then
+ *   checkip.amazonaws.com. Each call is bounded by HL_EGRESS_ECHO_TIMEOUT_MS
+ *   (default 3000).
+ * - HL_EGRESS_PEERS (copy worker): base URLs of the api and the read
+ *   worker, whose GET /health/egress (the worker monitor key) says their IPs.
+ * - HL_EGRESS_EXPECTED_IPS (copy worker, optional): the static egress
+ *   gateway's addresses; an IP outside them means the gateway is not in use.
+ */
+function egressIdentityConfig(source: Environment, isWorker: boolean) {
+  const mode = oneOf("HL_EGRESS_IDENTITY", source.HL_EGRESS_IDENTITY, ["off", "observe", "enforce"], "off");
+  if (mode === "enforce" && !isWorker) throw new Error("HL_EGRESS_IDENTITY=enforce applies to the worker only (the api observes)");
+  const list = (raw: string | undefined) => (raw ?? "").split(",").map((v) => v.trim()).filter(Boolean);
+  const echoUrls = list(source.HL_EGRESS_ECHO_URLS);
+  const peers = list(source.HL_EGRESS_PEERS);
+  const expectedIps = list(source.HL_EGRESS_EXPECTED_IPS);
+  if (expectedIps.some((ip) => isIP(ip) !== 4)) throw new Error("HL_EGRESS_EXPECTED_IPS must be IPv4 addresses");
+  return {
+    mode,
+    intervalMs: integerValue("HL_EGRESS_IDENTITY_INTERVAL_MINUTES", source.HL_EGRESS_IDENTITY_INTERVAL_MINUTES, 5, 1, 1440) * 60_000,
+    timeoutMs: integerValue("HL_EGRESS_ECHO_TIMEOUT_MS", source.HL_EGRESS_ECHO_TIMEOUT_MS, 3000, 500, 10_000),
+    echoUrls: echoUrls.length ? echoUrls.map((url) => urlValue("HL_EGRESS_ECHO_URLS", url, "", ["https:"])) : ["https://api.ipify.org", "https://checkip.amazonaws.com"],
+    peers: peers.map((url) => urlValue("HL_EGRESS_PEERS", url, "", ["http:", "https:"])),
+    expectedIps,
+  };
+}
+export type EgressIdentityConfig = ReturnType<typeof egressIdentityConfig>;
 export type RuntimeConfig = ReturnType<typeof validateEnvironment>;

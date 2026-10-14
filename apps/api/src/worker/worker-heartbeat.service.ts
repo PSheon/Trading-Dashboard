@@ -12,6 +12,7 @@ import { WatcherService } from "../watcher/watcher.service.js";
 import { clockSkew } from "../copy/live/clock-skew.js";
 import { explorerHealth } from "../copy/explorer-health.js";
 import { terminalSettlementRuns } from "../copy/live-worker/copy-live-api-settlement.service.js";
+import { EgressIdentityMonitor, egressIdentity } from "../runtime/egress-identity.js";
 
 /** §8 可觀測: the worker's own heartbeat (feed, snapshots, sweeps, budget,
  * discovery and archive progress), served on its health port and read by
@@ -31,6 +32,8 @@ export class WorkerHeartbeatService {
     @Optional() private readonly archive?: ArchiveIngestService,
     @Optional() private readonly pool?: DiscoveryPoolService,
     @Optional() @Inject(WALLET_NETWORK_HL) private readonly wallet?: WalletNetworkHyperliquid,
+    /** The process's egress identity (tests pass their own). */
+    @Optional() @Inject(EgressIdentityMonitor) private readonly identity: EgressIdentityMonitor = egressIdentity,
   ) {}
 
   async heartbeat(): Promise<HeartbeatResponse> {
@@ -90,6 +93,9 @@ export class WorkerHeartbeatService {
       // (WORKER_TERMINAL_SETTLEMENT as it takes effect here), which the api's
       // guard needs to see while API_TERMINAL_SETTLEMENT=off (WorkerFleetService).
       worker: { role: this.config.value.app.workerRole, leases: [...roleLeases(this.config.value.app.workerRole)], terminalSettlement: terminalSettlementRuns(this.config) },
+      // Its public IPs (HL_EGRESS_IDENTITY): the api compares the copy
+      // worker's with its own and the read worker's (WorkerFleetService).
+      egressIdentity: this.identity.mode === "off" ? undefined : this.identity.snapshot(),
       now: new Date(),
     };
   }

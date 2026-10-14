@@ -6,6 +6,7 @@ import { operationalSwitches } from "../runtime/operational-switches.js";
 import { WorkerFleetService } from "../api/health/worker-fleet.service.js";
 import { AdminSystemRepository } from "./admin-system.repository.js";
 import { explorerHealth } from "../copy/explorer-health.js";
+import { egressIdentity } from "../runtime/egress-identity.js";
 import { WALLET_NETWORK_HL, type WalletNetworkHyperliquid } from "../hyperliquid/wallet-network-hyperliquid.js";
 
 @Injectable()
@@ -41,7 +42,9 @@ export class AdminSystemService {
         // This process's own gauge: the api confirms deposits and returns too.
         explorerReachable: explorer.reachable, explorerFailingSince: explorer.failingSince?.toISOString() ?? null,
         // The shared meter's setup, live and page lanes, as this process reads them.
-        ...(meter ? { setupDemand: lane(meter.setupDemand), liveDemand: lane(meter.liveDemand), pageLane: lane(meter.pageLane) } : {}) },
+        ...(meter ? { setupDemand: lane(meter.setupDemand), liveDemand: lane(meter.liveDemand), pageLane: lane(meter.pageLane) } : {}),
+        // This process's public IPs (HL_EGRESS_IDENTITY; absent while off).
+        ...(egressIdentity.mode === "off" ? {} : { egressIdentity: egressIdentity.snapshot() }) },
       worker: worker.status === "fulfilled" ? worker.value.worker : { state: "unavailable", sample: null },
       ...(worker.status === "fulfilled" && worker.value.read ? { workerRead: worker.value.read } : {}),
       database: database.status === "fulfilled" ? { state: "available", latencyMs: database.value } : { state: "unavailable", latencyMs: null },

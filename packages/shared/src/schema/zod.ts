@@ -366,6 +366,22 @@ export const meterLaneDemandSchema = z.object({
   held: z.number().nonnegative(),
   until: z.coerce.date().nullable(),
 });
+/** What a process learned of its own public IPv4 (HL_EGRESS_IDENTITY, an IP
+ * echo outside Hyperliquid): its role (`api`, or the worker's WORKER_ROLE),
+ * its HYPERLIQUID_EGRESS_KEY, the latest address seen and every address
+ * seen in the last day (a static egress gateway has several, and a request
+ * may leave from any of them), when an echo last answered, and the last
+ * failure (null after a success). Times are ISO strings. */
+export const egressIdentitySchema = z.object({
+  role: z.enum(["api", "all", "copy", "read"]),
+  egressKey: z.string().nullable(),
+  mode: z.enum(["off", "observe", "enforce"]),
+  publicIp: z.string().nullable(),
+  publicIps: z.array(z.string()),
+  observedAt: z.string().nullable(),
+  lastError: z.string().nullable(),
+});
+export type EgressIdentity = z.infer<typeof egressIdentitySchema>;
 export const heartbeatResponseSchema = z.object({
   feedConnected: z.boolean(),
   feedSocketsOpen: z.number().int(),
@@ -477,6 +493,9 @@ export const heartbeatResponseSchema = z.object({
    * this worker runs the terminal settlement loop (WORKER_TERMINAL_SETTLEMENT
    * in effect on a testnet copy deployment); optional for the same reason. */
   worker: z.object({ role: z.enum(["all", "copy", "read"]), leases: z.array(z.number().int()), terminalSettlement: z.boolean().optional() }).optional(),
+  /** This worker's public egress identity (HL_EGRESS_IDENTITY observe or
+   * enforce; absent while off). Additive. */
+  egressIdentity: egressIdentitySchema.optional(),
   now: z.coerce.date(),
 });
 export type HeartbeatResponse = z.infer<typeof heartbeatResponseSchema>;

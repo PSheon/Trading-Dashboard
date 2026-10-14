@@ -227,6 +227,14 @@ Raise either value only after checking that sum (plus any admin `psql` sessions)
 4. Run the reconciliation against Stage's data. Archive-origin fills must equal REST tid by tid.
 5. Production: same steps with its own IAM user; then backfill on, cap US$2 until `archive.addresses.pending` reaches 0.
 
+## Deploy gates (process finding P-1, 2026-10-14)
+
+ac8e81e1 reached Stage with CI red. The deploy script's `[[ "$c" == success ]]` printed `CI failure` and carried on, because macOS's bash 3.2 does not exit on a failed `[[ ]]` under `set -e`. Every deploy script follows these rules:
+
+1. Every gate is written as `cond || exit 1` and never relies on `set -e`. This covers CI, the backup checkpoint, the in-flight guard and each deployment's status.
+2. The CI gate passes only when **every job** of the commit's latest run concluded `success`. A cancelled job (such as an api shard cancelled after another shard failed) counts as not passed.
+3. Before deploying, the script prints the CI run URL and each job's conclusion. That output is kept in the gate record.
+
 ## Rollback
 
 `S3_ARCHIVE_ENABLED=false` stops downloads at once; stored fills stay valid and REST resumes full scans from its own checkpoints (`S3_ARCHIVE_TRUST=none` forces that even while ingest continues). Migration `0017` is additive, so the previous image runs against the migrated schema.

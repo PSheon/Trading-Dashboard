@@ -12587,6 +12587,24 @@
                                 },
                                 "maxFavoritesPerUserDefault": {
                                   "type": "integer"
+                                },
+                                "workerRole": {
+                                  "type": "string",
+                                  "enum": [
+                                    "all",
+                                    "copy",
+                                    "read"
+                                  ]
+                                },
+                                "setupDrive": {
+                                  "type": "string",
+                                  "enum": [
+                                    "local",
+                                    "worker"
+                                  ]
+                                },
+                                "terminalSettlement": {
+                                  "type": "boolean"
                                 }
                               },
                               "required": [
@@ -12937,6 +12955,24 @@
                                         },
                                         "maxFavoritesPerUserDefault": {
                                           "type": "integer"
+                                        },
+                                        "workerRole": {
+                                          "type": "string",
+                                          "enum": [
+                                            "all",
+                                            "copy",
+                                            "read"
+                                          ]
+                                        },
+                                        "setupDrive": {
+                                          "type": "string",
+                                          "enum": [
+                                            "local",
+                                            "worker"
+                                          ]
+                                        },
+                                        "terminalSettlement": {
+                                          "type": "boolean"
                                         }
                                       },
                                       "required": [
@@ -13691,6 +13727,30 @@
                                                 "lastObjectKey",
                                                 "lastRunAt",
                                                 "lastError"
+                                              ],
+                                              "additionalProperties": false
+                                            },
+                                            "worker": {
+                                              "type": "object",
+                                              "properties": {
+                                                "role": {
+                                                  "type": "string",
+                                                  "enum": [
+                                                    "all",
+                                                    "copy",
+                                                    "read"
+                                                  ]
+                                                },
+                                                "leases": {
+                                                  "type": "array",
+                                                  "items": {
+                                                    "type": "integer"
+                                                  }
+                                                }
+                                              },
+                                              "required": [
+                                                "role",
+                                                "leases"
                                               ],
                                               "additionalProperties": false
                                             },

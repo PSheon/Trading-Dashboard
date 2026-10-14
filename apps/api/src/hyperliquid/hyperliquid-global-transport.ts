@@ -163,9 +163,15 @@ export class HyperliquidGlobalTransport {
  noteWsError(data:unknown):void{if(isWsRateLimit(data))void this.noteRateLimited('ws').catch(()=>{});else this.foreignUsage.noteUnmatchedWsError(data);}
  /** Looks at what a dispatched REST send answered (a Response, a list of
   * them, or a promise of either) for a 429, without changing it. */
- #watch<T>(result:T):T{
-  const seen=(value:unknown)=>{const answers=Array.isArray(value)?value:[value];if(answers.some(a=>(a as {status?:unknown}|null)?.status===429))void this.noteRateLimited('rest').catch(()=>{});};
-  if(result&&typeof (result as {then?:unknown}).then==='function')(result as unknown as Promise<unknown>).then(seen,()=>{});else seen(result);
+ // A plain method, never a #private one, and it never throws: it runs around
+ // a send's dispatch, and a throw there would turn a send that was or was not
+ // dispatched into the wrong outcome (a transport built without its
+ // constructor, as some specs do, has no private slots).
+ private watchAnswer<T>(result:T):T{
+  try{
+   const seen=(value:unknown)=>{try{const answers=Array.isArray(value)?value:[value];if(answers.some(a=>(a as {status?:unknown}|null)?.status===429))void this.noteRateLimited('rest').catch(()=>{});}catch{/* never in the caller's way */}};
+   if(result&&typeof (result as {then?:unknown}).then==='function')(result as unknown as Promise<unknown>).then(seen,()=>{});else seen(result);
+  }catch{/* never in the caller's way */}
   return result;
  }
  readonly fetchExplorer:typeof fetch=async(input,init)=>{
@@ -174,7 +180,7 @@ export class HyperliquidGlobalTransport {
   let body:unknown;try{body=JSON.parse(init.body);}catch{fail('hyperliquid_quota_request_invalid');}
   if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).sort().join(',')!=='hash,type'||(body as {type:unknown}).type!=='txDetails'||!/^0x[0-9a-f]{64}$/.test((body as {hash:string}).hash))fail('hyperliquid_quota_request_invalid');
   const captured:RequestInit={method:'POST',body:init.body,headers:new Headers(init.headers),redirect:'error',signal:init.signal};captured.signal?.throwIfAborted();
-  const permit=await budget.acquireRest(40,this.now()+5000,undefined,{fallback:'live'});return this.#watch(permit.dispatch(()=>{captured.signal?.throwIfAborted();return this.rawFetch(url,captured);}));
+  const permit=await budget.acquireRest(40,this.now()+5000,undefined,{fallback:'live'});return this.watchAnswer(permit.dispatch(()=>{captured.signal?.throwIfAborted();return this.rawFetch(url,captured);}));
  };
  /**
   * The permit for one exchange POST (1 unit): an order, a cancel, a
@@ -186,7 +192,7 @@ export class HyperliquidGlobalTransport {
  async acquireExchange(deadline:number):Promise<HyperliquidSendPermit>{
   const permit=await this.currentQuota().acquireRest(1,deadline,undefined,{fallback:'live'});
   // Its answer is looked at for a 429 (foreign_usage_suspected), never changed.
-  return Object.freeze({...permit,dispatch:<T>(work:()=>T):T=>this.#watch(permit.dispatch(work))});
+  return Object.freeze({...permit,dispatch:<T>(work:()=>T):T=>this.watchAnswer(permit.dispatch(work))});
  }
  /** Live copy work's info request: an order's evidence outside its session,
   * settlement and receipts that release its reservation, closes and stops,
@@ -263,7 +269,7 @@ export class HyperliquidGlobalTransport {
   if(requests.some(r=>lists.has(r.type)))fail('hyperliquid_quota_request_invalid');
   const weight=requests.reduce((sum,r)=>sum+r.weight,0);
   signal?.throwIfAborted();const permit=await timedLiveSpan('rest_wave_quota',()=>this.#acquire(budget,weight,lane,maxWaitMs>0,signal,maxWaitMs,fallback));signal?.throwIfAborted();
-  return this.#watch(permit.dispatch(()=>{
+  return this.watchAnswer(permit.dispatch(()=>{
    signal?.throwIfAborted();const bound=onDispatch?.(),signals=[signal,bound].filter((s):s is AbortSignal=>s!==undefined);
    const shared=signals.length>1?AbortSignal.any(signals):signals[0];
    const work=requests.map(r=>this.rawFetch(r.url,{method:'POST',body:r.body,headers:new Headers({'Content-Type':'application/json'}),redirect:'error',signal:shared}));
@@ -276,7 +282,7 @@ export class HyperliquidGlobalTransport {
   if(!init)return fail('hyperliquid_quota_request_invalid');
   const captured:RequestInit={method:'POST',body:init.body,headers:new Headers(init.headers),redirect:'error',signal:init.signal};
   captured.signal?.throwIfAborted();const permit=await this.#acquire(budget,weight,lane,waitForCapacity,captured.signal,maxWaitMs,fallback);captured.signal?.throwIfAborted();
-  const response=await this.#watch(permit.dispatch(()=>{captured.signal?.throwIfAborted();return this.rawFetch(url,captured);}));
+  const response=await this.watchAnswer(permit.dispatch(()=>{captured.signal?.throwIfAborted();return this.rawFetch(url,captured);}));
   if(lists.has(type)&&permit.settle&&response instanceof Response)listSettlements.set(response,permit.settle);
   return response;
  }

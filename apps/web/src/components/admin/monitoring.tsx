@@ -49,6 +49,7 @@ export function MonitoringDetails({ data: d }: { data: AdminSystemOverview }) {
     </DataList>
   </>;
   return <div className="space-y-4">
+    {d.alerts && d.alerts.length > 0 && <Alerts alerts={d.alerts} />}
     <div className="grid gap-4 lg:grid-cols-3">
       <Panel className="card-pad"><h3 className="type-h2">API</h3><Status state={d.api.state} />
         <p className="mt-3 text-xs text-muted-foreground">{t("monitoring.uptime")} · {t("monitoring.seconds", {value: format.num(d.api.uptimeSeconds, 0)})}</p>{budget(d.api.budget)}</Panel>
@@ -114,6 +115,15 @@ export function RetentionPanel({ retention: r }: { retention: NonNullable<AdminS
     </div>}
     <p className="mt-3 text-xs leading-relaxed text-muted-foreground">{t("adminOps.retention.hint")}</p>
   </Panel>;
+}
+/** What the api's worker guards report now (WorkerFleetService), e.g. no
+ * process settling terminal copies. */
+function Alerts({ alerts }: { alerts: NonNullable<AdminSystemOverview["alerts"]> }) {
+  const { t, format } = useI18n();
+  return <div role="alert" data-testid="worker-alerts" className="rounded-lg bg-warning/10 p-3 text-sm text-warning">
+    <p className="font-semibold">{t("monitoring.alertsTitle")}</p>
+    <ul className="mt-1 space-y-1">{alerts.map(a => <li key={a.code}>{t(`monitoring.alert_${a.code}`)} <span className="text-xs">({t("monitoring.alertLastOk")} · {format.dateTime(a.lastOkAt)})</span></li>)}</ul>
+  </div>;
 }
 function Status({ state }: {state: AdminSystemOverview["worker"]["state"] | "available"}) {
   const { t } = useI18n();

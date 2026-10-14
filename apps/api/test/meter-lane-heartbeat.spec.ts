@@ -6,6 +6,7 @@ import * as schema from '@trading-dashboard/shared/database';
 import { adminSystemSchema, heartbeatResponseSchema, wireHeartbeatSchema } from '@trading-dashboard/shared/contracts';
 import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
 import { AdminSystemService } from '../src/admin/admin-system.service.js';
+import { WorkerFleetService } from '../src/api/health/worker-fleet.service.js';
 import { AppConfig } from '../src/config/app-config.js';
 import { UnitOfWork } from '../src/db/unit-of-work.js';
 import { HyperliquidGlobalTransport } from '../src/hyperliquid/hyperliquid-global-transport.js';
@@ -73,7 +74,7 @@ it('the admin system overview shows the api process\'s view of both lanes; none 
     const budget = { requestsLastMinute: 1, weightLastMinute: 20, effectiveBudgetPerMin: 240, configuredBudgetPerMin: 240, burstCapacity: 100, tokensAvailable: 80, lastRateLimitedAt: null };
     const repository = { probe: vi.fn().mockResolvedValue(3), data: vi.fn().mockRejectedValue(new Error('x')), outbox: vi.fn().mockResolvedValue([]), retention: vi.fn().mockRejectedValue(new Error('x')) };
     const config = new AppConfig({ ...testConfig().value, app: { ...testConfig().value.app, isWorker: false, workerUrl: undefined } });
-    const overview = (wallet?: unknown) => new AdminSystemService(repository as never, config, { introspect: () => budget, queued: () => ({ live: 0, background: 0 }) } as never, wallet as never).overview();
+    const overview = (wallet?: unknown) => new AdminSystemService(repository as never, config, { introspect: () => budget, queued: () => ({ live: 0, background: 0 }) } as never, new WorkerFleetService(config), wallet as never).overview();
     const api = adminSystemSchema.parse(await overview({ transport })).api;
     expect(api.setupDemand).toMatchObject({ count: 1, held: 102 });
     expect(api.liveDemand).toMatchObject({ count: 1, held: 300 });

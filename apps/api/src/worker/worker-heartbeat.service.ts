@@ -11,6 +11,7 @@ import { roleLeases } from "../runtime/worker-role.js";
 import { WatcherService } from "../watcher/watcher.service.js";
 import { clockSkew } from "../copy/live/clock-skew.js";
 import { explorerHealth } from "../copy/explorer-health.js";
+import { terminalSettlementRuns } from "../copy/live-worker/copy-live-api-settlement.service.js";
 
 /** §8 可觀測: the worker's own heartbeat (feed, snapshots, sweeps, budget,
  * discovery and archive progress), served on its health port and read by
@@ -81,7 +82,10 @@ export class WorkerHeartbeatService {
       archive: this.archive?.enabled ? await this.archive.status().catch(() => undefined) : undefined,
       // What this worker runs (WORKER_ROLE) and the leases it holds: an
       // active worker holds all its role's leases (runtime/worker-role.ts).
-      worker: { role: this.config.value.app.workerRole, leases: [...roleLeases(this.config.value.app.workerRole)] },
+      // terminalSettlement: whether it runs the terminal settlement loop
+      // (WORKER_TERMINAL_SETTLEMENT as it takes effect here), which the api's
+      // guard needs to see while API_TERMINAL_SETTLEMENT=off (WorkerFleetService).
+      worker: { role: this.config.value.app.workerRole, leases: [...roleLeases(this.config.value.app.workerRole)], terminalSettlement: terminalSettlementRuns(this.config) },
       now: new Date(),
     };
   }

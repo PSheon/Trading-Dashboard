@@ -11,6 +11,12 @@ export interface ApiSettlementWork {
   settle(request: LiveSettleRequest): Promise<LiveSettleOutcome>;
   saveSettlement(key: string): Promise<boolean>;
 }
+/** Whether the deployment has a terminal settlement loop at all: a testnet
+ * copy deployment (testnet live copy on the testnet wallet network). */
+export function terminalSettlementApplies(config: AppConfig): boolean {
+  const c = config.value;
+  return c.copy.live?.network === 'testnet' && c.hyperliquid.wallet.network === 'testnet';
+}
 /**
  * Whether this process runs the terminal settlement loop: only for a
  * testnet copy deployment, and then on the api unless
@@ -22,7 +28,7 @@ export interface ApiSettlementWork {
  */
 export function terminalSettlementRuns(config: AppConfig): boolean {
   const c = config.value;
-  if (c.copy.live?.network !== 'testnet' || c.hyperliquid.wallet.network !== 'testnet') return false;
+  if (!terminalSettlementApplies(config)) return false;
   return c.app.isWorker ? c.app.terminalSettlement?.worker === true : c.app.terminalSettlement?.api !== false;
 }
 

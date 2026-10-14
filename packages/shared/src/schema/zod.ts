@@ -473,8 +473,10 @@ export const heartbeatResponseSchema = z.object({
   /** What this worker runs (WORKER_ROLE: `all` is the single worker of
    * before the split, `copy` the real-money worker, `read` the rest) and
    * the advisory leases it holds ((73106, 1) copy, (73106, 2) read).
-   * Optional while older workers roll out. */
-  worker: z.object({ role: z.enum(["all", "copy", "read"]), leases: z.array(z.number().int()) }).optional(),
+   * Optional while older workers roll out. `terminalSettlement`: whether
+   * this worker runs the terminal settlement loop (WORKER_TERMINAL_SETTLEMENT
+   * in effect on a testnet copy deployment); optional for the same reason. */
+  worker: z.object({ role: z.enum(["all", "copy", "read"]), leases: z.array(z.number().int()), terminalSettlement: z.boolean().optional() }).optional(),
   now: z.coerce.date(),
 });
 export type HeartbeatResponse = z.infer<typeof heartbeatResponseSchema>;

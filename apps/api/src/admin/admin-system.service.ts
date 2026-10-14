@@ -1,9 +1,9 @@
 import { Inject, Injectable, Optional } from "@nestjs/common";
-import { workerMonitorSchema, type AdminSystemOverview } from "@trading-dashboard/shared/contracts";
+import type { AdminSystemOverview } from "@trading-dashboard/shared/contracts";
 import { AppConfig } from "../config/app-config.js";
 import { RequestBudgeterService } from "../hyperliquid/request-budgeter.service.js";
 import { operationalSwitches } from "../runtime/operational-switches.js";
-import { workerCallHeaders, workerMonitorKey } from "../runtime/worker-calls.js";
+import { WorkerFleetService } from "../api/health/worker-fleet.service.js";
 import { AdminSystemRepository } from "./admin-system.repository.js";
 import { explorerHealth } from "../copy/explorer-health.js";
 import { WALLET_NETWORK_HL, type WalletNetworkHyperliquid } from "../hyperliquid/wallet-network-hyperliquid.js";
@@ -13,7 +13,7 @@ export class AdminSystemService {
   private cached?: { until: number; value: AdminSystemOverview };
   private pending?: Promise<AdminSystemOverview>;
   constructor(private readonly repository: AdminSystemRepository, private readonly config: AppConfig,
-    private readonly budgeter: RequestBudgeterService,
+    private readonly budgeter: RequestBudgeterService, private readonly fleet: WorkerFleetService,
     @Optional() @Inject(WALLET_NETWORK_HL) private readonly wallet?: Pick<WalletNetworkHyperliquid, "transport">) {}
 
   overview(): Promise<AdminSystemOverview> {
@@ -25,23 +25,9 @@ export class AdminSystemService {
     return this.pending;
   }
 
-  private async worker(): Promise<AdminSystemOverview["worker"]> {
-    if (!this.config.value.app.workerUrl) return { state: "not_configured", sample: null };
-    try {
-      const response = await fetch(new URL("/health/monitor", this.config.value.app.workerUrl), {
-        headers: workerCallHeaders({ Authorization: `Bearer ${workerMonitorKey(this.config.value.database.url)}` }),
-        signal: AbortSignal.timeout(3000), cache: "no-store",
-      });
-      if (!response.ok) throw new Error("unavailable");
-      const sample = workerMonitorSchema.parse(await response.json());
-      const age = Date.now() - Date.parse(sample.sampledAt);
-      return { state: age > 30_000 || age < -5000 ? "stale" : sample.state, sample };
-    } catch { return { state: "unavailable", sample: null }; }
-  }
-
   private async collect(): Promise<AdminSystemOverview> {
     const [database, data, outbox, worker, retention, lanes] = await Promise.allSettled([
-      this.repository.probe(), this.repository.data(), this.repository.outbox(), this.worker(), this.repository.retention(),
+      this.repository.probe(), this.repository.data(), this.repository.outbox(), this.fleet.monitor(), this.repository.retention(),
       this.wallet?.transport.laneStatus() ?? Promise.resolve(undefined),
     ]);
     const meter = lanes.status === "fulfilled" ? lanes.value : undefined;
@@ -61,6 +47,8 @@ export class AdminSystemService {
       data: data.status === "fulfilled" ? data.value : null,
       outbox: outbox.status === "fulfilled" ? outbox.value : null,
       retention: retention.status === "fulfilled" ? retention.value : null,
+      // After the worker read above: what the api's worker guards see now.
+      alerts: this.fleet.alerts(),
     };
   }
 }

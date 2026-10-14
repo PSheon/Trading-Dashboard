@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { adminSystemSchema } from "@trading-dashboard/shared/contracts";
 import { AdminSystemService } from "../src/admin/admin-system.service.js";
+import { WorkerFleetService } from "../src/api/health/worker-fleet.service.js";
 import { AppConfig } from "../src/config/app-config.js";
 import { testConfig } from "./config-test-utils.js";
 import { withRequestSignal } from "../src/runtime/request-context.js";
@@ -12,7 +13,7 @@ function setup() {
   const repository = { probe: vi.fn().mockResolvedValue(3), data: vi.fn().mockResolvedValue({ leaderboardCount: 0, leaderboardUpdatedAt: null, watched: 0, candidates: 0, portfolios: 0, trades: 0, errors: 0, oldestPortfolioAt: null, newestPortfolioAt: null }), outbox: vi.fn().mockResolvedValue([]),
     retention: vi.fn().mockResolvedValue({ running: false, lastStartedAt: null, lastFinishedAt: null, lastStatus: null, removed: null, cutoffs: null, lastError: null, durationMs: null }) };
   const config = new AppConfig({ ...testConfig().value, app: { ...testConfig().value.app, isWorker: false, workerUrl: "http://worker:3000" } });
-  const service = new AdminSystemService(repository as never, config, { introspect: () => budget, queued: () => ({live: 0, background: 0}) } as never);
+  const service = new AdminSystemService(repository as never, config, { introspect: () => budget, queued: () => ({live: 0, background: 0}) } as never, new WorkerFleetService(config));
   return { service, repository };
 }
 afterEach(() => { vi.unstubAllGlobals(); });

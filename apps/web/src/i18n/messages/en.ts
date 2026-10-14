@@ -1159,7 +1159,10 @@ export const en: Messages = {
     "oldestDue": "Oldest scheduled due time",
     "queueHint": "Times reflect the current retry schedule, not the original event age. An expired lease is reclaimable, not necessarily a permanent failure.",
     "seconds": "{value} seconds",
-    "milliseconds": "{value} ms"
+    "milliseconds": "{value} ms",
+    "alertsTitle": "Alerts",
+    "alert_terminal_settlement_unowned": "Terminal copies are not being settled: the api's settlement loop is off (API_TERMINAL_SETTLEMENT=off) and no copy worker has reported its loop on (WORKER_TERMINAL_SETTLEMENT) for over 2 minutes.",
+    "alertLastOk": "Last seen fine"
 },
   methodology: {
     scope: "Ranked within the candidate pool, not all Hyperliquid traders. The pool takes the top N by all-time PnL among non-vault accounts with positive account value and trading volume in the last 30 days, then adds KOLs. N is configured by the platform.",

@@ -13746,6 +13746,9 @@
                                                   "items": {
                                                     "type": "integer"
                                                   }
+                                                },
+                                                "terminalSettlement": {
+                                                  "type": "boolean"
                                                 }
                                               },
                                               "required": [
@@ -14112,6 +14115,29 @@
                               "type": "null"
                             }
                           ]
+                        },
+                        "alerts": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "code": {
+                                "type": "string",
+                                "enum": [
+                                  "terminal_settlement_unowned"
+                                ]
+                              },
+                              "lastOkAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              }
+                            },
+                            "required": [
+                              "code",
+                              "lastOkAt"
+                            ],
+                            "additionalProperties": false
+                          }
                         }
                       },
                       "required": [

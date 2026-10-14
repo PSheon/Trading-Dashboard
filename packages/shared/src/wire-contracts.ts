@@ -120,6 +120,14 @@ export const retentionStatusSchema = z.object({
   lastError: z.string().nullable(), durationMs: z.number().int().nullable(),
 });
 export type RetentionStatus = z.infer<typeof retentionStatusSchema>;
+/** A condition across processes that the api watches (WorkerFleetService)
+ * and logs as a rate-limited ALERT:
+ * - terminal_settlement_unowned: API_TERMINAL_SETTLEMENT=off on a testnet
+ *   copy deployment, and no copy worker heartbeat in the last 2 minutes
+ *   reported its terminal settlement loop on.
+ * `lastOkAt`: when it was last seen fine (or the api's start). */
+export const workerAlertSchema = z.object({ code: z.enum(["terminal_settlement_unowned"]), lastOkAt: iso });
+export type WorkerAlert = z.infer<typeof workerAlertSchema>;
 export const adminSystemSchema = z.object({
   sampledAt: iso,
   api: z.object({ state: z.literal("active"), uptimeSeconds: z.number(), budget: runtimeBudgetSchema,
@@ -149,6 +157,9 @@ export const adminSystemSchema = z.object({
   /** The data-retention job: its last run and what it removed per table.
    * Optional while older APIs roll out; null when it could not be read. */
   retention: retentionStatusSchema.nullable().optional(),
+  /** What the api's worker guards report now (workerAlertSchema); empty
+   * when all is well. Optional while older APIs roll out. */
+  alerts: z.array(workerAlertSchema).optional(),
 });
 export type AdminSystemOverview = z.infer<typeof adminSystemSchema>;
 export const wireBoardFreshnessSchema = s.boardFreshnessSchema.extend({ oldestUpdatedAt: iso.nullable(), newestUpdatedAt: iso.nullable() });

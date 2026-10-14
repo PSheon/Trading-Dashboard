@@ -25,6 +25,7 @@ import { AdminSettingsService } from "./admin-settings.service.js";
 import { AdminUsersService } from "./admin-users.service.js";
 import { AdminController, PublicSettingsController } from "./admin.controller.js";
 import { RevenueModule } from "./revenue.module.js";
+import { WorkerFleetModule } from "../api/health/worker-fleet.module.js";
 
 /**
  * `/admin/*` (settings, users, overview, revenue, copy trading) and the public
@@ -34,7 +35,7 @@ import { RevenueModule } from "./revenue.module.js";
  * role and disable changes apply at once (`invalidateUser`).
  */
 @Module({
-  imports: [BackfillJobsModule, AuthModule, HyperliquidModule, CopyModule, RevenueModule],
+  imports: [BackfillJobsModule, AuthModule, HyperliquidModule, CopyModule, RevenueModule, WorkerFleetModule],
   controllers: [AdminCopyController, AdminCopyLiveController, AdminCopyFundingController, AdminSourcesController, AdminTraderController, AdminAuditController, AdminSettingsRuntimeController, AdminJobsController, AdminSystemController, AdminController, PublicSettingsController],
   providers: [AdminSourcesRepository, AdminTraderRepository, AdminAuditRepository, AdminSystemRepository, AdminSystemService, AdminOverviewRepository, AdminUsersRepository, AdminSettingsService, AdminUsersService, AdminOverviewService],
 })

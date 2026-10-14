@@ -8,6 +8,7 @@ import { adminSystemSchema } from "@trading-dashboard/shared/contracts";
 import { AdminSystemController } from "../src/admin/admin-system.controller.js";
 import { AdminSystemRepository } from "../src/admin/admin-system.repository.js";
 import { AdminSystemService } from "../src/admin/admin-system.service.js";
+import { WorkerFleetService } from "../src/api/health/worker-fleet.service.js";
 import { RequestBudgeterService } from "../src/hyperliquid/request-budgeter.service.js";
 import { DATABASE_POOL } from "../src/db/drizzle.provider.js";
 import { createAuthedApp, stubPrivy } from "./auth-test-utils.js";
@@ -25,7 +26,7 @@ beforeAll(async () => {
   ({app} = await createAuthedApp({ db,
     privy: stubPrivy({ "admin": {privyUserId: "did:privy:monitor-admin"}, "user": {privyUserId: "did:privy:monitor-user"} }),
     controllers: [AdminSystemController, AdminSettingsRuntimeController],
-    providers: [AdminSystemRepository, AdminSystemService, RequestBudgeterService, {provide: DATABASE_POOL, useValue: pool}],
+    providers: [AdminSystemRepository, AdminSystemService, WorkerFleetService, RequestBudgeterService, {provide: DATABASE_POOL, useValue: pool}],
   }));
 });
 afterAll(async () => { await app?.close(); await truncateAll(db); await pool.end(); await closeTestDb(); });

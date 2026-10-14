@@ -1162,7 +1162,10 @@ export const zhTW = {
     "oldestDue": "最早待執行時間",
     "queueHint": "時間以目前重試排程為準，並非原始事件等待時間。租約過期表示可被重新接手，不代表工作已永久失敗。",
     "seconds": "{value} 秒",
-    "milliseconds": "{value} 毫秒"
+    "milliseconds": "{value} 毫秒",
+    "alertsTitle": "警示",
+    "alert_terminal_settlement_unowned": "已結束的跟單目前無人結算：api 的結算迴圈已關閉（API_TERMINAL_SETTLEMENT=off），且超過 2 分鐘沒有任何 copy worker 回報其結算迴圈開啟（WORKER_TERMINAL_SETTLEMENT）。",
+    "alertLastOk": "上次正常"
 },
   methodology: {
     scope: "榜單從目前候選池中排序，不代表 Hyperliquid 全市場排名。候選池取近 30 天有交易量、非 Vault、帳戶價值大於 0 的全期損益前 N 名，再加入 KOL；N 依平台設定。",

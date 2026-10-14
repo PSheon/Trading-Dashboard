@@ -163,7 +163,7 @@ it("WORKER_ROLE=copy constructs no scheduler, traders, discovery, cohort or othe
     expect(schedules).toEqual(["FeedMonitorService.checkFeed", "FeedMonitorService.refreshMarkets"]);
     for (const name of COPY_ONLY) expect(providers, name).toContain(name);
     for (const type of [WatcherService, TradeFeedService, CopyFundingMonitor, WorkerHeartbeatService]) expect(app.get(type, { strict: false }), type.name).toBeTruthy();
-    expect((await app.get(WorkerHeartbeatService).heartbeat()).worker).toEqual({ role: "copy", leases: [1] });
+    expect((await app.get(WorkerHeartbeatService).heartbeat()).worker).toEqual({ role: "copy", leases: [1], terminalSettlement: false });
   });
 });
 
@@ -181,7 +181,7 @@ it("WORKER_ROLE=read constructs no live engine, exchange client, signer or setup
       for (const type of [SchedulerService, TradersWorker, BackfillWorker, OutboxService, CopyWorkerService, CopyFollowerMonitor, CopyFollowerSnapshotCollector, RevenueWorker])
         expect(app.get(type, { strict: false }), type.name).toBeTruthy();
       expect(() => app.get(CopyFundingMonitor, { strict: false })).toThrow();
-      expect((await app.get(WorkerHeartbeatService).heartbeat()).worker).toEqual({ role: "read", leases: [2] });
+      expect((await app.get(WorkerHeartbeatService).heartbeat()).worker).toEqual({ role: "read", leases: [2], terminalSettlement: false });
     });
     expect(start).not.toHaveBeenCalled();
     expect(watch).not.toHaveBeenCalled();
@@ -195,7 +195,7 @@ it("WORKER_ROLE unset is `all`: today's worker, exactly the copy and the read wo
     for (const name of [...COPY_ONLY, ...READ_SCHEDULES.map((s) => s.split(".")[0]!)]) expect(providers, name).toContain(name);
     expect(schedules).toEqual([...new Set([...roleGraphs.copy!.schedules, ...roleGraphs.read!.schedules])].sort());
     expect([...providers].sort()).toEqual([...new Set([...roleGraphs.copy!.providers, ...roleGraphs.read!.providers])].sort());
-    expect((await app.get(WorkerHeartbeatService).heartbeat()).worker).toEqual({ role: "all", leases: [1, 2] });
+    expect((await app.get(WorkerHeartbeatService).heartbeat()).worker).toEqual({ role: "all", leases: [1, 2], terminalSettlement: false });
   });
 });
 

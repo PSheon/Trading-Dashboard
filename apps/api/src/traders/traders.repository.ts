@@ -9,6 +9,7 @@ import {
 } from "@trading-dashboard/shared/contracts";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
+import { escapeLike } from "../common/sql/escape-like.js";
 const SORT_COLUMNS = {
   accountPnl: { day: traderStats.pnlDay, week: traderStats.pnlWeek, month: traderStats.pnlMonth, allTime: traderStats.pnlAllTime },
   accountRoi: { day: traderStats.roiDay, week: traderStats.roiWeek, month: traderStats.roiMonth, allTime: traderStats.roiAllTime },
@@ -29,12 +30,10 @@ const ACTIVE_VOLUME_COLUMNS = {
 } as const;
 
 /** The WHERE condition for an activity filter; none for "any". */
-export function activeCondition(active: ActiveWithin): SQL | undefined {
+function activeCondition(active: ActiveWithin): SQL | undefined {
   return active === "any" ? undefined : gt(ACTIVE_VOLUME_COLUMNS[active], "0");
 }
 
-/** Escapes LIKE/ILIKE wildcards in user input. */
-const likeEscape = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
 
 /** Perp coins only: spot is "@107" or "PURR/USDC". */
 const perpFillsOnly = [notLike(fills.coin, "@%"), notLike(fills.coin, "%/%")];
@@ -48,8 +47,8 @@ export class TradersRepository {
     if (q) {
       conditions.push(
         or(
-          like(traderStats.address, `${likeEscape(q.toLowerCase())}%`),
-          ilike(traderStats.displayName, `%${likeEscape(q)}%`),
+          like(traderStats.address, `${escapeLike(q.toLowerCase())}%`),
+          ilike(traderStats.displayName, `%${escapeLike(q)}%`),
         )!,
       );
     }

@@ -38,12 +38,8 @@ function sharedModules() {
   ];
 }
 
-/**
- * One process, one job, chosen by IS_WORKER (main.ts), as in DonutMe:
- * `api()` serves HTTP and starts no background work (no ScheduleModule, no
- * worker module); `worker()` runs every schedule, loop, poller, consumer and
- * outbox drain, and serves only its health port.
- */
+/** One process, one job (IS_WORKER): `api()` serves HTTP with no background work;
+ * `worker()` runs every schedule, loop and drain, serving only its health port. */
 @Module({})
 export class AppModule {
   /** The HTTP api (IS_WORKER unset). */
@@ -72,9 +68,7 @@ export class AppModule {
     };
   }
 
-  /** The background worker (IS_WORKER=true): an application context, no
-   * routes. `role` (WORKER_ROLE) picks its module set (WorkerModule.forRole);
-   * `all`, the default, is today's single worker. */
+  /** The background worker (IS_WORKER=true), no routes; `role` (WORKER_ROLE) picks its modules. */
   static worker(role: WorkerRole = "all"): DynamicModule {
     return {
       module: AppModule,

@@ -34,9 +34,7 @@ export class AdminCopyStrategyParamsDto {
   @ToNumber() @IsInt() @Min(1) @Max(INT4) declare id: number;
 }
 
-/** Mirrors adminCopyControlRequestSchema. CopyControlService re-parses the
- * body with that schema, which stays the authority: a platform command with
- * a userId, or a user command without one, is a 400 there. */
+/** Mirrors adminCopyControlRequestSchema; CopyControlService re-parses it (the authority). */
 export class AdminCopyControlDto {
   @ApiProperty({ type: String, enum: ["platform", "user"] })
   @IsIn(["platform", "user"]) declare scope: "platform" | "user";

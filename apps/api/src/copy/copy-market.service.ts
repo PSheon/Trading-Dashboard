@@ -13,7 +13,7 @@ import { safeErrorText } from "../runtime/safe-error-text.js";
 import { ACCOUNT_MODE_TTL_MS, ASSETS_TTL_MS, DEX_LIST_TTL_MS, LEADER_EQUITY_TTL_MS, MIDS_STALE_OK_MS, MIDS_TTL_MS, SPOT_BOOK_TTL_MS, STAKING_TTL_MS } from '../config/constants/cache-ttls.js';
 
 
-export interface AssetInfo {
+interface AssetInfo {
   szDecimals: number;
   maxLeverage: number;
   /** Current hourly funding rate. */
@@ -46,35 +46,22 @@ export function hip3DexesOf(coins: Iterable<string>): string[] {
   return [...out].sort();
 }
 
-/** Hyperliquid's maintenance margin for a position: half the initial margin
- * at the coin's maximum leverage, i.e. notional ÷ (2 × maxLeverage). The
- * larger-position margin tiers (the lowest starts at $3M notional) are not
- * modelled: the paper caps (order, coin and user exposure) stay far below. */
+/** Hyperliquid maintenance margin: notional ÷ (2 × maxLeverage). Margin tiers (from $3M
+ * notional) are not modelled; paper caps stay far below. */
 export function maintenanceMargin(notional: Dec, maxLeverage: number): Dec {
   return notional.abs().div(2 * Math.max(1, maxLeverage));
 }
 
-/** A leader's capital for ratio sizing. `none` is a fact (the account was
- * read and holds nothing); `failed` is a read that did not complete (a
- * Hyperliquid timeout, a starved budget): a transient gap, retried by the
- * caller like missing mids, never a reason to reject. */
+/** A leader's capital. `none`: read, holds nothing. `failed`: transient gap, retried like
+ * missing mids, never a reason to reject. */
 export type LeaderEquity = { state: "known"; value: Dec } | { state: "none" } | { state: "failed" };
 
-/**
- * Copy trading mirrors a leader's fills, so its reads are time-critical:
- * they use the budgeter's `live` lane, ahead of every background job (pool,
- * cohort and fill backfills). As plain background calls they starved behind
- * those jobs: the worker's tick hung on `allMids` and approved orders were
- * never filled. The volume is small and bounded by the caches below.
- */
+/** Copy reads are time-critical, so they use the `live` lane ahead of background jobs (as
+ * background calls they starved and approved orders never filled). Volume is cache-bounded. */
 const LANE = "live" as const;
 
-/**
- * Hyperliquid reads for copy trading, through the shared budgeter, each
- * behind a TTL cache with in-flight dedupe. Failures return null, or
- * `failed` for a leader's equity (the caller decides; nothing is priced at
- * 0 and a failed read is never cached).
- */
+/** Hyperliquid reads for copy trading, each behind a TTL cache with in-flight dedupe. Failures
+ * return null (or `failed` for leader equity); nothing is priced at 0, failures are not cached. */
 @Injectable()
 export class CopyMarketService {
   private readonly logger = new Logger(CopyMarketService.name);
@@ -123,12 +110,8 @@ export class CopyMarketService {
     return flight;
   }
 
-  /**
-   * Mid prices: the main dex always, plus the HIP-3 dex of every coin in
-   * `coins` ("xyz:TSLA" reads the `xyz` dex; weight 2 each, cached like the
-   * main one). Null when the main dex can't be read; a HIP-3 dex that can't
-   * be read is listed in `missingDexes` and its coins have no price.
-   */
+  /** Mids of the main dex plus each HIP-3 dex in `coins`. Null when the main dex can't be read;
+   * an unreadable HIP-3 dex goes to `missingDexes` and its coins have no price. */
   async midPrices(coins: Iterable<string> = []): Promise<Mids | null> {
     const dexes = hip3DexesOf(coins);
     const [main, ...rest] = await Promise.all(["", ...dexes].map((dex) => this.loadMids(dex)));
@@ -175,12 +158,8 @@ export class CopyMarketService {
     return flight;
   }
 
-  /**
-   * The universe (size decimals, max leverage, funding, mark): the main dex
-   * always, plus the HIP-3 dex of every coin in `coins` (weight 20 each, at
-   * most hourly). Null when the main dex was never read; a HIP-3 dex that
-   * was never read is listed in `missingDexes`.
-   */
+  /** The universe (szDecimals, max leverage, funding, mark) of the main dex plus each HIP-3 dex
+   * in `coins`. Null when the main dex was never read; unread HIP-3 dexes go to `missingDexes`. */
   async assetInfo(coins: Iterable<string> = []): Promise<AssetMap | null> {
     const dexes = hip3DexesOf(coins);
     const [main, ...rest] = await Promise.all(["", ...dexes].map((dex) => this.loadAssets(dex)));
@@ -203,17 +182,9 @@ export class CopyMarketService {
   }
 
   /**
-   * The leader's capital, the denominator of ratio sizing ("if they use 5%
-   * of their balance, you use 5% of yours"), cached
-   * {@link LEADER_EQUITY_TTL_MS}. Only a completed read is cached, so a
-   * failure is asked again next pass.
-   *
-   * It is the account value the trader profile shows (`totalAccountValue`),
-   * not the main dex's `marginSummary.accountValue`: for a unified or
-   * portfolio-margin account that figure is only the margin its perps hold
-   * (read live 2026-10-02: 11.2M on a 22M unified account, 1.78M on a 6.8M
-   * portfolio-margin one; ~0 with no position open), so sizing against it
-   * made every open several times too large or rejected it.
+   * The leader's capital (ratio sizing denominator); only completed reads are cached. Uses the
+   * profile's `totalAccountValue`, not `marginSummary.accountValue`, which on unified/portfolio-
+   * margin accounts is only the perp margin (read live 2026-10-02: 11.2M on a 22M account).
    */
   async leaderEquity(address: string): Promise<LeaderEquity> {
     const hit = this.equityCache.get(address);
@@ -239,12 +210,9 @@ export class CopyMarketService {
   }
 
   /**
-   * The whole account, by the trader profile's rule: a standard account is
-   * its perp equity on every dex + spot + staked HYPE; a unified or
-   * portfolio-margin account is spot + staked HYPE (its spot balance
-   * already holds the perp collateral and PnL); a vault is its TVL, the
-   * latest whole-account value of `portfolio`. Throws when any read it
-   * needs fails: a partial sum is never used as the capital.
+   * Whole account by the profile's rule: standard = perp equity on every dex + spot + staked HYPE;
+   * unified/portfolio-margin = spot + staked (spot already holds perp collateral); vault = TVL.
+   * Throws on any failed read: a partial sum is never used.
    */
   private async readAccountValue(address: string): Promise<number> {
     if (await this.repository.isVault(address)) {
@@ -272,15 +240,9 @@ export class CopyMarketService {
   }
 
   /**
-   * A fresh snapshot of the leader's open positions (adoption at
-   * activation) on the main dex and every builder dex (one
-   * `clearinghouseState` each, weight 2; HIP-3 positions are not in the
-   * main dex's answer). Builder dexes are read whether or not the policy
-   * copies them, so the start of a copy can say which positions were left
-   * out. `time` is the earliest of the reads, so a fill between two of
-   * them is still after the activation cursor. Its margin summary is not the
-   * leader's capital; see {@link leaderEquity}. Throws when any read fails:
-   * a partial list is never adopted as the whole.
+   * Fresh leader positions for adoption, across the main and every builder dex (copied or not,
+   * so the start can name what was left out). `time` is the earliest read, so a fill between
+   * reads is still after the cursor. Throws on any failed read: a partial list is never adopted.
    */
   async leaderSnapshot(address: string): Promise<{ time: number; assetPositions: HlClearinghouseStateResponse["assetPositions"] }> {
     const dexes = await this.dexCache.get("dexes", async () => activePerpDexes(await this.info.perpDexs(LANE)));

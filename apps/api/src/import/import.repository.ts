@@ -77,9 +77,7 @@ export class ImportRepository {
       })),
     );
 
-    // A2: upsert into `leaders`. onConflictDoNothing means an existing
-    // row's active/tier/label/notes are never touched by an import — A3
-    // manual edits must survive re-imports. The service supplies initial tiers.
+    // A2: onConflictDoNothing, so A3 manual edits survive re-imports.
     const inserted = await tx
       .insert(leaders)
       .values(
@@ -93,10 +91,8 @@ export class ImportRepository {
       .onConflictDoNothing({ target: [leaders.chain, leaders.address] })
       .returning({ address: leaders.address });
 
-    // An address someone favorited before it was imported is now an
-    // imported leader: admins get its alerts, and it stays watched when
-    // the last favorite goes. Its favorite-managed `active` flag is reset
-    // to true; imported rows (manual A3 edits) are still left alone.
+    // A favorite-sourced leader becomes imported (admins get its alerts; it stays watched)
+    // with `active` reset to true; already-imported rows are left alone.
     await tx
       .update(leaders)
       .set({ source: "import", active: true })

@@ -57,7 +57,7 @@ const modeTypedData = (intent: { network: WalletNetwork; accountAddress: string;
   userSetAbstractionTypedData(WALLET_NETWORKS[intent.network], intent.accountAddress, intent.nonce) as unknown as MasterTypedData;
 
 
-export interface SetupStepDeps {
+interface SetupStepDeps {
   readonly modes: CopyAccountModeService; readonly agents: CopyAgentService; readonly returns: CopyLiveReturnRepository; readonly exchange: CopyFundingExchangeClient;
   readonly walletRows: CopyWalletRepository; readonly mandates: CopyLiveMandateRepository; readonly uow: UnitOfWork; readonly fundingRows: CopyFundingRepository;
   readonly capacity: SetupRestCapacity | null; readonly setupBudget: LiveBudget | null;
@@ -75,8 +75,7 @@ export class SetupSteps extends SetupPart {
 
   async step(row: SetupRow, signer: SetupSigner | null): Promise<SetupRow> {
     const intent = this.intent(row);
-    // Another network's setup is history on this deployment: left exactly as
-    // it is, nothing signed or sent (the driver's pass never picks one).
+    // Another network's setup is left untouched (the driver's pass never picks one).
     if (intent.network !== this.network) return row;
     // A renewal confirmed before renewals were refused: its agent isn't one
     // the worker's policy allows (2026-10-07).
@@ -87,11 +86,8 @@ export class SetupSteps extends SetupPart {
         const deposit = await this.fundingRows.find(row.userId, intent.fundingOperationId);
         if (deposit.status === 'credited') return this.move(row, 'funded');
         if (deposit.status === 'rejected' || deposit.status === 'cancelled') throw new Fail('setup_funding_rejected');
-        // Hyperliquid took the deposit but its credit was never seen: at the
-        // deadline the setup ends (expired) with the deposit's whereabouts on
-        // it (its funding: sent to the copy wallet), so cancel, a new start, a
-        // return and account deletion are no longer held by it. A credit seen
-        // later lands in the copy wallet and is returned from the portfolio.
+        // Credit never seen by the deadline: the setup expires so it no longer holds cancel, a new
+        // start, a return or account deletion; a later credit is returned from the portfolio.
         if (row.setupDeadline && this.now() >= row.setupDeadline.getTime()) throw new Fail('setup_deposit_uncredited');
         throw new Wait('awaiting_credit', this.timings.retry.pendingMs);
       }
@@ -226,8 +222,7 @@ export class SetupSteps extends SetupPart {
   }
   private async modeAttempt(row: SetupRow, intent: LiveCopySetupIntent, signer: SetupSigner | null, op: { id: string }, inFlight: boolean, full: boolean, reservation?: LiveBudgetReservation): Promise<SetupRow> {
     if (inFlight) {
-      // Its observation is paid from the step's reservation; what is left of
-      // it (a full step's: the attempt's) pays the submit below.
+      // Paid from the step's reservation; the rest of a full step's pays the submit below.
       const observed = await this.modes.reconcile(row.userId, op.id, { busy: 'throw', reservation });
       if (observed.targetState === 'supported') return this.move(row, 'mode_set');
       if (observed.targetState === 'unsupported' || observed.submissionState === 'rejected') throw new Fail('setup_account_mode_failed');
@@ -312,18 +307,14 @@ export class SetupSteps extends SetupPart {
         approveBuilderFeeTypedData(network, attempt.builderAddress, attempt.maxFeeTenthsBps, attempt.nonce) as unknown as MasterTypedData, { network: intent.network, builder: intent.builderAddress }, deadline);
       request = approveBuilderFeeRequest(network, attempt.builderAddress, attempt.maxFeeTenthsBps, attempt.nonce, signature);
     } catch (error) {
-      // Not signed (or no usable signature): the exchange cannot have it.
-      // Back to prepared, signed again on a later pass: a transient failure
-      // (live/error-class.ts), counted and backed off, the setup failing only
-      // at the attempt limit.
+      // Not signed, so the exchange cannot have it: back to prepared, retried as a transient failure
+      // (live/error-class.ts) until the attempt limit.
       this.logger.warn(`setup ${row.id} builder fee not signed: ${safeErrorText(error)}`);
       await this.returns.restoreBuilderNotDispatched(row.userId, attempt);
       throw new LiveBoundaryError('builder_approval_not_signed');
     }
-    // Dispatched only once every check passed, right before the POST: a
-    // refusal before it (a stale proof, the meter) never reached the
-    // exchange and is tried again like a failed signature. An unknown
-    // outcome stays unknown (observed above on the next pass, never resent).
+    // `dispatched` flips right before the POST: a refusal before it is retried like a failed
+    // signature; an unknown outcome is only observed on the next pass, never resent.
     let dispatched = false;
     const reply = await this.exchange.sendAction(intent.network, request, () => { if (this.now() >= deadline) throw new Error('stale'); }, () => { dispatched = true; }).catch(async (error: unknown) => {
       if (!dispatched) {

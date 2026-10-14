@@ -6,9 +6,8 @@ import { CopyLiveCloseRepository, type CloseRow } from './copy-live-close.reposi
 const wire = (row: CloseRow) => liveManualCloseSchema.parse({ id: row.id, accountId: row.accountId, strategyId: row.strategyId, coin: row.coin, state: row.state,
   reason: row.reason, orders: row.executionKeys.length, createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() });
 
-/** CopyDog's single-position close on a running testnet copy: a durable
- * request the worker executes with reduce-only IOC orders by the approved
- * agent. The copy keeps following its leader. */
+/** Single-position close on a running copy: a durable request the worker executes with reduce-only
+ * IOC orders by the approved agent; the copy keeps following. */
 @Injectable()
 export class CopyLiveCloseService {
   constructor(private readonly repository: CopyLiveCloseRepository, @Optional() private readonly now: () => number = Date.now) {}

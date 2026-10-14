@@ -39,21 +39,17 @@ export class CopyFollowerReconciler {
       const selected = outstanding?.pending.slice(0, 2);
       const retained = outstanding?.pending.slice(2) ?? [];
       const result = await this.reader.read({ accountAddress: claim.address, from, to, maxRequests: 2, ...(selected ? { resumeWindows: selected } : {}) });
-      // The account's own network (the deployment's): a mainnet scan's
-      // evidence was refused as testnet's, so every settle and stop after a
-      // fill failed on mainnet.
+      // Evidence must match the account's own network (a mismatch once failed every mainnet settle).
       if (result.network !== claim.network || result.accountAddress !== claim.address || result.from !== from || result.to !== to)
         throw new LiveBoundaryError("follower_receipt_invalid_evidence");
-      // No transaction is held across provider reads. A crash after some
-      // bookings simply replays the same immutable identities next time.
+      // No tx across provider reads; a crash replays the same immutable identities.
       const expectedIdentity = { network: claim.network, accountAddress: claim.address };
       for (const receipt of result.fills) await this.ledger.bookFill(claim.accountId, receipt.raw, expectedIdentity);
       for (const receipt of result.funding) await this.ledger.bookFunding(claim.accountId, receipt.raw, expectedIdentity);
       const pending = [...retained, ...result.unresolvedWindows].map(({ kind, from, to, depth }) => ({ kind, from, to, depth }));
       if (pending.length > 4096) throw new LiveBoundaryError("follower_scan_window_limit");
       const scanState: ScanState = { from, to, pending, historicalCompleteness: "unproven", observations: result.observations.slice(-64) };
-      // Advance only the operational fetched horizon, and only after all
-      // unresolved windows and all receipt bookings have been persisted.
+      // Advance the horizon only after windows and bookings are persisted.
       await this.repository.save(claim, scanState, pending.length ? claim.through : to);
     } catch (error) {
       const code = error instanceof LiveBoundaryError ? error.code : "follower_scan_unavailable";
@@ -78,8 +74,7 @@ export class CopyFollowerMonitor implements OnApplicationBootstrap, OnModuleDest
   private running = false;
   constructor(private readonly config: AppConfig, private readonly reconciler: CopyFollowerReconciler, private readonly jobs: BackgroundJobs) {}
   onApplicationBootstrap() {
-    // A testnet deployment, or one whose actual copies run (mainnet live):
-    // late fills and funding of a copy account are booked on its network.
+    // Runs on testnet, or on mainnet with live copies.
     if (this.config.value.app.nodeEnv === "test" || (deploymentNetwork(this.config) !== "testnet" && !liveExecutionEnabled(this.config))) return;
     this.timer = setInterval(() => void this.tick(), 60_000); this.timer.unref?.();
   }

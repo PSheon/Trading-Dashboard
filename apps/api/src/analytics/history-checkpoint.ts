@@ -3,7 +3,7 @@ import { FILL_PAGE } from "./fill-history.js";
 import { ARCHIVE_BOUNDARY_MARGIN_MS } from '../config/constants/background.js';
 
 export type HistorySource = "regular" | "twap";
-export interface SourceCheckpoint {
+interface SourceCheckpoint {
   cursor: number;
   through: number | null;
   status: "pending" | "complete" | "blocked";

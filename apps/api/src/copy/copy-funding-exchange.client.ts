@@ -11,9 +11,8 @@ import { explorerHealth } from './explorer-health.js';
 import type { FundingRow } from "./copy-funding.repository.js";
 import { BUILDER_FEE_READ_WEIGHT } from '../config/constants/weights.js';
 
-/** Process-local evidence only. Never infer dispatch from a serialized code,
- * a balance, a quota charge or a historical operation. The exact private error
- * object is bound to the exact attempt captured by this transport invocation. */
+/** Process-local evidence only: the exact error object bound to the exact attempt. Never inferred
+ * from a serialized code, balance, quota charge or history. */
 const notDispatched = new WeakMap<object, string>();
 export const attemptDigest = (row: FundingRow) => jsonDigest(Object.fromEntries(Object.entries(row).sort(([a], [b]) => a.localeCompare(b))));
 export function isFundingNotDispatched(error: unknown, attempt: FundingRow): boolean {
@@ -34,11 +33,8 @@ export class CopyFundingExchangeClient {
   constructor(private readonly budget: RequestBudgeterService,@Optional() private readonly global?:HyperliquidGlobalTransport) {if(global!==undefined&&!(global instanceof HyperliquidGlobalTransport))throw new LiveBoundaryError("funding_client_invalid");}
   acquire() { return reserveLive(this.budget, 1, { maxWaitMs: 10_000 }); }
   private async read(url: string, body: Record<string, unknown>, weight: number, receipt = false, prepaid?: LiveBudgetReservation | void): Promise<unknown> {
-    // A durable receipt lookup has no quote/proof clock yet. Keep its place
-    // behind admitted order evidence for one bucket refill (at most 120 s),
-    // rather than repeatedly abandoning the queue on a 10 s estimate. HTTP
-    // remains bounded to 10 s AFTER admission; balances and sends keep their
-    // original short wait. This grants no submission or credit authority.
+    // A receipt lookup has no proof clock: it may queue up to one refill (≤120 s) instead of
+    // abandoning on a 10 s estimate; HTTP stays 10 s after admission; balances/sends keep 10 s.
     const maxWaitMs = receipt ? Math.min(120_000, Math.max(10_000, this.budget.refillMs())) : 10_000;
     // A caller's reservation (a setup step's, taken before its shared claim) pays for it.
     if (!takeReserved(prepaid, weight)) await reserveLive(this.budget, weight, { maxWaitMs });
@@ -58,12 +54,8 @@ export class CopyFundingExchangeClient {
     if (!value || typeof value !== "object" || !("withdrawable" in value) || typeof value.withdrawable !== "string" || !/^\d+(?:\.\d+)?$/.test(value.withdrawable)) throw new Error("Funding balance unavailable");
     return value.withdrawable;
   }
-  /**
-   * Whether a copy account holds anything (account deletion): its perp
-   * account value, open positions, resting orders and spot balances. Below a
-   * cent counts as empty (rounding dust can't be returned). Throws when the
-   * exchange can't be read: an unknown balance is never treated as empty.
-   */
+  /** Whether a copy account holds anything (perp value, positions, orders, spot); under a cent is
+   * empty. Throws when unreadable: unknown is never empty. */
   async holdings(network: FundingRow["network"], address: string): Promise<{ empty: boolean; accountValue: string; positions: number; openOrders: number; spotBalances: number }> {
     const url = WALLET_NETWORKS[network].infoUrl;
     const perp = await this.read(url, { type: "clearinghouseState", user: address }, 2);
@@ -87,9 +79,8 @@ export class CopyFundingExchangeClient {
     const empty = Math.abs(Number(accountValue)) < 0.01 && positions === 0 && orders.length === 0 && spotBalances === 0;
     return { empty, accountValue, positions, openOrders: orders.length, spotBalances };
   }
-  /** Sends an exact user-signed action (approveBuilderFee) from the account.
-   * `onDispatch` runs after every check, right before the POST (as send's):
-   * a refusal before it was never sent (account_action_not_dispatched). */
+  /** Sends a user-signed action (approveBuilderFee). `onDispatch` runs right before the POST; a
+   * refusal before it was never sent (account_action_not_dispatched). */
   async sendAction(network: FundingRow["network"], body: unknown, assertFreshProof: () => void, onDispatch?: () => void): Promise<unknown> {
     let dispatched = false;
     try {
@@ -107,10 +98,8 @@ export class CopyFundingExchangeClient {
     if (!Number.isSafeInteger(value) || (value as number) < 0) throw new Error("Builder approval unavailable");
     return value as number;
   }
-  /** `onDispatch` runs after every check (the caller's proof, then the
-   * quota permit rechecked after it), right before the POST: a caller that
-   * must tell "never sent" from "maybe sent" (the automatic return) marks
-   * the send dispatched there, never in its proof. */
+  /** `onDispatch` runs after every check, right before the POST: where a caller marks "maybe sent"
+   * (never in its proof). */
   async send(rawOperation:FundingRow,signature:string,assertFreshProof?:()=>void,onDispatch?:()=>void):Promise<unknown>{
     const operation=Object.freeze(structuredClone(rawOperation));
     let dispatched=false;
@@ -127,11 +116,8 @@ export class CopyFundingExchangeClient {
       throw error;
     }
   }
-  /** A transfer's details from the explorer. An explorer that can't be
-   * reached (DNS, connect, timeout) rejects with
-   * `funding_explorer_unreachable` (a budget wait, live/error-class.ts):
-   * the caller backs off, never counts it as an attempt. Either outcome
-   * moves the process's explorer gauge (explorerHealth, the heartbeat's). */
+  /** A transfer's explorer details. Unreachable rejects `funding_explorer_unreachable` (a wait, not
+   * an attempt); either outcome moves the explorerHealth gauge. */
   txDetails(network: FundingRow["network"], hash: string): Promise<unknown> {
     if (!/^0x[0-9a-f]{64}$/.test(hash)) throw new Error("Invalid funding evidence");
     const url = network === "mainnet" ? "https://rpc.hyperliquid.xyz/explorer" : "https://rpc.hyperliquid-testnet.xyz/explorer";

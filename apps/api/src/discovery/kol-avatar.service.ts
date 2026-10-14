@@ -12,7 +12,7 @@ import { AVATAR_ERROR_RETRY_MS, AVATAR_MAX_PAUSE_MS, AVATAR_MIN_PAUSE_MS, AVATAR
 /** Where an 𝕏 profile picture comes from. unavatar.io is the primary; its
  * anonymous quota is 25 a day per IP, so once it answers 429 the job asks
  * fxtwitter's public profile API for the pbs.twimg.com picture instead. */
-export type AvatarProvider = "unavatar" | "fxtwitter";
+type AvatarProvider = "unavatar" | "fxtwitter";
 
 /** One attempt's outcome. */
 type Fetched =
@@ -54,13 +54,10 @@ export function nextDue(candidates: AvatarCandidate[], now: number): (AvatarCand
 }
 
 /**
- * The KOL avatar cache (Stage 3 §1.7): fetches each KOL's picture once —
- * the admin's avatar URL, else the 𝕏 profile picture by handle — stores
- * the bytes in `kol_avatars` and refreshes them weekly. A slow drip: one
- * fetch per tick (every 30 s), none while every provider the next KOL
- * needs is rate limited (a 429 pauses that provider for its Retry-After,
- * 5 min – 24 h). Images are type-checked by their bytes (PNG, JPEG, GIF,
- * WebP; never SVG) and capped at `AVATAR_MAX_BYTES`. No Hyperliquid calls.
+ * The KOL avatar cache (Stage 3 §1.7): the admin's avatar URL, else the 𝕏
+ * picture by handle, stored in `kol_avatars` and refreshed every
+ * `AVATAR_REFRESH_MS`. One fetch per tick, none while the needed providers are
+ * rate limited. Bytes are type-sniffed (never SVG) and capped at `AVATAR_MAX_BYTES`.
  */
 @Injectable()
 export class KolAvatarService {
@@ -210,16 +207,11 @@ export class KolAvatarService {
   }
 
   /**
-   * GETs an image: stops reading past the size cap and accepts only bytes
-   * that are PNG, JPEG, GIF or WebP. `provider` names whose 429 it is;
-   * without one a 429 is an ordinary failure.
-   *
-   * The fetch runs inside the private network on a stored URL, so every hop
-   * is checked before it is requested: redirects are followed by hand (at
-   * most {@link MAX_REDIRECTS}), each URL must pass `allowedImageUrl`, and
-   * its host must resolve only to public addresses, and the connection
-   * goes to the address that was checked (the name is not resolved again,
-   * so DNS rebinding between the check and the connection reaches nothing).
+   * GETs an image (size-capped, PNG/JPEG/GIF/WebP only). `provider` names whose
+   * 429 it is; without one a 429 is an ordinary failure.
+   * SSRF guard: redirects are followed by hand, every hop must pass
+   * `allowedImageUrl` and resolve only to public addresses, and the connection
+   * goes to the vetted address (no re-resolution, so DNS rebinding reaches nothing).
    */
   async fetchImage(url: string, provider?: AvatarProvider): Promise<Fetched> {
     let response: Response;

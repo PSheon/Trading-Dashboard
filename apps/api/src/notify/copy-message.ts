@@ -6,11 +6,8 @@ import { fill, telegramMessages, type TelegramMessages } from "./messages/index.
 import { formatPrice, formatUsd, safeDisplayName, shortAddress } from "./message-template.js";
 
 /**
- * The owner events the trade bot sends (CopyDog's Trade Bot, "alerts when
- * copy trades execute"): every fill (open, add, reduce, close), a
- * liquidation, an order the copy could not place, the copy's funding (money
- * added, withdrawn, returned at stop) and its stop. Hourly funding-rate
- * payments are not messages (they are in the copy's ledger).
+ * The owner events the trade bot sends: fills, liquidation, an unplaced order,
+ * the copy's funding moves and its stop (not hourly funding-rate payments).
  */
 export const COPY_NOTIFICATION_TYPES = ["order_rejected", "order_cancelled", "order_filled", "position_liquidated", "strategy_stopped", "funds_added", "funds_withdrawn", "funds_returned"] as const;
 export const copyDeliveryPayloadSchema = z.object({

@@ -16,7 +16,7 @@ import { safeErrorText } from "../runtime/safe-error-text.js";
 import { LEADERBOARD_FETCH_TIMEOUT_MS } from '../config/constants/http.js';
 
 
-export interface IngestResult {
+interface IngestResult {
   rows: number;
   removed: number;
   /** Rows flagged as vaults; null when the vault list couldn't be fetched
@@ -33,17 +33,13 @@ async function fetchJson(url: string, signal?: AbortSignal): Promise<unknown> {
 }
 
 /**
- * Imports Hyperliquid's official leaderboard into `trader_stats` (Stage 2
- * §4) whenever it is older than `DISCOVERY_LEADERBOARD_REFRESH_MINUTES`,
- * checked every minute and at startup, so a changed setting applies without
- * a restart. Vaults are flagged from Hyperliquid's vault list (§10,
- * 競品分析 §3.9).
+ * Imports Hyperliquid's leaderboard into `trader_stats` (Stage 2 §4) when
+ * older than `DISCOVERY_LEADERBOARD_REFRESH_MINUTES` (checked every minute
+ * and at startup). Vaults are flagged from the vault list (§10).
  *
- * Each import replaces the table: all rows are upserted with one shared
- * `updated_at`, then rows this import didn't include are deleted, inside one
- * transaction, so readers see either the previous table or the new one.
- * If the vault list fails, the previous `is_vault` flags are kept. The stats
- * host is not the info API, so this costs no REST weight.
+ * Each import replaces the table in one transaction (readers see old or
+ * new). A failed vault list keeps the previous `is_vault` flags. The stats
+ * host is not the info API: no REST weight.
  */
 @Injectable()
 export class LeaderboardIngestService {
@@ -147,11 +143,9 @@ export class LeaderboardIngestService {
   }
 
   /**
-   * Upserts `rows` (all stamped `importedAt`) in chunks and deletes every
-   * other row, in one transaction. Returns how many rows were removed.
-   * With `updateVaultFlags` false, existing rows keep their `is_vault` (new
-   * rows take the value in `rows`). Refuses an empty import rather than
-   * wiping the table.
+   * Upserts `rows` and deletes every other row in one transaction; returns
+   * rows removed. `updateVaultFlags` false keeps existing `is_vault`.
+   * Refuses an empty import rather than wiping the table.
    */
   async replaceAll(rows: TraderStatsInsert[], importedAt: Date, updateVaultFlags = true): Promise<number> {
     if (rows.length === 0) throw new Error("Leaderboard import has no rows; keeping the current table");

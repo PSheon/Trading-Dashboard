@@ -90,8 +90,7 @@ export class WithdrawalRepository {
   }
 
   async beginSubmit(userId: number, id: string) {
-    // The exchange budget can wait. Revalidate the authoritative owner at the
-    // durable attempt boundary, serialized against disablement and replacement.
+    // Revalidate the owner at the durable attempt boundary, serialized against disable/replace.
     return this.locked(userId, async (tx) => {
       const [user] = await tx.select({ address: users.embeddedWalletAddress, disabledAt: users.disabledAt })
         .from(users).where(eq(users.id, userId)).for("share");
@@ -110,10 +109,9 @@ export class WithdrawalRepository {
       .where(and(eq(walletWithdrawals.id, id), eq(walletWithdrawals.userId, userId), eq(walletWithdrawals.origin, "client"), eq(walletWithdrawals.status, "unknown"), isNull(walletWithdrawals.attemptedAt))));
   }
 
-  /** Back to `prepared` (owner may retry or cancel) for an attempt whose POST
-   * this process's own transport proves was never handed over. A crash, a
-   * serialized error or an unrelated attempt has no such proof. A CAS on the
-   * exact attempt read: any concurrent change (an answer, a resolution) wins. */
+  /** Back to `prepared` for an attempt this process's transport proves was never handed
+   * over (a crash or serialized error is no proof). CAS on the exact attempt: any concurrent
+   * change wins. */
   async restoreNotDispatched(userId: number, original: WithdrawalRow, error: unknown) {
     const attempt = structuredClone(original);
     if (attempt.userId !== userId || attempt.origin !== "client" || attempt.status !== "unknown" || !attempt.claimedAt || !attempt.attemptedAt ||
@@ -126,11 +124,8 @@ export class WithdrawalRepository {
     return row ?? null;
   }
 
-  /** The exchange's answer to a hub withdrawal; the owner's live feed gets
-   * it once (the guarded update moves an `unknown` row only once). Only an
-   * attempted one, as copy funding's finish: a claim never sent can't have
-   * an answer. A legacy import was sent by its browser, before attempts were
-   * recorded. */
+  /** The exchange's answer, applied once to an attempted `unknown` row (a never-sent claim
+   * can't have one; a legacy import was sent by its browser). */
   async finish(userId: number, id: string, status: "accepted" | "rejected", evidenceHash: string) {
     const [accepted] = await this.locked(userId, async tx => {
       const rows = await tx.update(walletWithdrawals).set({ status, evidenceHash, updatedAt: new Date() })
@@ -143,8 +138,7 @@ export class WithdrawalRepository {
     return accepted ?? this.find(userId, id);
   }
 
-  /** Every withdrawal whose outcome is unknown, oldest first, with the
-   * owner's email (admin). */
+  /** Unknown-outcome withdrawals, oldest first, with the owner's email (admin). */
   unresolved() {
     return this.db.select({ row: walletWithdrawals, email: users.email }).from(walletWithdrawals)
       .innerJoin(users, eq(users.id, walletWithdrawals.userId))
@@ -157,10 +151,8 @@ export class WithdrawalRepository {
     return row;
   }
 
-  /** An operator's resolution of an unknown withdrawal, from a ledger read
-   * made after the nonce window: the guarded move (still `unknown`), the
-   * owner's live event and the audit row in one transaction. Null when the
-   * row was no longer unknown (resolved meanwhile). */
+  /** Operator resolution: guarded move from `unknown`, live event and audit row in one
+   * transaction. Null when it was resolved meanwhile. */
   async resolve(row: WithdrawalRow, status: "accepted" | "not_executed", evidenceHash: string, actor: AuditActor, reason: string, evidence: string): Promise<WithdrawalRow | null> {
     return this.locked(row.userId, async (tx) => {
       const [updated] = await tx.update(walletWithdrawals).set({ status, evidenceHash, updatedAt: new Date() })

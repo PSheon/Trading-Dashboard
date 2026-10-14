@@ -7,16 +7,12 @@ import { safeErrorText, type CopyLiveEngine } from './copy-live-engine.js';
 import { LIVE_ENGINE } from './copy-live-engine.provider.js';
 
 /**
- * Drives copy execution on the deployment's network in the worker process: one engine pass every
- * COPY_LIVE_INTERVAL_MS (default 3 s), never two at once. Off unless
- * COPY_TRADING_MODE is testnet or live, and under NODE_ENV=test. Paper copies keep their
- * own loop (CopyWorkerService). Shutdown drains the pass in flight.
+ * Worker loop: one engine pass every COPY_LIVE_INTERVAL_MS, never two at once.
+ * Off unless COPY_TRADING_MODE is testnet or live, and under NODE_ENV=test.
  *
- * Realtime signal (COPY_LIVE_FAST_SOURCE): a feed trade of a fast-source
- * leader schedules a kick of that leader for when its fill can be certified
- * (G after the trade). A kick runs at once, or right after the work in
- * flight; it never overlaps a pass. After the watcher verifies a leader,
- * its stream is audited the same way.
+ * Fast source: a feed trade schedules a kick for when its fill can be certified
+ * (G after the trade); kicks never overlap a pass. A watcher verification
+ * queues an audit of the leader's stream.
  */
 @Injectable()
 export class CopyLiveWorkerService implements OnApplicationBootstrap, OnModuleDestroy {
@@ -25,7 +21,7 @@ export class CopyLiveWorkerService implements OnApplicationBootstrap, OnModuleDe
   private running = false;
   private testnetPolling = false;
   private started = false;
-  /** The regular pass was asked for (its interval came round) and not run yet. */
+  /** The regular pass is due and not run yet. */
   private passDue = false;
   private lastPassAt = 0;
   private intervalMs = 3000;
@@ -86,8 +82,7 @@ export class CopyLiveWorkerService implements OnApplicationBootstrap, OnModuleDe
     this.scheduled.set(leader, { at, timer });
   }
 
-  /** A kick's signal half runs at once, beside a pass or an order in flight
-   * (one per leader at a time); its order half joins the queue. */
+  /** Signal half runs at once (one per leader); the order half joins the queue. */
   private async signal(leader: string): Promise<void> {
     if (!this.engine || this.jobs.stopping) return;
     if (this.signalling.has(leader)) { this.resignal.add(leader); return; }
@@ -116,14 +111,11 @@ export class CopyLiveWorkerService implements OnApplicationBootstrap, OnModuleDe
     }
   }
 
-  /** The regular pass is due every interval: when other work is running it
-   * goes next, ahead of any kick waiting (it runs setups, activations, every
-   * other leader's reads and the stops, so kicks can never starve it). */
+  /** Marks the pass due; it runs ahead of waiting kicks so they can't starve it. */
   async tick(): Promise<void> {
     if (this.jobs.stopping || !this.engine) return;
     this.passDue = true;
-    // A long order/receipt quota wait must not stop collecting later testnet
-    // signals. Only evidence ingestion overlaps; all order passes stay serial.
+    // While a pass waits on quota, keep ingesting testnet signals; order work stays serial.
     if (this.started && this.running && !this.testnetPolling && this.config.value.copy.live?.network === 'testnet') {
       this.testnetPolling = true;
       try { await this.jobs.run(() => this.engine!.pollTestnetSources()); }
@@ -133,8 +125,7 @@ export class CopyLiveWorkerService implements OnApplicationBootstrap, OnModuleDe
     await this.drain();
   }
 
-  /** Runs the due pass, kicks and audits one at a time: the pass first
-   * whenever it is due (every interval), then kicks, then audits. */
+  /** Runs work one at a time: a due pass first, then kicks, then audits. */
   private async drain(): Promise<void> {
     if (this.running || this.jobs.stopping || !this.engine) return;
     this.running = true;

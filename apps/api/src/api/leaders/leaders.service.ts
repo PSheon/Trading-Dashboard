@@ -22,10 +22,8 @@ import type { AlertsScope } from "../../common/auth/alerts-scope.js";
 import { DAY_MS } from '../../config/constants/time.js';
 import { LEADERS_CACHE_TTL_MS } from '../../config/constants/cache-ttls.js';
 
-/** GET /leaders reads this much action history per leader: the 30-day
- * figures need trips closed in the last 30 days, and a trip opened up to
- * 60 days before that is still whole. Average hold time is over the same
- * window. Without a bound every call loaded every leader's whole history. */
+/** Action history GET /leaders reads per leader: 30-day figures need trips
+ * closed in 30 days, whole if opened up to 60 days before that. */
 export const LEADERS_HISTORY_DAYS = 90;
 const EQUITY_CURVE_WINDOW_DAYS = 30;
 
@@ -152,12 +150,8 @@ export class LeadersService {
     }));
   }
 
-  /** §11 決策紀錄 "權益曲線顯示": stored at a flat 5-minute grain always;
-   * the default detail-page view downsamples to one point per hour, with a
-   * toggle to the raw 5-minute series — "儲存不降採樣，顯示才降". Downsampling
-   * happens here (last snapshot in each hour bucket) rather than as a
-   * second stored table, since the raw series stays cheap at this data
-   * volume (one address, 30 days, 5-minute grain = ~8,640 rows). */
+  /** §11 "儲存不降採樣，顯示才降": stored at 5-minute grain; the default view
+   * downsamples here to the last snapshot per hour. */
   private async equityCurve(chain: string, address: string, interval: EquityInterval): Promise<EquityPoint[]> {
     const since = new Date(Date.now() - EQUITY_CURVE_WINDOW_DAYS * DAY_MS);
     const rows = await this.repository.equityRows(chain, address, since);
@@ -174,10 +168,8 @@ export class LeadersService {
     return [...byHour.values()].sort((a, b) => a.ts.getTime() - b.ts.getTime());
   }
 
-  /** A3: update label/tier/notes/active. `active=false` alone is what
-   * stops polling/snapshots — the Watcher re-reads `leaders` fresh every
-   * cycle and filters on `active=true` there, so there's nothing else to
-   * wire up here for that half of the acceptance criterion. */
+  /** A3: update label/tier/notes/active. `active=false` alone stops watching:
+   * the watcher re-reads `leaders` and filters on it. */
   async update(chain: string, address: string, patch: PatchLeaderRequest, actor: AuditActor = null): Promise<Leader> {
     const leader = await this.uow.run(async (tx) => {
       const before = await this.repository.lockOne(tx, chain, address);

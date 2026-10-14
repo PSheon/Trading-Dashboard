@@ -1,5 +1,5 @@
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { and, eq, isNotNull, sql, or, isNull, lte } from 'drizzle-orm';
 import { liveCopySetupIntentSchema } from '@trading-dashboard/shared/contracts';
 import { copyExecutionAccounts, copyLiveMandates, copyLiveSetupAborts, copyLiveSetups, copyStrategies, copyFundingOperations,
@@ -11,10 +11,10 @@ import type { DrizzleDb } from '../db/drizzle.provider.js';
 import { CopyLiveMandateRepository } from './copy-live-mandate.repository.js';
 import { CopyLiveStopRepository } from './copy-live-stop.repository.js';
 import { deploymentNetwork } from './live-deployment.js';
+import { jsonDigest as digest } from '../common/crypto/digest.js';
 
 export type SetupAbortRow = typeof copyLiveSetupAborts.$inferSelect;
 const conflict = (code: string) => new ConflictException({ statusCode: 409, code, message: 'The setup changed; check its saved progress' });
-const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
 /** Creates durable authority and the permanent barrier in the same user lock
  * as child attempts and genuine generation activation. No provider calls. */
@@ -60,9 +60,7 @@ export class CopyLiveSetupAbortRepository {
         sql`${copyLiveSetupAborts.leaseUntil} > clock_timestamp()`)).returning();
     return next ?? null;
   }
-  /** A wait that changes nothing the owner sees (the same state and issue):
-   * bookkeeping only, as a funding row's backoff (saveBackoff). Under the
-   * same lease, never a new revision or updatedAt. */
+  /** A wait with the same state and issue: bookkeeping only under the same lease, no new revision or updatedAt. */
   async defer(row: SetupAbortRow, changes: Pick<Partial<typeof copyLiveSetupAborts.$inferInsert>, 'nextAttemptAt' | 'backoff'>): Promise<SetupAbortRow | null> {
     if (!row.leaseToken) return null;
     const [next] = await this.db.update(copyLiveSetupAborts).set(changes)
@@ -70,8 +68,7 @@ export class CopyLiveSetupAbortRepository {
         sql`${copyLiveSetupAborts.leaseUntil} > clock_timestamp()`)).returning();
     return next ?? null;
   }
-  /** Original children remain discoverable even if an old parent's final CAS
-   * lost to abort. Reads never create an operation or grant signing rights. */
+  /** Original children stay discoverable even if a parent's final CAS lost to the abort. Read-only. */
   async children(row: SetupAbortRow) {
     const [setup] = await this.db.select().from(copyLiveSetups).where(and(eq(copyLiveSetups.id, row.setupId), eq(copyLiveSetups.userId, row.userId)));
     if (!setup) throw new NotFoundException('Setup not found');
@@ -95,9 +92,8 @@ export class CopyLiveSetupAbortRepository {
     return { setup, funding, otherFunding, modes, agents, builders, stop: stop ?? null };
   }
 
-  /** Seal an ordinary reservation admitted before the permanent account
-   * barrier. attemptedAt is the durable SDK boundary; a claim alone never
-   * grants an attempt. The same user lock serializes late beginSubmit calls. */
+  /** Seals an ordinary reservation admitted before the account barrier. attemptedAt is the durable
+   * boundary (a claim alone is no attempt); the user lock serializes late beginSubmit calls. */
   async sealOrdinaryFunding(expected: SetupAbortRow, operation: typeof copyFundingOperations.$inferSelect): Promise<boolean> {
     return this.db.transaction(async tx => {
       const owner = await this.mandates.lock(tx, expected.userId, true);
@@ -193,8 +189,7 @@ export class CopyLiveSetupAbortRepository {
       if (existing) return existing;
       const [account] = setup.accountId ? await tx.select().from(copyExecutionAccounts).where(and(eq(copyExecutionAccounts.id, setup.accountId), eq(copyExecutionAccounts.userId, userId))).for('update') : [];
       if (setup.accountId && (!account || account.strategyId !== setup.strategyId || account.network !== network || account.privyUserId !== owner.privyUserId)) throw conflict('setup_abort_wallet_conflict');
-      // Only the generation this exact setup actually activated can delegate
-      // to a stop. A pending edit/renewal never stops its previous generation.
+      // Only the generation this setup activated delegates to a stop; a pending edit never stops the previous one.
       const generations = await tx.select().from(copyLiveMandates).where(and(eq(copyLiveMandates.userId, userId), eq(copyLiveMandates.liveSetupId, setupId), isNotNull(copyLiveMandates.activationCursor))).for('update');
       const generation = generations[0];
       if (setup.kind !== 'start' && generation) throw conflict('setup_already_applied');

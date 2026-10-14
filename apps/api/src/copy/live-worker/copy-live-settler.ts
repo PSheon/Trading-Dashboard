@@ -32,18 +32,15 @@ export interface LiveSettleRequest {
   readonly userId: number; readonly accountId: string; readonly accountAddress: string;
   readonly sourceNetwork: LiveSourceNetwork; readonly leaderAddress: string; readonly key: string;
 }
-/** `unsent`: a journal rejected before its hold committed (never signed or
- * sent, no reservation): nothing to settle; `reason` is its refusal.
- * `unplaced`: a never-placed order's liability released; `unsent` when its
- * request provably never began (released at once, its leg may be planned again). */
+/** `unsent`: rejected before its hold committed (never sent, no reservation); nothing to settle.
+ * `unplaced`: a never-placed order's liability released; `unsent: true` when its
+ * request provably never began (its leg may be planned again). */
 export type LiveSettleOutcome = { kind: 'released' } | { kind: 'unplaced'; unsent?: true } |{ kind: 'pending' | 'quarantine' | 'unsent'; reason: string };
 
 /**
- * Settles one terminal order on the deployment's network (`network`): scans the account's own fills now
- * (so settlement need not wait for the scheduled follower scan), reads
- * the order's status as settlement evidence, observes the account, and asks
- * Codex's settlement DAL to release the reservation and settle the leg
- * (which a flip's opening leg waits for). Read-only at the exchange.
+ * Settles one terminal order on `network`: scans the account's fills now, reads
+ * orderStatus as evidence, observes the account, and has the settlement DAL
+ * release the reservation and settle the leg. Read-only at the exchange.
  */
 export class CopyLiveSettler {
   constructor(readonly network: HyperliquidNetwork, private readonly pool: Pool, private readonly global: HyperliquidGlobalTransport, private readonly budget: RequestBudgeterService,
@@ -59,24 +56,19 @@ export class CopyLiveSettler {
     } : this.global.fetchInfo;
     const record = await this.record(request.key, claim);
     if (!record || !TERMINAL_STATES.has(record.state)) return { kind: 'pending', reason: 'live_settlement_not_terminal' };
-    // An order of another network (a database that moved networks) is history:
-    // never read or settled here.
+    // Another network's order is history: never read or settled here.
     if (record.authorization.network !== this.network) return { kind: 'pending', reason: 'live_other_network' };
     if (record.errorCode === UNHELD_REJECTED) return { kind: 'unsent', reason: record.outcome?.reason ?? UNHELD_REJECTED };
-    // Its request never began (the journal's durable unsent marker): nothing
-    // is in flight, so no grace and no provider read. Released at once under
-    // the original locks, which re-check the marker and that no oid, receipt
-    // or exchange evidence exists (releaseUnsent).
+    // Durable unsent marker: no grace, no provider read; releaseUnsent re-checks
+    // the marker and that no oid, receipt or exchange evidence exists.
     if (isDefinitelyUnsent(record)) {
       const released = await new PostgresLiveRiskScope(this.pool, this.now, claim, { kind: 'settlement_release_unsent', id: request.key }).run({ userId: request.userId, network: this.network, accountAddress: request.accountAddress,
         source: { network: request.sourceNetwork, leaderAddress: request.leaderAddress } }, async (_scope, session) =>
         new PostgresLiveSettlement(this.now).releaseUnsent(session, { accountId: request.accountId, key: request.key }));
       return released.kind === 'released' ? { kind: 'unplaced', unsent: true } : released;
     }
-    // This is a routing wait, never missing-order or release evidence. Before
-    // the unchanged signed expiry plus grace, releaseNeverPlaced cannot pass.
-    // Skip provider/quota/scanner work only when current local SQL has no
-    // positive fill/order evidence; all later proof/CAS paths remain intact.
+    // Routing only, not evidence: before expiry + grace releaseNeverPlaced cannot
+    // pass, so skip provider work while local SQL shows no fill/order evidence.
     const waitStarted=this.now(),deadline=record.expiresAfter+NEVER_PLACED_GRACE_MS;
     const mayWait=(at:number)=>record.state==='rejected'&&record.errorCode===NEVER_PLACED&&
       (record.outcome?.filledSize===undefined||record.outcome.filledSize==='0')&&record.outcome?.exchangeOrderId===undefined&&
@@ -94,9 +86,8 @@ export class CopyLiveSettler {
       if(checkedNow>=waitStarted&&mayWait(checkedNow)&&local?.hasReceipt===false&&local.hasReservationOid===false&&local.hasEvidenceOid===false)
         return {kind:'pending',reason:'live_settlement_never_placed_grace'};
     }
-    // A crash can leave the dispatch submitted after the release committed.
-    // This SQL hint only chooses a path: the original locked DAL must replay
-    // every certificate, journal, source and receipt proof before completion.
+    // A crash can leave the dispatch submitted after the release committed. This
+    // hint only picks the path: the locked DAL replays every proof.
     if (this.network === 'testnet') {
       const [hint] = await drizzle(claim ? settlementFencedPool(this.pool, claim) : this.pool).select({ state: copyLiveRiskReservations.state, revision: copyLiveRiskReservations.revision,
         releaseReason: copyLiveRiskReservations.releaseReason }).from(copyLiveRiskReservations).where(eq(copyLiveRiskReservations.key, request.key));
@@ -110,29 +101,19 @@ export class CopyLiveSettler {
         });
       }
     }
-    // A retry never repeats a scan whose work is already durable: once the
-    // account's fill-scan cursor is past this order (scanCovered), every fill
-    // of it is booked, and the settlement DAL reads those receipts and that
-    // cursor itself, in its own session, exactly as after a fresh scan.
+    // Skip the scan once the fill-scan cursor is past this order (scanCovered).
     const scan = !!record.outcome?.filledSize && record.outcome.filledSize !== '0' && !await this.scanCovered(request.accountId, record, claim);
-    // Routing/journal data only estimates the cost, never grants settlement
-    // authority. Pay for market identity, orderStatus and the complete account
-    // observation BEFORE taking the original locks. That scope revalidates the
-    // journal and every release proof; all provider/SQL clocks stay at 5 s.
+    // Prepay the reads (market, orderStatus, account observation) before taking
+    // the locks; the estimate grants no authority (the scope revalidates all).
     let prepaid = (record.action.orders[0]!.a < 10_000 ? 20 : 40) + 2 + (record.errorCode === NEVER_PLACED ? 0 : observerRestWeight(request.accountAddress, liveReadCache(this.network)));
-    // A terminal order's settlement is live work (the copy's next order waits
-    // for it): its whole need (the fill scan's two list reads and the
-    // evidence above) is announced on the shared meter as an order's is
-    // (claimLive), so background, setups and pages leave it free and the room
-    // that frees up is its first. Its reads run under that token (runLive).
-    // Scheduling only: every proof, lock and CAS below is unchanged.
+    // Settlement is live work (the next order waits for it): its whole need is
+    // claimed on the shared meter (claimLive) and its reads run under that token.
     const token = await this.claimLive((scan ? 2 * RESPONSE_WEIGHT : 0) + prepaid);
     if (claim) await claim.assertHeld();
     const lane = <T>(work: () => Promise<T>) => token === undefined ? work() : this.global.runLive(token, work);
     return lane(async () => {
-    // Book the account's own fills now (the scheduled scan reaches an account
-    // only every two minutes). The scan also advances its proven horizon,
-    // which the next order's position projection requires.
+    // Book fills now (the scheduled scan is slow); it also advances the proven
+    // horizon the next order's position projection needs.
     if (scan) {
       if (claim) await claim.assertHeld();
       await this.scanner.runFor(request.accountId);
@@ -175,10 +156,8 @@ export class CopyLiveSettler {
     });
   }
 
-  /** Settlement's need on the shared meter (HyperliquidGlobalTransport.claimLive),
-   * waited for at most a charge's lifetime: its token, or undefined when the
-   * meter records no demand (the settlement runs as before). A wait longer
-   * than that is the meter's capacity error (the loop retries). */
+  /** Claims settlement's need on the shared meter (claimLive): its token, or
+   * undefined if the claim fails unexpectedly; a capacity error is rethrown (the loop retries). */
   private async claimLive(weight: number): Promise<string | undefined> {
     try { return await this.global.claimLive(weight, this.now() + SETTLEMENT_CLAIM_WAIT_MS); }
     catch (error) {
@@ -189,14 +168,9 @@ export class CopyLiveSettler {
   }
 
   /**
-   * Whether the account's fill-scan cursor (copy_follower_scans.through:
-   * advanced only by a scan that booked every fill to it; not while the scan
-   * carries an issue, as the settlement DAL reads it) is already past this
-   * order: its terminal journal write (our clock, after the exchange's
-   * terminal stamp, which may run PROVIDER_CLOCK_SKEW_MS ahead of ours) plus
-   * LIVE_FILL_SCAN_MARGIN_MS, the margin the DAL itself requires past the
-   * cancel. A scan now would book nothing more of this order. Path choice
-   * only: the DAL still proves the receipts' total and the cursor.
+   * Whether the issue-free fill-scan cursor is past this order's terminal write
+   * plus PROVIDER_CLOCK_SKEW_MS + LIVE_FILL_SCAN_MARGIN_MS (the DAL's own
+   * margin), so a scan would book nothing more. Path choice only; the DAL still proves.
    */
   private async scanCovered(accountId: string, record: LiveExecutionRecord, claim?: SettlementClaim): Promise<boolean> {
     const [row] = await drizzle(claim ? settlementFencedPool(this.pool, claim) : this.pool).select({ through: copyFollowerScans.through, issue: copyFollowerScans.issue })
@@ -211,13 +185,9 @@ export class CopyLiveSettler {
     return row ? decodeLiveExecutionRow(row) : null;
   }
 
-  /** Settlement-grade orderStatus by the original cloid (as the transport's
-   * queryEvidence), through the shared egress quota. */
+  /** Settlement-grade orderStatus by the original cloid, via the shared quota. */
   private async orderEvidence(record: LiveExecutionRecord, resolver: HyperliquidLiveMarketResolver, acquire: (weight: number) => Promise<void>, fetchInfo: typeof fetch, claim?: SettlementClaim): Promise<LiveOrderEvidence> {
-    // Default-dex metadata and cloid status are independent provider reads.
-    // One original-scope quota charge sends them together; SQL retention and
-    // the later account proof remain sequential. Named dex resolution keeps
-    // its required index lookup path.
+    // Default dex: meta and orderStatus go together under one charge. Named dexes take the lookup path below.
     if (record.action.orders[0]!.a < 10_000) {
       const status = { type: 'orderStatus', user: record.authorization.accountAddress, oid: record.action.orders[0]!.c };
       const shared = new LiveSharedReads(this.network, fetchInfo, (bodies, onDispatch, signal) =>
@@ -232,8 +202,7 @@ export class CopyLiveSettler {
         const raw = await shared.get(status), completedAt = this.now();
         return parseLiveOrderEvidence({ record, market, raw, checkedAt: shared.startedAt, completedAt, now: completedAt });
       } finally {
-        // Only weight never dispatched is returned; rejected provider replies
-        // still consumed their original shared and local quota.
+        // Refund only undispatched weight (rejected replies still consumed quota).
         if (shared.paidWeight > shared.sentWeight) this.budget.adjust(-(shared.paidWeight - shared.sentWeight));
       }
     }

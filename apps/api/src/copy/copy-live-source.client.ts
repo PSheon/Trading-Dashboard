@@ -5,20 +5,17 @@ import { boundedLiveRead } from './live/live-market-resolver.js';
 import { settleListAnswer } from '../hyperliquid/hyperliquid-global-transport.js';
 import { RESERVE_BOUND_MS } from '../config/constants/timings.js';
 import { SOURCE_READ_WORST_WEIGHT } from '../config/constants/weights.js';
-export interface LiveSourceReadRequest { leaderAddress: string; from: number; to: number; maxRequests: number; maxDepth?: number; maxFills?: number; }
-export interface LiveSourceWindow { kind: 'fills' | 'twap'; from: number; to: number; depth: number; }
-export interface LiveSourceWindowObservation extends LiveSourceWindow { observedAt: number; completedAt: number; count: number; responseDigest: string; saturated: boolean;
-  /** A single-millisecond window of 500+ rows that the source read whole
-   * (the answer went on past it, under the 2,000-row cap): complete
-   * although that many rows would otherwise count as saturated. Absent
-   * unless true. */
+interface LiveSourceReadRequest { leaderAddress: string; from: number; to: number; maxRequests: number; maxDepth?: number; maxFills?: number; }
+interface LiveSourceWindow { kind: 'fills' | 'twap'; from: number; to: number; depth: number; }
+interface LiveSourceWindowObservation extends LiveSourceWindow { observedAt: number; completedAt: number; count: number; responseDigest: string; saturated: boolean;
+  /** A single-ms window of 500+ rows read whole (the answer went past it, under the 2,000-row cap):
+   * complete although otherwise saturated. Absent unless true. */
   sealed?: true; }
 export interface LiveSourceReadResult {
   network: LiveSourceNetwork; leaderAddress: string; from: number; to: number; observedAt: number; completedAt: number; fresh: boolean;
   complete: boolean; historicalCompleteness: 'unproven'; requestsUsed: number; fills: LiveSourceFillEvidence[];
-  /** Which provider streams the windows cover; absent means both ordinary
-   * fills and TWAP slices (this REST reader). The watched mainnet source has
-   * ordinary fills only. */
+  /** Streams the windows cover; absent means fills and TWAP slices (this reader). The watched mainnet
+   * source has fills only. */
   kinds?: ('fills' | 'twap')[];
   observations: LiveSourceWindowObservation[]; unresolved: (LiveSourceWindow & { reason: 'same_ms_cap' | 'depth_limit' | 'request_budget' | 'fill_budget' | 'read_unavailable' | 'evidence_expired' | 'twap_identity_unproven' })[];
   sourceDigest: string;
@@ -72,10 +69,8 @@ export class HyperliquidLiveSourceClient {
       if (!Number.isSafeInteger(requestedAt) || requestedAt < 1 || request.from > request.to || request.to > requestedAt) fail('live_source_request_invalid');
     } catch { fail('live_source_request_invalid'); }
     const queue: LiveSourceWindow[] = [{ kind: 'fills', from: request.from, to: request.to, depth: 0 }, { kind: 'twap', from: request.from, to: request.to, depth: 0 }];
-    // Ordinary fills and TWAP are both required. Pay for their initial reads
-    // before the provider clock, so a quota wait cannot publish half a window
-    // and change a ready stream into a gap. Subdivision reads stay bounded by
-    // the provider deadline and acquire their own worst-case weight.
+    // Both initial reads (fills, TWAP) are paid before the provider clock, so a quota wait can't publish
+    // half a window as a gap. Subdivision reads acquire their own worst-case weight.
     let prepaid = Math.min(queue.length, request.maxRequests);
     await boundedLiveRead(() => this.acquire(prepaid * SOURCE_READ_WORST_WEIGHT), RESERVE_BOUND_MS);
     const refundUnused = () => { if (prepaid > 0) { try { this.refund?.(prepaid * SOURCE_READ_WORST_WEIGHT); } catch { /* accounting only */ } } };
@@ -112,9 +107,7 @@ export class HyperliquidLiveSourceClient {
       return { observedAt, rows };
     };
     try {
-      // Both mandatory initial channels use the same captured window and
-      // prepaid allowance. Acquire each provider permit normally, then read
-      // independent responses together within the unchanged five-second clock.
+      // The two initial channels read together within the same DEADLINE.
       const initial = new Map<LiveSourceWindow, PromiseSettledResult<{ observedAt: number; rows: unknown }>>();
       if (request.maxRequests >= 2) {
         const windows = [...queue];

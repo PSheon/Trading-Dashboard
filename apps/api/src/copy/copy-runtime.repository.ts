@@ -19,12 +19,8 @@ export function operationFingerprint(value: unknown): string {
  * id only. The api's copy streams read the rows themselves (owner-scoped). */
 export const COPY_EVENTS_CHANNEL = "orbie_copy_events";
 
-/**
- * Appends an owner event in the caller's transaction. IDs for the same
- * owner's feed are allocated in commit order (otherwise a reader could pass
- * an id still invisible in an earlier open transaction), and a NOTIFY goes
- * out when the transaction commits (never for a rolled-back write).
- */
+/** Appends an owner event in the caller's tx. Ids are allocated in commit order (a reader must
+ * never pass an id still invisible in an open tx); NOTIFY fires only on commit. */
 export async function insertOwnerEvent(tx: DbTransaction, userId: number, strategyId: number | null, type: string, payload: Record<string, unknown>): Promise<void> {
   await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`copy-events:${userId}`}, 0))`);
   await tx.insert(copyEvents).values({ userId, strategyId, type, payload: structuredClone(payload) });
@@ -85,11 +81,8 @@ export class CopyRuntimeRepository {
       .where(and(eq(copyStrategies.mode, "paper"), sql`${copyStrategies.status} <> 'stopped'`)).orderBy(asc(copyStrategies.id));
   }
 
-  /**
-   * Each non-stopped actual copy of `network` with its account's latest
-   * stored observation (bound exactly as the owner's snapshot GET binds it)
-   * and that account's transfers. SQL only: no exchange read.
-   */
+  /** Each non-stopped live copy of `network` with its latest observation (bound as the owner's
+   * snapshot GET binds it) and transfers. SQL only. */
   async actualSnapshotInputs(network: HyperliquidNetwork) {
     const s = copyStrategies, a = copyExecutionAccounts, j = copyFollowerObservationJobs, o = copyFollowerObservations, f = copyFundingOperations;
     const rows = await this.db.select({ strategyId: s.id, userId: s.userId, account: a, observation: o }).from(s)
@@ -144,12 +137,9 @@ export class CopyRuntimeRepository {
   }
 
   /**
-   * The owner's whole paper portfolio at each time of `from…to` (every
-   * `stepMs`, `to` included): the sum of each copy's latest PnL at or before
-   * that time. A copy not yet started adds 0; a copy younger than `freshMs`
-   * without a valuation yet adds 0 (PnL is 0 at its start); a stopped copy
-   * adds its final PnL; any other copy without a valuation of the last
-   * `freshMs` (or with an unpriced one) makes the time `missing`.
+   * Paper portfolio PnL every `stepMs` over `from…to`: the sum of each copy's latest PnL. Not yet
+   * started or younger than `freshMs` → 0; stopped → final PnL; otherwise no fresh priced
+   * valuation makes the time `missing`.
    */
   async portfolioSeries(userId: number, from: Date, to: Date, stepMs: number, freshMs: number) {
     const result = await this.db.execute(sql`
@@ -227,12 +217,8 @@ export class CopyRuntimeRepository {
     }));
   }
 
-  /**
-   * The owner's closed copy trades, rebuilt from the copies' fills. A trade
-   * starts at a fill made from a flat position and ends when the position is
-   * back at 0; the engine splits a flip into a close and an open, so a fill
-   * never crosses 0. Amounts stay exact numerics until the caller.
-   */
+  /** Closed trades rebuilt from fills: flat → back to 0 (a fill never crosses 0; flips are split).
+   * Amounts stay exact numerics. */
   async closedTrades(userId: number, sort: "best" | "worst" | "recent", limit: number, strategyId?: number, openId?: string) {
     const order = sort === "best" ? sql`net desc, closed_at desc` : sort === "worst" ? sql`net asc, closed_at desc` : sql`closed_at desc, open_id desc`;
     const filter = sort === "best" ? sql`and net > 0` : sort === "worst" ? sql`and net < 0` : sql``;

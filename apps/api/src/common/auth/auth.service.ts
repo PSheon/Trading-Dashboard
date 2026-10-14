@@ -10,12 +10,8 @@ import type { RequestUser } from "./current-user.js";
 import { PRIVY_VERIFIER, type PrivyVerifier } from "./privy-verifier.js";
 import { AUTH_CACHE_TTL_MS, AUTH_PROFILE_RETRY_MS, EMBEDDED_WALLET_RETRY_MS } from '../../config/constants/cache-ttls.js';
 
-/**
- * Constant-time string equality. `timingSafeEqual` itself throws on unequal
- * buffer lengths (which would leak the token's length through the branch,
- * even if not through timing), so both sides are hashed to a fixed-size
- * digest first.
- */
+/** Constant-time equality: both sides are hashed first because `timingSafeEqual`
+ * throws on unequal lengths, which would leak the token's length. */
 function tokensMatch(a: string, b: string): boolean {
   const digestA = createHash("sha256").update(a).digest();
   const digestB = createHash("sha256").update(b).digest();
@@ -52,21 +48,16 @@ interface CacheEntry {
 }
 
 
-export type SignInResult =
+type SignInResult =
   | { status: "ok"; user: UserRow }
   | { status: "disabled"; userId: number }
   | { status: "signups_closed" };
 
 /**
- * Turns a bearer token into a caller:
- * - equal to AUTH_SERVICE_TOKEN → `{ kind: "service" }` (server to server);
- * - otherwise a Privy access token → the `users` row for that Privy DID,
- *   created on first sign-in unless sign-ups are closed.
- *
- * Outcomes of verified tokens are cached (keyed by a hash, never the raw
- * token) until the token expires or AUTH_CACHE_TTL_MS passes, whichever is
- * first. Every request still reads current database authorization; cached
- * outcomes never grant a stale role. Invalid tokens are not cached.
+ * Bearer token → caller: AUTH_SERVICE_TOKEN → service; otherwise a Privy token →
+ * the `users` row for that DID (created on first sign-in unless sign-ups are closed).
+ * Verified outcomes are cached by token hash until token expiry or AUTH_CACHE_TTL_MS;
+ * every request still re-reads DB authorization, so a cached role is never stale.
  */
 @Injectable()
 export class AuthService {
@@ -81,9 +72,8 @@ export class AuthService {
     private readonly settings: SettingsService,
   ) {}
 
-  /** Database errors propagate; token problems never do. `hints.locale` is
-   * the language the caller's page is shown in: a user row created by this
-   * call starts with it; an existing row's language is never changed. */
+  /** Database errors propagate; token problems never do. `hints.locale` seeds
+   * only a newly created row's language. */
   async authenticate(token: string, hints: { locale?: Locale } = {}): Promise<AuthOutcome> {
     const serviceToken = this.config.value.auth.serviceToken;
     if (serviceToken && tokensMatch(token, serviceToken)) {
@@ -93,16 +83,12 @@ export class AuthService {
     const key = tokenKey(token);
     const now = Date.now();
     const cached = this.cache.get(key);
-    // A cached sign-ups refusal follows the switch: once sign-ups are open
-    // again (the settings snapshot is dropped on save in every process) the
-    // visitor gets in at once. While they stay closed the refusal is served
-    // from the cache, so repeating requests does not repeat verification.
+    // A cached sign-ups refusal is dropped as soon as sign-ups reopen.
     if (cached?.outcome.status === "signups_closed" && cached.expiresAt > now && (await this.settings.get("general")).signupsOpen) this.cache.delete(key);
     else if (cached) {
       if (cached.expiresAt > now) {
         const current = await this.currentAuthorization(cached.outcome);
-        // Crossing the cache TTL only affects the next verification lookup.
-        // Only actual JWT expiry invalidates the already-admitted cache hit.
+        // Only actual JWT expiry invalidates an admitted cache hit.
         return cached.tokenExpiresAt > Date.now() ? current : { status: "invalid" };
       }
       this.cache.delete(key);
@@ -124,8 +110,7 @@ export class AuthService {
             user: { kind: "user", id: result.user.id, privyUserId: result.user.privyUserId, role: result.user.role },
           }
         : result;
-    // Profile refresh may await a remote call while an administrator changes
-    // this user. Re-read after that work before publishing an authorization.
+    // Re-read: an admin may have changed this user during the profile fetch.
     const current = await this.currentAuthorization(outcome);
     if (verified.expiresAt.getTime() <= Date.now()) return { status: "invalid" };
     if (current.status !== "invalid") this.remember(key, current, Math.min(verified.expiresAt.getTime(), now + AUTH_CACHE_TTL_MS), verified.expiresAt.getTime());
@@ -177,16 +162,11 @@ export class AuthService {
   }
 
   /**
-   * Returning user: bump `last_login_at` (unless disabled), and refresh a
-   * missing profile without changing their role.
-   * New user: fetch
-   * email/wallet from Privy (best effort); when sign-ups are closed only a
-   * AUTH_ADMIN_EMAILS address gets in. The new row is admin when its
-   * email is in that list and no enabled admin exists yet. Nothing else is created with it: alerts are set
-   * per favorite, and admins are alerted on the default rules themselves.
-   * The new row's language is `locale` when given (the language the person
-   * signed up in), else the column default; the web adopts the account's
-   * language on sign-in, so the default would switch the page under them.
+   * Returning user: bump `last_login_at` (unless disabled) and refresh a missing
+   * profile without changing their role.
+   * New user: fetch email/wallet from Privy (best effort); with sign-ups closed only
+   * an AUTH_ADMIN_EMAILS address gets in, and becomes admin if no enabled admin exists.
+   * The row takes `locale` when given, since the web adopts the account's language on sign-in.
    */
   async signIn(privyUserId: string, locale?: Locale): Promise<SignInResult> {
     const existing = await this.repository.touchEnabledUser(privyUserId);
@@ -197,8 +177,6 @@ export class AuthService {
 
     const profile = await this.privy.fetchProfile(privyUserId);
     const email = profile?.email ?? null;
-    // Listed in AUTH_ADMIN_EMAILS: may always sign up, and becomes the
-    // admin if the site has none yet (see createBootstrapCandidate).
     const listed = email !== null && this.config.value.auth.adminEmails.includes(email);
     if (!listed && !(await this.settings.get("general")).signupsOpen) {
       return { status: "signups_closed" };
@@ -224,12 +202,9 @@ export class AuthService {
     return this.asResult(raced);
   }
 
-  /** Retry missing profile data without changing authorization. Admin bootstrap
-   * applies only when inserting a new user; a persisted demotion must survive
-   * future authentication even when the email remains allowlisted. */
+  /** Retry missing email / embedded wallet without changing role: a persisted
+   * demotion must survive even when the email stays allowlisted. */
   private async refreshMissingProfile(user: UserRow): Promise<UserRow> {
-    // A missing embedded wallet is backfilled the same way: users who signed
-    // up before every account got one receive it at their next login.
     if (user.email !== null && user.embeddedWalletAddress !== null) return user;
 
     const now = Date.now();

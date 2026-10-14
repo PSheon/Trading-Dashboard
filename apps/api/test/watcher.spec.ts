@@ -45,7 +45,7 @@ describe("WatcherService", () => {
     fastPath = vi.fn(async () => 1);
     dropBooks = vi.fn();
     feed = { setWatched: vi.fn(), status: () => ({}), stop: async () => {} };
-    watcher = new WatcherService(testConfig(),
+    watcher = new WatcherService(
       feed as unknown as TradeFeedService,
       { sync, catchUp, getLastFillAt: () => null, getFastPathStats: () => ({ verified: 0, corrected: 0 }) } as unknown as FillSyncService,
       { getEquityUsd: () => null, dropBooks } as unknown as AccountStateService,

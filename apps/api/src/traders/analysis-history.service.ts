@@ -10,7 +10,7 @@ import { ANALYSIS_JOB_EXPIRE_EVERY_MS } from '../config/constants/background.js'
 
 /** At most two range pages per minute (~240 weight). Uses the existing
  * global budgeter, behind page requests. No detached notification work. */
-export const HISTORY_PAGES_PER_TICK = 2;
+const HISTORY_PAGES_PER_TICK = 2;
 @Injectable()
 export class AnalysisHistoryService {
   private readonly logger = new Logger(AnalysisHistoryService.name);

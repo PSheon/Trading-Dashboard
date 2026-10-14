@@ -1,12 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
-import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, desc, eq, getTableColumns, inArray, isNotNull, ne, or, sql } from 'drizzle-orm';
 import { ACTUAL_STRATEGY_MODE, liveCopyStopSchema, type RequestLiveCopyStop } from '@trading-dashboard/shared/contracts';
 import { copyAgentSetups, copyExecutionAccounts, copyLiveExecutions, copyLiveIntentProvenance, copyLiveManualCloses, copyLiveMandates,
   copyLiveRiskReservations, copyLiveStopOperations, copyStrategies } from '@trading-dashboard/shared/database';
-import { DRIZZLE_CLIENT } from '../db/db.constants.js';
-import type { DrizzleDb } from '../db/drizzle.provider.js';
 import type { DbTransaction } from '../db/unit-of-work.js';
 import { CopyLiveMandateRepository } from './copy-live-mandate.repository.js';
 import { liveSourceDigest } from './live/copy-live-source-evidence.js';
@@ -17,7 +15,7 @@ type StopRow = typeof copyLiveStopOperations.$inferSelect;
 const conflict = (code = 'live_stop_binding_changed'): never => { throw new ConflictException({ statusCode: 409, code, message: 'Refresh the original stop operation' }); };
 @Injectable()
 export class CopyLiveStopRepository {
-  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb, private readonly mandates: CopyLiveMandateRepository) {}
+  constructor(private readonly mandates: CopyLiveMandateRepository) {}
   async lock(tx: DbTransaction, userId: number, system = false) { return this.mandates.lock(tx, userId, system); }
   fence(tx: DbTransaction) { return this.mandates.fence(tx); }
   private async context(tx: DbTransaction, userId: number, mandateId: string, system = false) {
@@ -28,7 +26,7 @@ export class CopyLiveStopRepository {
       .where(and(eq(copyExecutionAccounts.id, mandate.accountId), eq(copyExecutionAccounts.userId, userId))).for('update');
     if (!binding) throw new NotFoundException('Copy account not found');
     const { account, strategy, setup } = binding;
-    // Only a copy of the deployment's network stops here (another network's is history).
+    // Only a copy of the deployment's network stops here.
     if (strategy.userId !== userId || strategy.mode !== ACTUAL_STRATEGY_MODE || strategy.network !== this.mandates.network || strategy.id !== mandate.strategyId ||
       account.strategyId !== mandate.strategyId || account.network !== this.mandates.network || account.address !== mandate.accountAddress ||
       owner.privyUserId !== mandate.ownerPrivyUserId || owner.embeddedWalletAddress !== mandate.ownerAddress ||
@@ -71,15 +69,12 @@ export class CopyLiveStopRepository {
   }
   async overview(tx: DbTransaction, userId: number) {
     await this.lock(tx, userId);
-    // Only this deployment's network: another network's stops are history that
-    // `context` refuses, and one of them made the whole list 409 (Stage
-    // mainnet 2026-10-12, an owner with earlier testnet stops).
+    // Only this deployment's network: `context` refuses another network's stops (Stage 2026-10-12).
     const ids = await tx.select({ id: copyLiveStopOperations.id }).from(copyLiveStopOperations)
       .where(and(eq(copyLiveStopOperations.userId, userId), eq(copyLiveStopOperations.network, this.mandates.network)))
       .orderBy(sql`case when ${copyLiveStopOperations.state} <> 'stopped' then 0 else 1 end`, desc(copyLiveStopOperations.createdAt)).limit(101);
     const items: ReturnType<CopyLiveStopRepository['wire']>[] = [];
-    // Validate one bounded manifest at a time; history never retains 100 full
-    // provider/target envelopes just to return their small public summaries.
+    // One bounded manifest at a time, never 100 full envelopes in memory.
     for (const { id } of ids.slice(0, 100)) {
       const [row] = await tx.select().from(copyLiveStopOperations).where(and(eq(copyLiveStopOperations.id, id), eq(copyLiveStopOperations.userId, userId)));
       if (!row) conflict();
@@ -106,10 +101,8 @@ export class CopyLiveStopRepository {
     const now = clock();
     if (!Number.isSafeInteger(now) || now <= 0 || now > 8640000000000000 || now < mandate.updatedAt.getTime()) conflict('live_stop_invalid_clock');
     const generations = await tx.select().from(copyLiveMandates).where(eq(copyLiveMandates.accountId, account.id)).orderBy(asc(copyLiveMandates.id)).limit(1001);
-    // A terminal order can still carry an unsettled reservation. Include it;
-    // neither ACK nor this manifest is permission to cancel or release funds.
-    // Do not fetch sizing envelopes or reservation payloads here. They can
-    // contain megabytes of provider history and do not grant stop authority.
+    // Terminal orders with an unsettled reservation are included; the manifest never permits a
+    // cancel or release. Large payloads are capped (they can hold megabytes of provider history).
     const candidates = await tx.select({
       execution: { ...getTableColumns(copyLiveExecutions),
         record: sql<Record<string, unknown>>`case when octet_length(${copyLiveExecutions.record}::text) <= 16384 then ${copyLiveExecutions.record} else '{}'::jsonb end` },
@@ -131,16 +124,13 @@ export class CopyLiveStopRepository {
         eq(copyLiveExecutions.accountAddress, account.address!), or(inArray(copyLiveExecutions.state, ['prepared', 'submitting', 'unknown', 'resting']),
           and(isNotNull(copyLiveRiskReservations.key), ne(copyLiveRiskReservations.state, 'released')))))
       .orderBy(asc(copyLiveExecutions.key)).limit(1001);
-    // Enumerate account liabilities independently: a malformed journal scope
-    // must not make an existing reservation disappear from this operation.
+    // Liabilities enumerated independently, so a malformed journal scope can't hide a reservation.
     const liabilities = await tx.select({ key: copyLiveRiskReservations.key }).from(copyLiveRiskReservations)
       .where(and(ne(copyLiveRiskReservations.state, 'released'), or(eq(copyLiveRiskReservations.accountId, account.id),
         and(eq(copyLiveRiskReservations.network, account.network), eq(copyLiveRiskReservations.accountAddress, account.address!)))))
       .orderBy(asc(copyLiveRiskReservations.key)).limit(1001);
-    // The owner's single-position closes of this account: their orders carry
-    // no copy provenance, and their provenance is the close row that recorded
-    // the order's key before it existed. A reduce-only IOC the stop waits
-    // for (and finishes), never a reason to block the stop.
+    // The owner's single-position closes: provenance is the close row, not copy provenance. A
+    // reduce-only IOC the stop waits for, never a reason to block it.
     const manualKeys = new Set((await tx.select({ keys: copyLiveManualCloses.executionKeys }).from(copyLiveManualCloses)
       .where(and(eq(copyLiveManualCloses.accountId, account.id), eq(copyLiveManualCloses.userId, userId), eq(copyLiveManualCloses.strategyId, strategy.id))))
       .flatMap(row => row.keys));
@@ -193,8 +183,7 @@ export class CopyLiveStopRepository {
     const manifest = { version: 1, userId, accountId: account.id, accountAddress: account.address!, strategyId: strategy.id,
       mandateId, originalMandateRevision: mandate.revision, generations: generationManifest, executions: targets,
       ...(ownerCloses.length ? { ownerCloses } : {}), trackingComplete: issue === null, checkedAt: now };
-    // Every account generation shares this admission barrier. A renewed grant
-    // cannot reopen risk while an older stop/unknown liability remains active.
+    // A barrier for every generation of the account: a renewed grant cannot reopen risk meanwhile.
     await tx.update(copyStrategies).set({ status: 'stopping', pauseNewRisk: true, reduceOnly: true,
       controlRevision: strategy.controlRevision + 1 }).where(eq(copyStrategies.id, strategy.id));
     await tx.update(copyLiveMandates).set({ state: 'stopping', revision: sql`${copyLiveMandates.revision} + 1`, updatedAt: new Date(now) })

@@ -20,7 +20,7 @@ import { ALERT_MAX_AGE_MS } from '../config/constants/alerts.js';
 import { DELIVERY_DRAIN_BUDGET_MS, NOTIFY_RETRY_DELAYS_MS } from '../config/constants/background.js';
 
 /** Deliveries sent at once within a drain; the Telegram client's pacing sets the actual rate. */
-export const DELIVERY_CONCURRENCY = 8;
+const DELIVERY_CONCURRENCY = 8;
 
 
 /** Why an alert was not sent again: a previous attempt may have reached
@@ -34,9 +34,8 @@ interface SendGuard {
   clear(): Promise<void>;
 }
 
-/** Whether a failed send may still have been delivered: no answer arrived
- * (timeout, abort) or the connection broke after the request was written,
- * or the answer could not be read. An error answer from Telegram, or a
+/** Whether a failed send may still have been delivered (no answer, or the
+ * connection broke after the request was written). An error answer, or a
  * connection that never opened, means it was not. */
 export function sendOutcomeUnknown(error: unknown): boolean {
   if (error instanceof TelegramApiError) return false;
@@ -56,14 +55,10 @@ function delay(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 /**
- * Sends alerts and system messages to Telegram. `TELEGRAM_DRY_RUN=true`
- * (the default) makes these log-only. The bot's conversation replies
- * (linking, /stop) don't come through here and are always sent; see
- * TelegramBotService.
- *
- * Enqueue creates one alert row per matched default rule, or one rule-free
- * row for a favorite-only alert. Delivery updates those same rows, including
- * dry-run and failed outcomes; retries do not append duplicate alert rows.
+ * Sends alerts and system messages to Telegram (log-only under
+ * `TELEGRAM_DRY_RUN=true`, the default; bot replies go via TelegramBotService).
+ * One alert row per matched rule (or one rule-free row for a favorite-only
+ * alert); delivery and retries update those rows, never append.
  */
 @Injectable()
 export class NotifyService {
@@ -119,16 +114,10 @@ export class NotifyService {
   }
 
   /**
-   * Drains the due deliveries (of one action, or all of them): batches of
-   * DELIVERY_BATCH, DELIVERY_CONCURRENCY at a time, until nothing is due,
-   * the drain's time budget is spent or the process is stopping. Each send
-   * requires an owned lease, so drains may overlap.
-   *
-   * How fast it goes is Telegram's limit, not a batch size: the client
-   * paces every `sendMessage` (about 25 a second in all, one a second to a
-   * chat), so an action with 200 recipients is delivered in about 8
-   * seconds. It was 20 rows at once and then 20 every 5 seconds (review 49:
-   * 45 seconds for the same 200, and a backlog under load).
+   * Drains the due deliveries (of one action, or all) in batches until nothing
+   * is due, the time budget is spent or the process stops. Each send needs an
+   * owned lease, so drains may overlap. The Telegram client's pacing sets the
+   * rate (review 49).
    */
   async deliverAction(actionId?: bigint): Promise<void> {
     if (actionId === undefined) {

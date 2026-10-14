@@ -27,11 +27,8 @@ export const apiSettlementProvider: FactoryProvider<CopyLiveApiSettlementService
     return new CopyLiveApiSettlementService(config, jobs, plain, new CopyLiveSettlementClaims(pool), claim => {
       const db = drizzle(settlementFencedPool(pool, claim), { schema });
       const { budget, transport, network } = wallet;
-      // This scanner is reached only after the original terminal execution and
-      // reservation identity were loaded under this settlement claim. Its
-      // receipts are financial release evidence, not ordinary reporting.
-      // Use the existing live reserve; caps and the bucket's forced ordinary
-      // fairness remain unchanged. Scheduled account scans stay background.
+      // This scan's receipts are release evidence (run under the claim), so it
+      // uses the live reserve; scheduled account scans stay background.
       const reserve = liveBudget(budget, { maxWaitMs: 5000, signal: claim.signal });
       const fetcher: typeof fetch = async (input, init) => {
         await claim.assertHeld();

@@ -18,40 +18,26 @@ export interface PendingLeg {
   /** A previous attempt of exactly these legs was below the minimum order. */
   readonly belowMinimum: boolean;
 }
-export interface AdjustmentRun { readonly legs: readonly PendingLeg[]; readonly lastOfCoin: boolean }
-export interface AdjustmentPlan {
-  /** Runs of two or more legs that become one order each; the lead (whose
-   * order it is) is the run's newest leg, so its signal is the freshest. */
+interface AdjustmentRun { readonly legs: readonly PendingLeg[]; readonly lastOfCoin: boolean }
+interface AdjustmentPlan {
+  /** Runs of 2+ legs, one order each, led by the newest (freshest) leg. */
   readonly merges: readonly AdjustmentRun[];
-  /** Legs held back this pass: an open too small for the exchange, waiting
-   * for the next same-side legs of its coin. */
+  /** Opens too small for the exchange, held for the next same-side legs. */
   readonly held: ReadonlySet<string>;
-  /** Legs refused below_min_notional without an order: an open still too
-   * small when a later run of its coin superseded it. */
+  /** Too-small opens superseded by a later run of the coin (below_min_notional). */
   readonly refused: ReadonlySet<string>;
-  /** Legs that waited to be merged until their signal grew too old: dropped
-   * (merged_signal_expired), never sent. */
+  /** Open legs that aged out while merging or held (merged_signal_expired), never sent. */
   readonly expired: ReadonlySet<string>;
 }
 
 /**
- * Same-coin leader legs of one copy that wait together become ONE follower
- * adjustment per run: consecutive legs of the same kind and side. A leader
- * who adds five times becomes one open of the summed size; reductions in a
- * row become one close of their combined fraction; a flip stays a close then
- * an open (each its own order: the open waits for the close). Runs keep
- * leader-time order, so an add, a reduce and an add stay three orders.
+ * Consecutive same-coin, same-kind, same-side legs become one follower order
+ * per run, in leader-time order (add, reduce, add stays three orders). A flip
+ * stays a close then an open.
  *
- * Below the exchange minimum (`belowMinimum(run)`: the run's follower
- * notional can't reach it), an open run is held while it is its coin's
- * latest run, so the next adds join it and the whole goes as one order.
- * Every leg of a merged order must still be a fresh signal (the policy's
- * maxSignalAgeSeconds): a leg held or merged at `windowMs` or older is
- * dropped (merged_signal_expired) and never sent; `windowMs` is the signal
- * age less the time an order needs to be planned. A held run a later reduce
- * or flip of its coin superseded is refused below_min_notional. A close is
- * never held: it closes what the follower holds, and a leader's full close
- * is a full close (combined fraction 1).
+ * An open run below the minimum (`belowMinimum`) is held while it is the coin's
+ * latest run, else refused. Merged/held open legs at `windowMs` or older (signal
+ * age less planning margin) are dropped. A close is never held or dropped.
  */
 export function planAdjustments(legs: readonly PendingLeg[], now: number, windowMs: number,
   belowMinimum: (run: AdjustmentRun) => boolean): AdjustmentPlan {
@@ -70,10 +56,8 @@ export function planAdjustments(legs: readonly PendingLeg[], now: number, window
     runs.forEach((all, index) => {
       const lastOfCoin = index === runs.length - 1, isOpen = all[0]!.leg === 'open' && !all[0]!.flip;
       const below = (legs: readonly PendingLeg[]) => isOpen && legs.length > 0 && (legs.every(leg => leg.belowMinimum) || belowMinimum({ legs, lastOfCoin }));
-      // A leg that would wait or merge past its signal age is dropped; a
-      // single leg on its own keeps the ordinary signal_expired path.
-      // A reduction has no age limit (CP-EXE-14-02): it closes what the
-      // follower holds, however late, so a close run is never dropped.
+      // Drop open legs that would wait or merge past their signal age; a lone
+      // leg keeps the signal_expired path. Closes never age (CP-EXE-14-02).
       const mergesOrWaits = all.length > 1 || below(all);
       const run = mergesOrWaits && all[0]!.leg === 'open' ? all.filter(leg => now - leg.leaderTime < windowMs) : all;
       if (mergesOrWaits) for (const leg of all) if (!run.includes(leg)) expired.add(leg.id);
@@ -85,9 +69,8 @@ export function planAdjustments(legs: readonly PendingLeg[], now: number, window
   return { merges, held, refused, expired };
 }
 
-/** The follower notional an open run would have at most: its leader notional
- * scaled by the copy's budget over the leader's account value (ratio sizing
- * uses min(follower equity, budget), so this is an upper bound). */
+/** Upper bound on an open run's follower notional: leader notional × budget /
+ * leader equity (ratio sizing uses min(follower equity, budget)). */
 export function openNotionalCeiling(run: AdjustmentRun, budgetUsd: string, leaderEquity: string): Dec | null {
   const equity = Dec.from(leaderEquity);
   if (!equity.isPositive) return null;

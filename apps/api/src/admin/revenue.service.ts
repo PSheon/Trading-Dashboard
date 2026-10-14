@@ -16,7 +16,7 @@ import {
 } from "./revenue-daily.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
 
-export type SnapshotResult =
+type SnapshotResult =
   | { status: "skipped"; reason: "no_address" }
   | { status: "written"; address: string; takenAt: Date }
   | { status: "failed"; error: string };
@@ -24,12 +24,8 @@ export type SnapshotResult =
 /** Ahead of the other background work: one call an hour. */
 const SNAPSHOT_RANK = 0;
 
-/**
- * Platform revenue (Stage 2 §6 收入): an hourly snapshot of the platform
- * address's cumulative builder fees and referral rebates from Hyperliquid's
- * `referral` info request into `revenue_snapshots`, and the admin revenue
- * report built from them (daily = increase between adjacent UTC days).
- */
+/** Platform revenue (Stage 2 §6): hourly `referral` snapshots of cumulative builder fees and
+ * rebates into `revenue_snapshots`, and the admin report built from them. */
 @Injectable()
 export class RevenueService {
   private readonly logger = new Logger(RevenueService.name);
@@ -45,8 +41,7 @@ export class RevenueService {
   triggerSnapshot(reason: string): void {
     this.logger.log(`Revenue snapshot requested (${reason})`);
     this.snapshot().catch((error: unknown) => {
-      // `snapshot()` already catches; this guards against a bug there
-      // becoming an unhandled rejection that kills the process.
+      // Guard against an unhandled rejection should `snapshot()` ever throw.
       this.logger.error(`Revenue snapshot crashed: ${safeErrorText(error)}`);
     });
   }

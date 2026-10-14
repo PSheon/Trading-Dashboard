@@ -1,31 +1,17 @@
 import { currentRequestSignal } from "../runtime/request-context.js";
 
 /**
- * Small in-process TTL cache with in-flight de-duplication: while a load for
- * a key is running, every other caller for that key awaits the same promise,
- * so N concurrent page loads for one trader make one upstream call. Failed
- * loads are not cached. Size is bounded: expired entries are dropped first,
- * then the oldest.
+ * In-process TTL cache with in-flight de-duplication (concurrent callers for
+ * a key share one load). Failed loads are not cached. Bounded: expired
+ * entries go first, then the oldest. `set` sweeps expired entries at most
+ * once per interval; `sweepTimer` adds an unref'd timer so large idle values
+ * are released.
  *
- * Expired entries are released even if nobody reads their key again: `set`
- * sweeps them at most once per sweep interval (amortized). A cache of large
- * values (a trader's 4 000 fills) also passes `sweepTimer`: while it holds
- * anything an unref'd timer sweeps on the same interval, so an idle cache
- * does not stay resident until 5 000 other keys push it out.
- *
- * A shared load runs in the async context of whoever started it: its
- * Hyperliquid calls wait at that caller's budget rank and are cancelled with
- * that caller's request. Two rules keep a joiner from inheriting a worse
- * fate than its own:
- *
- * - a caller with a better (lower) `rank` than the load in flight starts
- *   its own load instead of joining (a trader page's chart, rank 1, must
- *   not wait behind a sparkline batch's read of the same address at rank
- *   2, nor behind a pool job's unranked one); later callers join the
- *   better load;
- * - a joiner whose shared load was aborted by someone else's request
- *   (answered, abandoned or timed out) loads again for itself, as long as
- *   its own request is still alive.
+ * A shared load runs in its starter's async context (budget rank, request
+ * cancellation), so a joiner never inherits a worse fate:
+ * - a caller with a better (lower) `rank` starts its own load instead;
+ * - a joiner whose load was aborted by someone else's request loads again
+ *   while its own request is alive.
  */
 export class TtlCache<V> {
   private readonly entries = new Map<string, { value: V; expiresAt: number; observedAt: number }>();
@@ -45,11 +31,8 @@ export class TtlCache<V> {
     this.lastSweepAt = now();
   }
 
-  /**
-   * The fresh value, else the load in flight (see the class comment), else
-   * a new load. `rank` is the caller's budget rank (lower goes first);
-   * omitted, the caller joins whatever is running.
-   */
+  /** Fresh value, else the load in flight, else a new load. `rank`: lower
+   * goes first; omitted, the caller joins whatever is running. */
   get(key: string, load: () => Promise<V>, ttlMs: number | ((value: V) => number) = this.ttlMs, rank?: number): Promise<V> {
     const hit = this.peek(key);
     if (hit !== undefined) return Promise.resolve(hit.value);

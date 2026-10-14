@@ -17,7 +17,7 @@ import { deploymentNetwork } from "../copy/live-deployment.js";
 import { copySourceEligibility } from "./copy-source-eligibility.js";
 
 export type { ActionRow } from "./action-store.js";
-export type FillCoverageRow = typeof fillCoverage.$inferSelect;
+type FillCoverageRow = typeof fillCoverage.$inferSelect;
 const covered = (address: string) => and(eq(fillCoverage.chain, CHAIN_DEFAULT), eq(fillCoverage.address, address));
 
 /** Raw fills may commit before derivation; replay under the shared action lock repairs gaps. */
@@ -105,12 +105,9 @@ export class FillSyncRepository {
   }
 
   /**
-   * Grows the verified span after a completed read. Compare-and-set on the
-   * edge being moved: a concurrent writer (a second process, the repair
-   * command) that already moved it makes this a no-op, never a regression.
-   * `forward` moves `verified_through` from `expected` to `to` (creating
-   * the row, with the span starting at `expected`, when there is none);
-   * otherwise `verified_from` moves back from `expected` to `to`.
+   * Grows the verified span: compare-and-set on the moved edge, so a concurrent
+   * writer makes this a no-op, never a regression. `forward` moves
+   * `verified_through` (creating the row if none), else `verified_from` back.
    */
   async extend(address: string, forward: boolean, expected: number, to: number, floor: number, patch: Partial<Pick<FillCoverageRow, "backfillStatus" | "backfillSpanMs" | "revisedAt">> = {}): Promise<boolean> {
     const now = new Date();
@@ -161,12 +158,8 @@ export class FillSyncRepository {
     return row?.n ?? 0;
   }
 
-  /**
-   * Stored fills in `[from, through]` as Hyperliquid sent them, preceded
-   * (when `from` is after `spanFrom`) by each coin's last stored
-   * millisecond of fills inside `[spanFrom, from)`, so a continuity check
-   * of the window starts every coin from its known position.
-   */
+  /** Stored fills in `[from, through]`, preceded by each coin's last stored
+   * millisecond in `[spanFrom, from)` so a check starts from a known position. */
   async fillsForCheck(address: string, spanFrom: Date, from: Date, through: Date): Promise<HlUserFill[]> {
     const mine = and(eq(fills.chain, CHAIN_DEFAULT), eq(fills.address, address));
     const window = await this.db.select({ raw: fills.raw }).from(fills).where(and(mine, gte(fills.ts, from), lte(fills.ts, through)));
@@ -181,10 +174,8 @@ export class FillSyncRepository {
     return [...seeds.rows.map((r) => r.raw), ...window.map((r) => r.raw as unknown as HlUserFill)];
   }
 
-  /** `fillsForCheck` in pages (see `storedFillPages`): each page is
-   * preceded by every coin's last millisecond before it (in the span), so
-   * a check of each page continues every coin from its known position and
-   * a whole span is never in memory at once. */
+  /** `fillsForCheck` in pages (see `storedFillPages`), so a whole span is
+   * never in memory at once. */
   async *fillPagesForCheck(address: string, spanFrom: Date, from: Date, through: Date): AsyncGenerator<HlUserFill[]> {
     let tail = from > spanFrom ? await this.fillsForCheck(address, spanFrom, from, new Date(from.getTime() - 1)) : [];
     tail = lastMillisecondPerCoin(tail.filter((f) => f.time < from.getTime()));

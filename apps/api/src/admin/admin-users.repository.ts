@@ -8,11 +8,7 @@ import type { DbTransaction } from "../db/unit-of-work.js";
 import { recordAdminAudit } from "../common/audit/admin-audit.js";
 import type { RequestUser } from "../common/auth/current-user.js";
 import { lockCopyUser } from "../copy/copy-user-lock.js";
-
-/** `\`, `%` and `_` taken literally in a LIKE pattern (escape char `\`). */
-export function escapeLike(value: string): string {
-  return value.replace(/[\\%_]/g, "\\$&");
-}
+import { escapeLike } from "../common/sql/escape-like.js";
 
 const adminUserColumns = {
   id: users.id,
@@ -24,9 +20,7 @@ const adminUserColumns = {
   createdAt: users.createdAt,
   lastLoginAt: users.lastLoginAt,
   disabledAt: users.disabledAt,
-  // Spelled out: drizzle renders columns unqualified in a single-table
-  // select, so `${users.id}` inside the subquery would bind to the inner
-  // table's "id".
+  // Spelled out: drizzle renders `${users.id}` unqualified, which would bind to the inner table.
   favorites: sql<number>`(select count(*)::int from "user_favorites" uf where uf."user_id" = "users"."id")`,
   telegramEnabled: sql<boolean>`exists (select 1 from "notification_channels" nc where nc."user_id" = "users"."id" and nc."kind" = 'telegram' and nc."enabled")`,
 };

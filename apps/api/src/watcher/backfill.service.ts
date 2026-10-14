@@ -5,11 +5,9 @@ import { FillSyncService } from "./fill-sync.service.js";
  * per-minute backfill turn (progress is in `fill_coverage`, not the job). */
 const WINDOWS_PER_RUN = 6;
 
-/** Worker-only initial history. Durable admission/status live in backfill_jobs;
- * the history itself is read newest first, backward from the verified span,
- * so what is stored is always contiguous up to now (reading oldest first
- * with a page cap left a hole between the cap and the live fills).
- * FillSync's backfill path deduplicates persisted fills/actions and emits no live alerts. */
+/** Worker-only initial history (status in backfill_jobs), read newest first
+ * backward from the verified span so what is stored stays contiguous up to
+ * now. Emits no live alerts. */
 @Injectable()
 export class BackfillService {
   constructor(private readonly fillSync: FillSyncService) {}

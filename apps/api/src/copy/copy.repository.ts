@@ -40,10 +40,10 @@ export type ControlRow = typeof copyControls.$inferSelect;
 export type OutboxRow = typeof copySignalOutbox.$inferSelect;
 
 /** Orders that are not final yet (hold margin or wait for the executor). */
-export const OPEN_ORDER_STATUSES: CopyOrderStatus[] = ["intent", "risk_approved", "submitting", "submitted", "unknown"];
+const OPEN_ORDER_STATUSES: CopyOrderStatus[] = ["intent", "risk_approved", "submitting", "submitted", "unknown"];
 /** Orders the executor may still cancel: not handed to an exchange. */
-export const CANCELLABLE_ORDER_STATUSES: CopyOrderStatus[] = ["intent", "risk_approved"];
-export const CONSUMER = "copy-signals";
+const CANCELLABLE_ORDER_STATUSES: CopyOrderStatus[] = ["intent", "risk_approved"];
+const CONSUMER = "copy-signals";
 
 /** What is left of an order, signed: buys +, sells −. */
 const signedOpen = (r: { side: "B" | "A"; size: string; filled: string }): Dec => {
@@ -56,11 +56,8 @@ const signedOpen = (r: { side: "B" | "A"; size: string; filled: string }): Dec =
 const paperStrategy = (id: SQLWrapper | number) => sql`exists (select 1 from ${copyStrategies} where ${copyStrategies.id} = ${id} and ${copyStrategies.mode} = 'paper')`;
 
 /**
- * Paper persistence plus shared controls/policy and the global strategy quota.
- * Actual account/wallet/grant/funding recovery uses its separate repositories.
- * No method opens its own transaction or
- * calls out: services own UnitOfWork boundaries and pass `tx`. Methods named
- * `lock*` must run inside the caller's transaction.
+ * Paper persistence plus shared controls/policy and the global strategy quota. No method opens
+ * a transaction: services own UnitOfWork boundaries; `lock*` must run inside the caller's tx.
  */
 @Injectable()
 export class CopyRepository {
@@ -112,10 +109,8 @@ export class CopyRepository {
     await tx.insert(copyControls).values({ scope, scopeId }).onConflictDoNothing();
   }
 
-  /** The platform row and the user's row, read in the caller's transaction.
-   * `share` blocks a concurrent command until this transaction ends (and
-   * waits for one in progress), so an order is never approved against a
-   * control state that a committed command already replaced. */
+  /** Platform and user control rows. `share` blocks concurrent commands until this tx ends, so an
+   * order is never approved against a control state a committed command already replaced. */
   async readControls(userId: number, lock: "share" | "none" = "none", ex: DbExecutor = this.db) {
     if (lock === "share") {
       assertCopyUserLockId(userId);
@@ -131,9 +126,8 @@ export class CopyRepository {
   }
 
   async lockControl(tx: DbTransaction, scope: "platform" | "user", scopeId: number): Promise<ControlRow> {
-    // Live admission holds the matching session shared lock through the final
-    // provider boundary. A committed platform stop cannot be bypassed using
-    // a control snapshot read before this command.
+    // Live admission holds this lock shared through the provider boundary, so a committed
+    // platform stop cannot be bypassed with an earlier control snapshot.
     if (scope === "platform") await tx.execute(sql`select pg_advisory_xact_lock(7405, 0)`);
     if (scope === "user") await this.lockCopyUser(tx, scopeId);
     await this.ensureControl(tx, scope, scopeId);
@@ -414,9 +408,8 @@ export class CopyRepository {
     await tx.insert(copyReservations).values(input);
   }
 
-  /** Orders the per-minute cap counts: what the strategy placed in reaction
-   * to the leader in the last minute. Adoption legs (the start of a copy)
-   * and liquidations are not reactions and are neither capped nor counted. */
+  /** Orders counted by the per-minute cap; adoption and liquidation legs are not reactions and
+   * are not counted. */
   async ordersLastMinute(tx: DbTransaction, strategyId: number): Promise<number> {
     const [row] = await tx.select({ n: count() }).from(copyOrders).where(and(paperStrategy(copyOrders.strategyId), eq(copyOrders.strategyId, strategyId),
       gte(copyOrders.createdAt, sql`now() - interval '1 minute'`), ne(copyOrders.status, "rejected"), notInArray(copyOrders.leg, ["adopt", "liquidation"])));
@@ -487,11 +480,8 @@ export class CopyRepository {
       .where(and(paperStrategy(copyReservations.strategyId), eq(copyReservations.orderId, orderId), eq(copyReservations.status, "held")));
   }
 
-  /** Orders the executor should work on next, oldest first. A strategy's
-   * orders run strictly in id order: while one of them is past the
-   * execution boundary and not final (a fill that failed and waits for its
-   * retry), its later orders are left out, so an open can never run ahead
-   * of the close it follows. Other strategies are not held up. */
+  /** Next orders, oldest first. A strategy with an order past the boundary and not final is
+   * left out, so an open never runs ahead of the close it follows. */
   approvedOrders(limit: number) {
     return this.db.select({ id: copyOrders.id, strategyId: copyOrders.strategyId }).from(copyOrders).where(and(paperStrategy(copyOrders.strategyId), eq(copyOrders.status, "risk_approved"),
       sql`not exists (select 1 from ${copyOrders} b where b.strategy_id = ${copyOrders.strategyId} and b.status in ('submitting', 'submitted', 'unknown'))`))
@@ -601,13 +591,8 @@ export class CopyRepository {
     return this.db.select({ status: copyStrategies.status, n: count() }).from(copyStrategies).where(eq(copyStrategies.mode, "paper")).groupBy(copyStrategies.status);
   }
 
-  /**
-   * A paper fill and its owner event (CopyDog's `portfolio-feed`): `action`
-   * says what the fill did to the copy's position — `open` (from flat),
-   * `increase`, `decrease` or `close` (back to flat) — from the position's
-   * size before and after (`change`); a liquidation is
-   * `position_liquidated`. `realizedPnl` is Hyperliquid-style (before fees).
-   */
+  /** A paper fill and its owner event; `action` (open/increase/decrease/close) comes from the
+   * size before/after. `realizedPnl` is Hyperliquid-style (before fees). */
   async insertPaperFill(tx: DbTransaction, values: typeof copyPaperFills.$inferInsert, change?: { before: string; after: string }): Promise<void> {
     const input = structuredClone(values);
     await this.requirePaperStrategy(tx, input.strategyId);
@@ -673,9 +658,7 @@ export class CopyRepository {
     }).where(and(inArray(copySignalOutbox.id, ids), eq(copySignalOutbox.status, "pending")));
   }
 
-  /** Rows that wait for market data: still pending, retried after a short
-   * backoff (2 s doubling to 30 s). Never parked as `failed` by this path:
-   * the wait ends when the data returns or the open goes stale. */
+  /** Waiting for market data: stays pending, backoff 2 s doubling to 30 s, never `failed`. */
   async deferOutbox(tx: DbTransaction, ids: bigint[], reason: string): Promise<void> {
     if (ids.length === 0) return;
     await tx.update(copySignalOutbox).set({
@@ -731,9 +714,8 @@ export class CopyRepository {
     }
   }
 
-  /** Un-claims legs that could not be decided this pass (market data
-   * missing), so the retry claims them again. Only ever called for legs
-   * claimed in the same transaction, which have no order. */
+  /** Un-claims undecided legs (market data missing) so the retry claims them again; only for
+   * legs claimed in the same transaction. */
   async releaseLegs(tx: DbTransaction, strategyId: number, legs: { tid: bigint; leg: CopyLeg }[]): Promise<void> {
     for (const l of legs) {
       await tx.delete(copySignalLegs).where(and(paperStrategy(copySignalLegs.strategyId), eq(copySignalLegs.strategyId, strategyId), eq(copySignalLegs.tid, l.tid), eq(copySignalLegs.leg, l.leg), eq(copySignalLegs.outcome, "pending")));

@@ -25,23 +25,14 @@ const STRATEGY_COMMAND: Record<CopyStrategyCommand, CopyControlCommand> = {
 };
 
 /**
- * The four stop commands (pause_new_risk, cancel_pending, reduce_only,
- * close_positions) and resume, at three levels: one strategy (its owner),
- * one user and the whole platform (admins). Each command bumps the scope's
- * revision in the same transaction as its effects:
- * - pause_new_risk / reduce_only: new risk-increasing orders are refused at
- *   approval (CopyOrderPlanner) and, for any not yet submitted, cancelled
- *   at the execution boundary (CopyExecutionService.submit). Leader
- *   reductions keep being copied. In paper both behave the same; in live
- *   reduce_only will also cancel resting risk-increasing orders.
- * - cancel_pending: cancels every order not yet submitted.
- * - close_positions: pause_new_risk + cancel pending + a reduce-only close
- *   of every open position in scope.
- * - resume: clears pause and reduce-only at this level only (a strategy
- *   resume never lifts a user or platform stop).
- *
- * Lock order, shared with the consumer and executor: control rows, then
- * strategies (ascending id), then orders.
+ * Stop commands and resume at strategy (owner), user and platform (admin) level; each bumps the
+ * scope's revision in the same tx as its effects.
+ * - pause_new_risk / reduce_only: risk increases refused at approval and cancelled at the
+ *   boundary; leader reductions still copied.
+ * - cancel_pending: cancels every unsubmitted order.
+ * - close_positions: pause + cancel + reduce-only close of every position in scope.
+ * - resume: clears this level only (never lifts a higher-level stop).
+ * Lock order (shared with consumer and executor): controls, strategies by id, orders.
  */
 @Injectable()
 export class CopyControlService {
@@ -56,13 +47,9 @@ export class CopyControlService {
   ) {}
 
   /**
-   * A platform- or user-level command (the admin API: AdminCopyController).
-   * `input` is parsed here with adminCopyControlRequestSchema (a
-   * discriminated union: platform has no userId, user requires one); the
-   * parsed target is the only one authorized and acted on. Needs
-   * execution.pause, or execution.resume for `resume`. 409 stale_revision
-   * when `expectedRevision` isn't the scope's current revision. Audited in
-   * admin_audit_logs (event copy.control) in the same transaction.
+   * A platform- or user-level admin command; only the parsed target is authorized and acted on.
+   * Needs execution.pause (execution.resume for `resume`); 409 stale_revision on an old
+   * `expectedRevision`. Audited (copy.control) in the same tx.
    * @throws ForbiddenException, NotFoundException (unknown user), ConflictException
    */
   async apply(input: unknown, actor: RequestUser): Promise<AdminCopyControlResponse> {
@@ -72,13 +59,9 @@ export class CopyControlService {
     const target: Target = req.scope === "platform" ? { scope: "platform", scopeId: 0 } : { scope: "user", scopeId: req.userId };
     const mids = req.command === "close_positions" ? await this.market.midPrices(await this.repository.positionCoins((await this.repository.liveStrategyIdsOfUser(this.repository.reader, req.scope === "user" ? req.userId : null)).map((s) => s.id))) : null;
     const actorUserId = actor.kind === "user" ? actor.id : null;
-    // 全部平倉 also ends the actual copies in scope: a stop for each (close,
-    // then return), worked by the stop executor like an owner's stop. The
-    // control event records the intent (liveCloseAll: pending) in this
-    // transaction; the stops start after it commits (a stale revision starts
-    // none), each in its own transaction, and the event gets the outcome. If
-    // this process dies in between, the worker resumes the pending intent
-    // (CopyLiveSystemStops.resumePendingCloseAll), with the same stop keys.
+    // 全部平倉 also stops each live copy in scope. The event records the intent (liveCloseAll:
+    // pending) in this tx; stops start after commit; a crash in between is resumed by
+    // CopyLiveSystemStops.resumePendingCloseAll with the same stop keys.
     const closeAll = req.command === "close_positions";
     // Never a close-all that silently leaves real-funds copies out.
     if (closeAll && !(this.liveStops instanceof CopyLiveSystemStops)) throw new ConflictException({ statusCode: 409, code: "close_all_unavailable", message: "Close-all can't reach real-funds copies here" });
@@ -123,8 +106,7 @@ export class CopyControlService {
     const live = await this.liveStops.closeAll(event, actor);
     // closeOrders counts the close actions: paper close orders and actual copies' stops.
     const result = { ...response.event.result, ...live, closeOrders: response.event.result.closeOrders + live.liveStops };
-    // A kill switch that left any copy unstopped is not reported as success:
-    // the pause and the stops that started stand, the rest are listed.
+    // A kill switch that left any copy unstopped is not success; the unstopped ones are listed.
     if (!live.complete) throw new ConflictException({ statusCode: 409, code: "close_all_incomplete",
       message: `Close-all left ${live.liveUnhandled.length} real-funds cop${live.liveUnhandled.length === 1 ? "y" : "ies"} unstopped: ${live.liveUnhandled.map((u) => `${u.accountId} (${u.code})`).join(", ").slice(0, 400)}`,
       unhandled: live.liveUnhandled, result });
@@ -174,10 +156,8 @@ export class CopyControlService {
     return { cancelledOrders, closeOrders };
   }
 
-  /** A reduce-only market close of every open position of `strategies`
-   * (skipping coins that already have a pending stop-close), keyed by the
-   * control event that asked for it (`cause`: its scope and revision), so
-   * the same event never makes a second close of a coin. */
+  /** Reduce-only close of every open position (skipping pending stop-closes), keyed by `cause` so
+   * one event never closes a coin twice. */
   private async closeAll(tx: DbTransaction, strategies: StrategyRow[], mids: Mids | null, cause: string): Promise<number> {
     if (strategies.length === 0) return 0;
     const positions = await this.repository.positionsOf(strategies.map((s) => s.id), tx);

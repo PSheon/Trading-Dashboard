@@ -7,12 +7,8 @@ import { DAY_MS } from '../config/constants/time.js';
 import { CROWD_TTL_MS, INSIGHTS_SNAPSHOT_MAX_AGE_MS } from '../config/constants/cache-ttls.js';
 
 
-/**
- * Position notional at the snapshot's own mark price. A snapshot stores
- * szi, entryPx and unrealizedPnl; since uPnL = szi × (mark − entry),
- * szi × mark = szi × entry + uPnL. So this is |szi| × mark at snapshot time,
- * with no separate price source (`coin_meta` has no prices). Returns null when any valuation input is unavailable.
- */
+/** |szi| × mark at snapshot time, from szi × entry + uPnL (no separate price
+ * source); null when any input is unavailable. */
 export function snapshotNotional(szi: number, entryPx: number | null, unrealizedPnl: number | null): number | null {
   if (entryPx === null || unrealizedPnl === null || ![szi, entryPx, unrealizedPnl].every(Number.isFinite)) return null;
   const value = Math.abs(szi * entryPx + unrealizedPnl);
@@ -40,16 +36,11 @@ export class InsightsService {
   }
 
   /**
-   * Current: each active leader's snapshot set closest to `now` within the
-   * last 15 min. An address is "in" a set through its `equity_snapshots`
-   * row, written every run even when it holds nothing; its positions are
-   * the `position_snapshots` rows with the same `ts` (none when flat), so a
-   * closed position disappears on the next run.
-   *
-   * 24 h ago: the same, for the set closest to now − 24 h (± 15 min);
-   * Exposure change uses only addresses present in both sets; missing
-   * observations are not flat positions. Includes price movement, not just trades.
-   * The legacy prior-total field is available only for identical cohorts.
+   * Current and 24 h-ago snapshot sets (within `INSIGHTS_SNAPSHOT_MAX_AGE_MS`).
+   * An address is in a set through its `equity_snapshots` row (written even when
+   * flat); its positions are the `position_snapshots` rows with the same `ts`.
+   * Exposure change uses only addresses in both sets (missing is not flat) and
+   * includes price movement; the legacy prior total only for identical cohorts.
    */
   async computeCrowd(now: Date): Promise<CrowdResponse> {
     const [current, past] = await Promise.all([

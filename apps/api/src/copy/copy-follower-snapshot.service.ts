@@ -10,7 +10,7 @@ import { safeErrorText } from '../runtime/safe-error-text.js';
 import { budgetConsumer } from '../hyperliquid/request-budgeter.service.js';
 
 export const FOLLOWER_SNAPSHOT_READER = Symbol('FOLLOWER_SNAPSHOT_READER');
-export interface FollowerSnapshotReader { observe(accountAddress: string, beforeRead?: () => Promise<void>): Promise<LiveAccountSnapshot>; close?(): void }
+interface FollowerSnapshotReader { observe(accountAddress: string, beforeRead?: () => Promise<void>): Promise<LiveAccountSnapshot>; close?(): void }
 
 /** Provider-free owner reads. Original evidence times survive every HTTP poll. */
 @Injectable()

@@ -22,7 +22,7 @@ import { KolService } from "./kol.service.js";
 
 export const DEFAULT_KOL_FILE = fileURLToPath(new URL("../../data/kol/copydog-kol-2026-09-30.csv", import.meta.url));
 
-export async function seedKols(databaseUrl: string, file: string, replace: boolean) {
+async function seedKols(databaseUrl: string, file: string, replace: boolean) {
   const pool = new Pool({ connectionString: databaseUrl, connectionTimeoutMillis: 5000 });
   try {
     const db = drizzle(pool, { schema });

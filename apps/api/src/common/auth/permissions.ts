@@ -4,9 +4,7 @@ import { ROLE_PERMISSIONS, type Permission } from "@trading-dashboard/shared/con
 import type { RequestUser } from "./current-user.js";
 
 export const PERMISSIONS_KEY = "app:permissions";
-/** All listed permissions are required. Method metadata adds to the class's
- * (until 2026-10-05 it replaced it, so a method's `settings.read` dropped the
- * class's `admin.access` for a service token: gap audit 2026-10-05). */
+/** All listed permissions are required; method metadata adds to the class's (gap audit 2026-10-05). */
 export const RequirePermissions = (first: Permission, ...rest: Permission[]) =>
   SetMetadata(PERMISSIONS_KEY, [first, ...rest]);
 

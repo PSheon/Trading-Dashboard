@@ -32,10 +32,8 @@ const toGroup = (row: GroupRow, addresses: string[]): FavoriteGroup => ({
   color: favoriteGroupColor(row),
   sortOrder: row.sortOrder,
 });
-/** A user's private favorite groups (the favorites page's group chips):
- * at most `FAVORITE_GROUPS_MAX`, names unique case-insensitively. Members
- * must be the user's favorites; unfavoriting drops the membership (FK
- * cascade) and deleting a group keeps the favorites. */
+/** A user's favorite groups: at most `FAVORITE_GROUPS_MAX`, names unique case-insensitively.
+ * Unfavoriting drops the membership (FK cascade); deleting a group keeps the favorites. */
 @Injectable()
 export class FavoriteGroupsRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}

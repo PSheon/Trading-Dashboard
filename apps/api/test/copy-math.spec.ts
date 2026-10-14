@@ -4,7 +4,7 @@ import { DEFAULT_COPY_RISK_LIMITS, adminCopyControlRequestSchema, coinKey, copyR
 import { Dec, d } from "../src/common/decimal/dec.js";
 import { accountHealth } from "../src/copy/copy-execution.service.js";
 import { AssetMap, hip3DexesOf, maintenanceMargin, type Mids } from "../src/copy/copy-market.service.js";
-import { applyFill, cloidOf, dec, fillFees, floorSize, fundingHours, fundingPayment, legsOf, openNotional, reduceSize, reduceWithCarry, roundPx, slippedPx, tradeKeyOf, type LeaderFill } from "../src/copy/copy-math.js";
+import { applyFill, cloidOf, dec, fillFees, floorSize, fundingHours, fundingPayment, legsOf, openNotional, reduceWithCarry, roundPx, slippedPx, tradeKeyOf, type LeaderFill } from "../src/copy/copy-math.js";
 import { marketDataGap } from "../src/copy/copy-planner.service.js";
 import { evaluateRisk, pricedCoins, symbolRefusal, type RiskInput } from "../src/copy/copy-risk.js";
 
@@ -52,12 +52,6 @@ describe("sizing and exchange rounding", () => {
     expect(ratio(null)).toBeNull();
     expect(ratio(d(0))).toBeNull();
     expect(openNotional({ mode: "fixed", perTradeUsd: 250, leaderNotional: d(50_000), strategyEquity: d(1_000), leaderEquity: null })?.toString()).toBe("250");
-  });
-
-  it("reduces by the leader's fraction of the follower's own position", () => {
-    expect(reduceSize(d("0.8"), d("0.25")).toString()).toBe("0.2");
-    expect(reduceSize(d("0.8"), d(1)).toString()).toBe("0.8");
-    expect(reduceSize(d(0), d("0.5")).toString()).toBe("0");
   });
 
   it("floors sizes to szDecimals and prices to 5 significant figures / 6 − szDecimals decimals", () => {

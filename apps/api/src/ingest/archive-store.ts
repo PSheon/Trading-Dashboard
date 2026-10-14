@@ -26,7 +26,7 @@ export class ArchiveAccessError extends Error {
   }
 }
 
-export interface AwsCredentials {
+interface AwsCredentials {
   accessKeyId: string;
   secretAccessKey: string;
   sessionToken?: string;
@@ -89,25 +89,20 @@ export function signS3Request(input: {
 }
 
 /**
- * Requester-pays reads from the archive bucket. Every request carries
- * `x-amz-request-payer: requester`: the transfer is billed to the
- * credentials' AWS account. The IAM user needs `s3:GetObject` on the
- * bucket's objects and `s3:ListBucket` on the bucket (without ListBucket a
- * missing key answers 403 instead of 404, and "not published yet" would
- * look like an access failure).
+ * Requester-pays reads from the archive bucket (billed to the credentials' AWS
+ * account). The IAM user needs `s3:GetObject` and `s3:ListBucket`: without
+ * ListBucket a missing key answers 403, not 404, and looks like an access failure.
  */
 export interface S3Timeouts {
   /** From sending a request until S3's response headers arrive. */
   responseMs: number;
-  /** Longest wait for the next piece of an object's body. A slow but moving
-   * transfer of a large object is fine; a stalled one is not (undici would
-   * otherwise hold it for its 300 s default and the ingest with it). Time
-   * the reader spends on a piece it already has does not count. */
+  /** Longest wait for the next piece of a body: a stalled transfer fails
+   * instead of holding the ingest for undici's 300 s default. */
   stallMs: number;
   /** A whole list page (headers and body). */
   listMs: number;
 }
-export const S3_TIMEOUTS: S3Timeouts = { responseMs: 30_000, stallMs: 60_000, listMs: 30_000 };
+const S3_TIMEOUTS: S3Timeouts = { responseMs: 30_000, stallMs: 60_000, listMs: 30_000 };
 
 const timedOut = (what: string, ms: number) => new DOMException(`${what} timed out after ${ms} ms`, "TimeoutError");
 

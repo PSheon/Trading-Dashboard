@@ -11,7 +11,7 @@ import type {LiveNetwork} from '../copy/live/wallet-authorization.js';
 const MAX_BYTES=8*1024*1024;
 const fail=():never=>{throw new Error('invalid_twap_snapshot');};
 function owner(user:string){if(typeof user!=='string'||!/^0x[0-9a-f]{40}$/.test(user))fail();return user;}
-export interface TraderTwapSnapshot {
+interface TraderTwapSnapshot {
  history:HlTwapHistoryEntry[];
  /** Original receipt clock; never advanced after cleanup or cache hits. */
  readonly observedAt:number;

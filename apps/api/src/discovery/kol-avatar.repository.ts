@@ -25,7 +25,7 @@ export interface StoredAvatar {
 }
 
 /** The KOL card the trader page header shows. */
-export interface KolCardRow {
+interface KolCardRow {
   displayName: string | null;
   xHandle: string | null;
   verified: boolean;

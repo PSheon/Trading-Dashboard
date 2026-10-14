@@ -11,31 +11,22 @@ import type { DbExecutor } from '../../db/unit-of-work.js';
 import { PostgresLiveRiskScope } from '../live/postgres-live-risk-scope.js';
 import { LiveBoundaryError } from '../live/wallet-authorization.js';
 
-/** A coin's reduction carry with something owed, as read before the
- * observation that proves the follower flat in that coin. */
-export interface OwedCarry { readonly mandateId: string; readonly revision: number; readonly carry: string; readonly updatedAt: Date }
+/** A non-zero reduction carry, read before the observation that proves the coin flat. */
+interface OwedCarry { readonly mandateId: string; readonly revision: number; readonly carry: string; readonly updatedAt: Date }
 type CloseRow = { readonly userId: number; readonly accountId: string; readonly strategyId: number; readonly coin: string };
 class Deferred extends Error {}
 
 /**
- * A single-position close (the owner's, or one after the leader went flat)
- * that left the follower flat in a coin: what earlier settled closes still
- * owed of it (copy_live_reduction_carry) is owed of nothing. Kept, a later
- * re-open of size N had its partial close sized carry + f·(N − carry), or
- * refused when N < carry, instead of f·N.
+ * After a single-position close leaves the follower flat in a coin, its
+ * reduction carry is reset to 0 (else a later re-open's partial close would be
+ * sized carry + f·(N − carry) instead of f·N).
  *
- * The reset is a carry change like a settled close's: revision + 1, never an
- * earlier updated_at (the "carry is never rewound" rule). It is made only when
- * nothing still relies on the carry it replaces, all in one transaction under
- * the account's original risk locks (user and account, as settlement):
- * - the carry row is locked FOR UPDATE and still the one read before the flat
- *   observation (no close settled since: its carry belongs to the position
- *   that observation saw closed);
- * - no journal of that generation and coin is prepared, submitting, unknown or
- *   resting, and no reservation of it is unreleased: their sizing basis names
- *   this carry, which settlement (live_settlement_carry_changed), the risk
- *   gate and an unattempted release (originalCarry) require unchanged.
- * Otherwise it waits for a later pass (the close stays requested).
+ * The reset is revision + 1 with a non-decreasing updated_at (carry is never
+ * rewound), in one transaction under the account's risk locks, and only if:
+ * - the locked carry row is unchanged since the read before the flat observation;
+ * - no journal of that generation and coin is in flight and no reservation is
+ *   unreleased (their sizing basis names this carry and requires it unchanged).
+ * Otherwise it waits for a later pass.
  */
 export class CopyLiveFlatCarry {
   private readonly db: DrizzleDb;
@@ -54,8 +45,7 @@ export class CopyLiveFlatCarry {
   async owed(row: CloseRow): Promise<OwedCarry[]> {
     return this.rows(this.db, row);
   }
-  /** After the account was observed flat in `row.coin`: resets what `owed`
-   * read to 0. False when it must wait for a later pass. */
+  /** After a flat observation: resets what `owed` read to 0; false when it must wait. */
   async reset(row: CloseRow, accountAddress: string, owed: readonly OwedCarry[]): Promise<boolean> {
     if (!owed.length) return true;
     try {

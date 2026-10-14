@@ -76,9 +76,7 @@ export class CopyLiveMandateRepository {
     if (this.config.value.copy.live?.builderFee === false) return { builderAddress: null, builderMaxFeeTenthsOfBps: 0 };
     const [row] = await db.select().from(appSettings).where(eq(appSettings.key, 'revenue'));
     if (!row) return { builderAddress: null, builderMaxFeeTenthsOfBps: 0 };
-    // A saved section missing a key means that key's default (no builder, fee
-    // 0), exactly as the risk authority reads it: refusing it here made every
-    // preparation 503 while the orders' own check accepted the same row.
+    // A missing key means its default (no builder, fee 0), exactly as the risk authority reads it.
     const parsed = adminSettingsSchema.shape.revenue.safeParse(row.value);
     if (!parsed.success) throw new ServiceUnavailableException('Invalid builder settings');
     return { builderAddress: parsed.data.builderAddress?.toLowerCase() ?? null, builderMaxFeeTenthsOfBps: parsed.data.builderFeeTenthsBps };
@@ -92,8 +90,8 @@ export class CopyLiveMandateRepository {
     if (controls.length !== 2 || controls.filter(row => row.scope === 'platform' && row.scopeId === 0).length !== 1 || controls.filter(row => row.scope === 'user' && row.scopeId === userId).length !== 1) throw new ConflictException('Complete platform and user controls required');
     if (controls.some(row => row.pauseNewRisk || row.reduceOnly)) refuse('copy_paused', 'New risk is paused');
   }
-  /** The owner's paused testnet copies whose start never ran a generation
-   * and ended or never got its consent: what 取消設定 would end. */
+  /** The latest start of each given copy that never ran a generation and ended or never got its
+   * consent: what 取消設定 would end. */
   async unfinishedStarts(tx: DbExecutor, userId: number, strategyIds: number[]): Promise<Array<{ strategyId: number; leaderAddress: string; setupId: string }>> {
     if (!strategyIds.length) return [];
     const rows = await tx.select({ strategyId: copyLiveSetups.strategyId, leaderAddress: copyLiveSetups.leaderAddress, setupId: copyLiveSetups.id }).from(copyLiveSetups)
@@ -130,15 +128,10 @@ export class CopyLiveMandateRepository {
     const active = await tx.select().from(copyStrategies).where(and(eq(copyStrategies.userId, userId), ne(copyStrategies.status, 'stopped')));
     const actual = active.filter(row => row.mode === ACTUAL_STRATEGY_MODE && row.network === network);
     if (actual.some(row => row.leaderAddress === input.leader)) refuse('already_copying', 'You already copy this trader with real funds');
-    // The policy's limit counts every copy (as paper's does); the stricter of
-    // it and the deployment's cap (COPY_LIVE_MAX_STRATEGIES_PER_USER) counts
-    // this network's actual copies, so another network's history neither
-    // blocks nor widens it. Without a cap both are the policy's.
+    // The policy's limit counts every copy; the stricter deployment cap
+    // (COPY_LIVE_MAX_STRATEGIES_PER_USER) counts only this network's actual copies.
     if (active.length >= policy.maxStrategiesPerUser || actual.length >= limits.maxStrategiesPerUser) {
-      // Starts left unfinished (their sheet closed, or they failed or expired
-      // before a generation ran) still count: each holds a copy wallet and
-      // an agent at Privy, so the limit also bounds those. The refusal names
-      // them, for the owner to cancel the one they no longer want.
+      // Unfinished starts count (each holds a Privy wallet and agent); the refusal names them to cancel.
       const unfinished = await this.unfinishedStarts(tx, userId, actual.filter(row => row.status === 'paused').map(row => row.id));
       refuse('strategy_limit', 'Copy limit reached', { limit: actual.length >= limits.maxStrategiesPerUser ? limits.maxStrategiesPerUser : policy.maxStrategiesPerUser, unfinished });
     }
@@ -146,12 +139,9 @@ export class CopyLiveMandateRepository {
     const [row] = await tx.insert(copyStrategies).values({ userId, leaderAddress: input.leader, mode: ACTUAL_STRATEGY_MODE, network, status: 'paused', pauseNewRisk: true, allocated: '0', cash: '0', activatedAt: new Date(now) }).returning();
     await tx.insert(copyStrategyVersions).values({ strategyId: row.id, version: 1, settings: input.settings, createdByUserId: userId });
     await tx.insert(copyLiveStrategyConfigs).values({ strategyId: row.id, userId, idempotencyKey: input.idempotencyKey, sourceNetwork: input.sourceNetwork, budgetUsd: input.budgetUsd, strategyVersion: 1 });
-    // A mainnet leader's fills reach testnet copies through the market
-    // watcher (REST-confirmed, with proven coverage): make sure it is watched.
+    // A mainnet leader's fills arrive through the market watcher: make sure it is watched.
     if (input.sourceNetwork === 'mainnet') {
-      // Within the site-wide cap on watched addresses, serialised like paper
-      // copies and favorites: at the cap a leader nobody watches yet is refused
-      // and the whole preparation rolls back.
+      // Within the site-wide watch cap: at the cap a new leader is refused and the preparation rolls back.
       const [general] = await tx.select().from(appSettings).where(eq(appSettings.key, 'general'));
       const limit = generalSettingsSchema.shape.maxWatchedAddresses.safeParse((general?.value as { maxWatchedAddresses?: unknown } | undefined)?.maxWatchedAddresses);
       if (!limit.success) throw new ServiceUnavailableException('Invalid watch capacity setting');
@@ -248,8 +238,7 @@ export class CopyLiveMandateRepository {
     await assertSetupAdmission(tx, row.userId, consent.liveSetupId);
     await tx.update(copyStrategies).set({ status: 'paused', pauseNewRisk: true }).where(and(eq(copyStrategies.id, row.strategyId), eq(copyStrategies.userId, row.userId), eq(copyStrategies.mode, ACTUAL_STRATEGY_MODE)));
     const kind = { consentDigest: consent.consentDigest, consentKind: 'setup' as const, liveSetupId: consent.liveSetupId };
-    // Never before the row's own created_at (the activation check): a caller
-    // that read its clock before preparing would otherwise be milliseconds early.
+    // Never before the row's created_at (the activation check), even if the caller's clock read was earlier.
     const at = Math.max(now, row.createdAt.getTime());
     const [updated] = await tx.update(copyLiveMandates).set({ state: 'active', ...kind, activationCursor: new Date(at), revision: row.revision + 1, updatedAt: new Date(at) }).where(and(eq(copyLiveMandates.id, row.id), eq(copyLiveMandates.revision, row.revision), eq(copyLiveMandates.state, 'prepared'))).returning();
     if (!updated) conflict();
@@ -262,12 +251,9 @@ export class CopyLiveMandateRepository {
     return updated;
   }
   /**
-   * A one-click setup's generation (plan §2 "Mandate"): the server fills the
-   * unchanged mandate intent once the agent grant is active, checks that it
-   * binds exactly what the setup consent bound, and activates it under that
-   * consent in the same transaction. An edit or renewal first replaces the
-   * copy's current generation (expired) and, for an edit, its settings and
-   * budget become the strategy's next version. A paused copy stays paused.
+   * A one-click setup's generation (plan §2 "Mandate"): prepared, checked to bind exactly what the
+   * setup consent bound, and activated in the same transaction. An edit/renewal first expires the
+   * current generation (an edit also writes the next strategy version). A paused copy stays paused.
    */
   async prepareFromSetup(tx: DbTransaction, userId: number, setup: { id: string; kind: 'start' | 'edit' | 'renewal'; consentDigest: string; intent: LiveCopySetupIntent; settings: CreateLiveCopyStrategy['settings'] }, clock: () => number) {
     const owner = await this.lock(tx, userId); const now = clock(), intent = setup.intent, key = `setup_${setup.id.replaceAll('-', '')}`;
@@ -323,16 +309,14 @@ export class CopyLiveMandateRepository {
     if (!updated) conflict(); return updated;
   }
   /**
-   * Resume (plan §4 parity): a paused generation becomes active again within
-   * its unexpired lifetime, with no signature (its consent covers the whole
-   * generation). Same gates as the funded start: controls clear, no stop, the
-   * strategy exactly paused. A generation that never started stays waiting
-   * for its deposit (activateFunded starts it).
+   * Resume (plan §4): a paused, unexpired generation becomes active with no signature (its consent
+   * covers the generation), under the funded start's gates. One never started still waits for
+   * activateFunded.
    */
   async resume(tx: DbTransaction, userId: number, id: string, clock: () => number) {
     const owner = await this.lock(tx, userId), row = await this.find(userId, id, tx, true), now = clock();
     const [strategy] = await tx.select().from(copyStrategies).where(and(eq(copyStrategies.id, row.strategyId), eq(copyStrategies.userId, userId), eq(copyStrategies.mode, ACTUAL_STRATEGY_MODE))).for('update');
-    // Another network's generation is history on this deployment: never resumed here.
+    // Another network's generation is never resumed here.
     if (!strategy || owner.privyUserId !== row.ownerPrivyUserId || row.network !== this.network || strategy.network !== this.network) conflict();
     this.assertAllowed(owner.privyUserId);
     if (row.state === 'active') return row;

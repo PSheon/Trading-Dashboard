@@ -16,9 +16,8 @@ function consentOf(setup: typeof copyLiveSetups.$inferSelect, now: number) {
   return parsed.success ? parsed.data : null;
 }
 
-/** Read model of the owner's actual copies (every network: another network's
- * are history, marked by `network`): one row per strategy with the
- * stage the portfolio shows. SQL only; nothing here contacts the exchange. */
+/** Read model of the owner's actual copies on every network (marked by `network`): one row per
+ * strategy with its portfolio stage. SQL only. */
 @Injectable()
 export class CopyLivePortfolioRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
@@ -40,8 +39,7 @@ export class CopyLivePortfolioRepository {
         .where(and(eq(copyLiveSetupAborts.userId, userId), inArray(copyLiveSetupAborts.strategyId, ids))),
     ]);
     const now = Date.now();
-    // Select the current generation only after binding the owner's execution
-    // account and network. Prior generations remain history, not live warnings.
+    // The current generation only, bound to the owner's account and network; older ones raise no warnings.
     const current = strategies.flatMap(({ strategy: s, config: c }) => {
       const account = accounts.find(a => a.strategyId === s.id && a.network === s.network);
       const mandate = account && mandates.find(m => m.strategyId === s.id && m.accountId === account.id && m.network === s.network &&
@@ -63,8 +61,7 @@ export class CopyLivePortfolioRepository {
         .leftJoin(r, and(eq(r.key, d.executionKey), eq(r.userId, d.userId), eq(r.strategyId, d.strategyId), eq(r.accountId, d.accountId),
           eq(r.network, copyLiveMandates.network), eq(r.accountAddress, copyLiveMandates.accountAddress)))
         .where(bound).groupBy(d.mandateId),
-      // One latest actual refusal per current generation, without a shared
-      // history limit that could hide another strategy's most recent refusal.
+      // The latest refusal per current generation (no shared limit that could hide another strategy's).
       this.db.selectDistinctOn([d.mandateId], { mandateId: d.mandateId, reason: d.reason, at: d.updatedAt }).from(d)
         .innerJoin(copyLiveMandates, eq(copyLiveMandates.id, d.mandateId))
         .where(and(bound, eq(d.state, 'refused'), ne(d.reason, MERGED_REASON)))
@@ -78,14 +75,11 @@ export class CopyLivePortfolioRepository {
       const activation = mandate ? activations.find(a => a.mandateId === mandate.id) : undefined;
       const stop = stops.find(row => row.strategyId === s.id && row.state !== 'stopped') ?? null;
       const ops = transfers.filter(t => t.strategyId === s.id);
-      // A setup's deposit Hyperliquid took whose credit was never seen by the
-      // setup's deadline (it ended: setup_deposit_uncredited): what arrived
-      // is in the copy wallet, so it is offered back like a credited one and
-      // holds nothing (see funding-blocking.ts).
+      // A deposit whose setup ended setup_deposit_uncredited is offered back like a credited one and
+      // holds nothing (funding-blocking.ts).
       const uncredited = (t: (typeof ops)[number]) => t.direction === 'to_account' && t.status === 'accepted' && Boolean(t.liveSetupId) &&
         liveSetups.some(row => row.id === t.liveSetupId && ['expired', 'cancelled', 'failed'].includes(row.stage));
-      // A return prepared and never attempted past its consent window can no
-      // longer be sent (it is cancelled on the next reservation): not pending.
+      // An unattempted return past its consent window can't be sent: not pending.
       const pending = ops.find(t => ['prepared', 'unknown', 'accepted'].includes(t.status) && !uncredited(t) &&
         !(t.direction === 'to_main' && t.status === 'prepared' && !t.attemptedAt && t.createdAt.getTime() < Date.now() - RETURN_CONSENT_WINDOW_MS)) ?? null;
       const deposited = ops.some(t => t.direction === 'to_account' && t.status === 'credited');
@@ -98,8 +92,7 @@ export class CopyLivePortfolioRepository {
         sourceThrough: stream?.state === 'ready' ? stream.coverageThrough?.toISOString() ?? null : null, observedAt: new Date(now).toISOString() } : null;
       // The latest stop's sweep (newest first), shown while returning and once stopped.
       const latestStop = stops.find(row => row.strategyId === s.id);
-      // A start that ended without a generation stops with no stop operation:
-      // a deposit that arrived is returned by hand (a sweep of a stopped copy).
+      // A start that ended without a generation has no stop: arrived funds are returned by hand.
       const lastDeposit = ops.find(t => t.direction === 'to_account' && (t.status === 'credited' || uncredited(t)));
       const stranded = s.status === 'stopped' && !latestStop && Boolean(lastDeposit) &&
         !ops.some(t => t.direction === 'to_main' && t.status === 'credited' && t.createdAt >= lastDeposit!.createdAt);

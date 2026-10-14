@@ -4,10 +4,7 @@ import type { HlUserFill } from "../hyperliquid/types.js";
 
 const ZERO_HASH = /^0x0*$/;
 
-/** Shared HlUserFill → `fills` row mapping, used by both the regular poll
- * loop (watcher.service.ts) and A5 backfill (backfill.service.ts) so the
- * two code paths can never drift on column mapping. A TWAP slice keeps its
- * `twapId` in `raw`. */
+/** HlUserFill → `fills` row. A TWAP slice keeps its `twapId` in `raw`. */
 export function toFillRow(address: string, f: HlUserFill) {
   return {
     chain: CHAIN_DEFAULT,

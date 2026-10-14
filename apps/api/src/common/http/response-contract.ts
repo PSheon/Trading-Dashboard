@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Request, Response } from "express";
 import { API_CONTRACT_HEADER, API_CONTRACT_VERSION } from "@trading-dashboard/shared/contracts";
 
-export function usesEnvelope(req: Request): boolean {
+function usesEnvelope(req: Request): boolean {
   return !["/health", "/health/ready"].includes(req.path.replace(/\/$/, ""));
 }
 export function responseMeta(req: Request, res: Response) {

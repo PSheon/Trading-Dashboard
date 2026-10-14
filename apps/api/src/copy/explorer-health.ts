@@ -1,11 +1,6 @@
-/**
- * Whether this process reaches Hyperliquid's explorer (txDetails, the
- * proof a deposit is the transfer its owner signed), as a gauge for the
- * heartbeat: since when its reads have failed for the network (DNS,
- * connect, timeout) without one answering in between. Each deposit keeps
- * its own durable record too (scan_state.explorerFailingSince).
- */
-export class ExplorerHealth {
+/** Heartbeat gauge: since when this process's explorer reads (txDetails) have failed with none
+ * answering in between. Deposits also keep scan_state.explorerFailingSince. */
+class ExplorerHealth {
   private failingSince: number | null = null;
   /** A read answered. */
   reachable(): void { this.failingSince = null; }

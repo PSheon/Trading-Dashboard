@@ -24,16 +24,15 @@ import { LiveRiskBusyError, liveRiskBusyDetail } from '../live/postgres-live-ris
 import { liveDeploymentPolicy } from '../live-deployment.js';
 
 /** One source read's result, for the logs. */
-export interface IngestOutcome { fast: boolean; fills: number; kind: string; state: string; through: number | null }
+interface IngestOutcome { fast: boolean; fills: number; kind: string; state: string; through: number | null }
 /** A kick's signal half, timed (trade → read → ingested → enqueued). */
-export interface SignalTiming {
+interface SignalTiming {
   started: number; read: { asked: number; sentAt: number; answeredAt: number } | null;
   ingest: IngestOutcome | null; ingestedAt: number; enqueuedAt: number;
 }
-export interface LiveExecutor { execute(request: LiveExecutionRequest): Promise<LiveExecutionRecord> }
+interface LiveExecutor { execute(request: LiveExecutionRequest): Promise<LiveExecutionRecord> }
 export interface LiveEngineDependencies {
-  /** The deployment's network (HYPERLIQUID_NETWORK): every order's identity
-   * (`<network>:<account>:<cloid>`) is on it. */
+  /** HYPERLIQUID_NETWORK; part of every order identity `<network>:<account>:<cloid>`. */
   readonly network: HyperliquidNetwork;
   readonly repository: CopyLiveWorkerRepository;
   readonly sources: CopyLiveSourceRepository;
@@ -46,8 +45,7 @@ export interface LiveEngineDependencies {
   readonly settler: { settle(request: LiveSettleRequest): Promise<LiveSettleOutcome> };
   /** Retain a committed settlement observation for reporting; never a permit. */
   readonly settlementObservation?: (key: string) => Promise<unknown>;
-  /** One-click setups (credit → mode → agent → builder → generation), before
-   * funded generations start, so a generation made now starts this pass. */
+  /** One-click setups; run before funded generations start, so a new one starts this pass. */
   readonly setups?: { tick(): Promise<number> };
   /** Keeps one order's need free on the shared meter while copies run
    * (HyperliquidGlobalTransport.standbyLive with the heaviest order these
@@ -56,72 +54,56 @@ export interface LiveEngineDependencies {
   /** Owner stop requests (cancel, close, flat, return); after the legs. */
   readonly stopper?: { tick(): Promise<void> };
   readonly log?: (message: string) => void;
-  /** Ordinary timing lines (order sent), at info level. */
+  /** Info-level timing lines (order sent). */
   readonly trace?: (message: string) => void;
-  /** A mainnet leader's account value (the ratio denominator, cached), to
+  /** A mainnet leader's account value (ratio denominator, cached); used to
    * hold an open too small for the exchange until more legs join it. */
   readonly leaderEquity?: (leader: string) => Promise<string | null>;
-  /** The realtime mainnet source, for the leaders COPY_LIVE_FAST_SOURCE
-   * names; read on a kick, and by the pass while the trade feed is down. */
+  /** Realtime mainnet source for COPY_LIVE_FAST_SOURCE leaders; read on a
+   * kick, and by the pass while the trade feed is down. */
   readonly fast?: {
     readonly source: Pick<FastMainnetSource, 'read' | 'witness' | 'followUp' | 'graceMs'> & Partial<Pick<FastMainnetSource, 'lastTiming'>>;
     readonly leaders: 'all' | ReadonlySet<string>;
-    /** Whether the trade feed (the kicks) is up; polled while it is not. */
+    /** Whether the trade feed (kicks) is up; leaders are polled while it is not. */
     readonly feedUp?: () => boolean;
   };
 }
-export interface LiveEngineOptions {
-  /** Testnet-leader REST polls are costly (two worst-case 120-weight reads):
-   * at most one per stream this often (COPY_LIVE_TESTNET_SOURCE_INTERVAL_MS;
-   * 3000 for the testnet harness). Mainnet leaders cost nothing extra. */
+interface LiveEngineOptions {
+  /** Min interval per stream between testnet-leader REST polls (two worst-case
+   * 120-weight reads; COPY_LIVE_TESTNET_SOURCE_INTERVAL_MS, 3000 in the harness). */
   readonly testnetSourceIntervalMs: number;
   /** A mainnet read stops this long before now, so the watcher can confirm. */
   readonly sourceLagMs: number;
   /** Work per pass stops once this much time has gone. */
   readonly passBudgetMs: number;
-  /** An open too small for the exchange waits for the next adds at most this
-   * long (default and maximum MAX_ACCUMULATE_MS). */
+  /** Max wait for more adds to an open too small for the exchange (default and max MAX_ACCUMULATE_MS). */
   readonly accumulateMs?: number;
-  /** A kick's order half stops starting work after this long (default 8 s),
-   * so the regular pass is never held up for long. */
+  /** A kick's order half starts no work after this (default 8 s), so the pass isn't held up. */
   readonly kickBudgetMs?: number;
-  /** While the trade feed is down, a fast-source leader is read by the pass
-   * at most this often. */
+  /** Feed down: min interval between pass reads of a fast-source leader. */
   readonly fastPollMs?: number;
 }
 export const DEFAULT_ENGINE_OPTIONS: LiveEngineOptions = { testnetSourceIntervalMs: 60_000, sourceLagMs: 1_000, passBudgetMs: 20_000, fastPollMs: 7_500 };
 
-/** A HIP-3 (builder-deployed dex) market: its fee scope cannot be proven
- * (live-risk-provider), so its legs are refused when they are enqueued,
- * before any evidence read spends weight. */
-export const HIP3_REFUSAL = 'live_market_hip3_unsupported';
+/** HIP-3 (builder-deployed dex) fee scope cannot be proven (live-risk-provider):
+ * refused at enqueue, before any evidence read spends weight. */
+const HIP3_REFUSAL = 'live_market_hip3_unsupported';
 const isHip3 = (coin: string) => coin.includes(':');
-/** Refusals that no retry can change. Everything else is retried until the
- * leader fill is older than the policy's signal age. The account's leverage
- * above the cap is set by the runtime before an open (live-leverage-update.ts):
- * a refusal still saying so, or an update the exchange rejected, is final. */
-/**
- * How long a failed first submission waits before its next attempt: the one
- * policy a stop's pass shares (live/error-class.ts liveRetryDelayMs). A wait
- * (a budget, a meter refusal underneath, a busy lock) sent nothing: when it
- * said. A failed provider read opened a socket and spent weight: 10 s, so a
- * burst of retries can't use up Hyperliquid's 30 new WebSocket connections a
- * minute and its 10 at once (every account read failed for five minutes after
- * nine leases were lost together, local harness 2026-10-12). Anything else: 3 s.
- */
+/** Wait before a failed first submission's next attempt; shared with the stop
+ * pass (live/error-class.ts liveRetryDelayMs). */
 export function retryDelayMs(error: unknown): number { return liveRetryDelayMs(error); }
+/** Refusals no retry can change; anything else retries until the signal ages
+ * out. Leverage above the cap is set before an open (live-leverage-update.ts),
+ * so a refusal still citing it, or a rejected update, is final. */
 const PERMANENT = new Set(['live_source_price_deviation', 'live_budget_over_capacity', 'below_min_notional', 'live_risk_adoption_unproven', 'live_market_unknown',
   'live_account_unsupported_role', 'live_account_unsupported_abstraction', 'unattempted_expired', 'live_risk_provider_fee_scope_unproven', HIP3_REFUSAL,
   'live_risk_leverage', 'live_risk_leverage_margin', 'live_leverage_update_rejected',
-  // A control-refused unsent open must never queue ahead of reductions or
-  // catch up after resume. Historical journals remain on settlement instead.
+  // A control-refused unsent open must never queue ahead of reductions or catch up after resume.
   'platform_paused', 'user_paused', 'strategy_paused', 'platform_reduce_only', 'user_reduce_only', 'strategy_reduce_only']);
-/** Copy trading switched off (general.copyTradingEnabled) refuses an unsent
- * open for good, like a control; a close still goes (a safety exit). */
+/** Copy trading off (general.copyTradingEnabled) refuses an unsent open for
+ * good; a close still goes (safety exit). */
 const PERMANENT_OPEN = new Set(['live_risk_platform_disabled']);
-/** A started copy whose leader legs are enqueued and worked: an active one,
- * or one its owner paused. A pause stops new risk only: the leader's opens
- * are refused (submit), its closes still mirrored. */
+/** Started and active or paused. A pause refuses opens (submit) but still mirrors closes. */
 export const mirrorsLeader = (m: LiveMandateWork) => m.activated && (m.strategyStatus === 'active' || m.strategyStatus === 'paused');
 /** A refused close whose follower had nothing (left) to close. */
 const FOLLOWER_ALREADY_FLAT = new Set(['no_follower_position', 'position_closed_by_owner', 'copy_stopping']);
@@ -136,12 +118,9 @@ const reasonOf = (error: unknown) => errorCode(error);
 const sourceReason = (error: unknown) => [reasonOf(error), liveSourceEvidenceDetail(error)].filter(Boolean).join(' ');
 
 /**
- * One pass of copy execution on the deployment's network, in this order: start funded
- * generations, ingest leader fills, enqueue new legs, then work the open
- * legs (submit pending ones, reconcile unknown/resting ones from the
- * exchange, settle terminal ones). Every step is restart-safe: the
- * executor's journal holds the order identity (cloid, nonce) and never
- * re-sends an attempted order; a restarted worker only reconciles it.
+ * One copy pass: start funded generations, ingest leader fills, enqueue legs,
+ * then work open legs (submit, reconcile, settle). Restart-safe: the journal
+ * holds the order identity (cloid, nonce); an attempted order is only reconciled, never re-sent.
  */
 export class CopyLiveEngine {
   private readonly lastTestnetRead = new Map<string, number>();
@@ -157,17 +136,15 @@ export class CopyLiveEngine {
   constructor(private readonly deps: LiveEngineDependencies, private readonly options: LiveEngineOptions = DEFAULT_ENGINE_OPTIONS,
     private readonly now: () => number = Date.now) {}
 
-  /** Source evidence only, beside a blocked order/settlement pass. No setup,
-   * activation, dispatch work, signing or settlement authority runs here.
-   * The ordinary pass still enqueues and executes with fresh original risk. */
+  /** Source evidence only, beside a blocked order/settlement pass: no setup,
+   * activation, dispatch, signing or settlement runs here. */
   async pollTestnetSources(): Promise<void> {
     if (this.deps.network !== 'testnet') return;
     const mandates = await this.deps.repository.mandates(this.now());
     await this.standby(mandates);
     const eligible = mandates.filter(m =>
       m.sourceNetwork === 'testnet' && mirrorsLeader(m));
-    // Select active streams, but preserve every unexpired generation's
-    // required cursor when deciding whether shared coverage can restart.
+    // Active streams only, but every unexpired generation's cursor decides whether coverage can restart.
     for (const stream of this.deps.repository.streams(eligible)) {
       try { await this.ingest(stream, mandates); }
       catch (error) { this.deps.log?.(`source ${stream.network}:${stream.leaderAddress} not read: ${sourceReason(error)}`); }
@@ -210,9 +187,8 @@ export class CopyLiveEngine {
       try { await budgetConsumer('copy.order', () => this.work(row, byId.get(row.mandateId) ?? null, limit)); }
       catch (error) { this.deps.log?.(`leg ${row.id} kept for the next pass: ${reasonOf(error)}`); }
     }
-    // A leader flat on a coin whose follower may still hold some of it (an
-    // IOC close partly or not filled, or a close that could not be sent):
-    // the single-position closer (run by the stopper's pass) closes the rest.
+    // Leader flat but follower may still hold some (IOC close partly filled, or
+    // unsendable): the single-position closer (stopper's pass) closes the rest.
     for (const m of mandates.filter(row => row.activated && row.strategyStatus !== 'stopping' && row.strategyStatus !== 'stopped')) {
       try { await budgetConsumer('copy.flat', () => this.reconcileFlat(m)); }
       catch (error) { this.deps.log?.(`flat positions of ${m.mandateId} not reconciled: ${reasonOf(error)}`); }
@@ -229,8 +205,8 @@ export class CopyLiveEngine {
     return stream.network === 'mainnet' && !!fast && (fast.leaders === 'all' || fast.leaders.has(stream.leaderAddress));
   }
 
-  /** Notes a trade the feed saw; returns when to kick its leader (a read
-   * certifies a fill once it is G old), or null for a leader on the watched source. */
+  /** Notes a feed trade; returns when to kick its leader (a fill is certified
+   * once graceMs old), or null for a watched-source leader. */
   witness(leader: string, tid: number, time: number): number | null {
     if (!this.fastLeader({ network: 'mainnet', leaderAddress: leader })) return null;
     this.deps.fast!.source.witness(leader, tid, time);
@@ -242,12 +218,10 @@ export class CopyLiveEngine {
   }
 
   /**
-   * After the watcher verified a leader's fills over REST: every fill it
-   * holds inside both its verified span and the copy stream's coverage
-   * must be a source fill of the stream. One that is not was missed (a
-   * certified span that was not complete): it is stored now, so its legs
-   * are reconciled (most will be refused as expired), the stream goes to
-   * `gap` and an alert is logged. Returns the missed tids.
+   * After the watcher's REST verification: a watcher fill inside both its
+   * verified span and the stream's coverage that the stream lacks was missed.
+   * It is stored now (its legs mostly refuse as expired), the stream goes to
+   * `gap`, an alert is logged. Returns the missed tids.
    */
   async audit(leader: string): Promise<string[]> {
     const missed = await this.deps.repository.unmirroredFills(leader);
@@ -268,23 +242,17 @@ export class CopyLiveEngine {
     return missed.map(m => m.tid);
   }
 
-  /**
-   * A realtime signal: the trade feed saw this leader trade. Reads the
-   * leader's fills (fast source), enqueues the new legs of its copies and
-   * works their open legs, fresh pending legs first, in this one pass.
-   * Setups, activations and stops stay with the regular pass.
-   */
+  /** The trade feed saw this leader trade: read, enqueue and work its copies'
+   * legs now. Setups, activations and stops stay with the regular pass. */
   async kick(leader: string): Promise<void> {
     if (!await this.signal(leader)) return;
     await this.workLeader(leader);
   }
 
   /**
-   * The signal half of a kick: reads the leader's fills (fast source) and
-   * enqueues its copies' new legs. It never waits for an order: the worker
-   * runs it at once, beside a pass or an order in flight (a source read is
-   * CAS-guarded and an enqueue idempotent). False when the leader has no
-   * fast-source copy.
+   * A kick's signal half: read fills (fast source), enqueue new legs. Safe to
+   * run beside a pass or an order in flight (reads are CAS-guarded, enqueue is
+   * idempotent). Null when the leader has no fast-source copy.
    */
   async signal(leader: string): Promise<SignalTiming | null> {
     const started = this.now();
@@ -303,8 +271,7 @@ export class CopyLiveEngine {
     return { started, read: this.deps.fast?.source.lastTiming?.get(leader) ?? null, ingest: outcome, ingestedAt, enqueuedAt: this.now() };
   }
 
-  /** The order half of a kick: merges and works this leader's copies' legs,
-   * fresh pending legs first (one at a time with the passes). */
+  /** A kick's order half: merge and work this leader's copies' legs (serialised with passes). */
   async workLeader(leader: string): Promise<void> {
     const started = this.now();
     const mandates = (await this.deps.repository.mandates(started)).filter(m => m.sourceNetwork === 'mainnet' && m.leaderAddress === leader);
@@ -321,8 +288,7 @@ export class CopyLiveEngine {
     }
   }
 
-  /** Extends one leader stream's proven coverage up to (almost) now; with
-   * `fast`, from the fast source (the watched one when it has nothing). */
+  /** Extends a stream's proven coverage to (almost) now; `fast` tries the fast source first. */
   async ingest(stream: LiveStreamWork, mandates: readonly LiveMandateWork[], fast = false): Promise<IngestOutcome | null> {
     // Mainnet retains its existing CAS-protected feed/poll concurrency.
     if (stream.network !== 'testnet') return this.ingestOriginal(stream, mandates, fast);
@@ -340,8 +306,7 @@ export class CopyLiveEngine {
     let current = await this.deps.uow.run(tx => this.deps.sources.ensure(tx, leaderAddress, network));
     if (current.state === 'quarantined') return null;
     const earliest = mandates.filter(m => m.sourceNetwork === network && m.leaderAddress === leaderAddress).reduce((min, m) => Math.min(min, m.cursor.getTime()), Infinity);
-    // A span that no current generation needs (it ended before every active
-    // cursor) restarts at the earliest cursor instead of reading the gap.
+    // Coverage ending before every cursor restarts at the earliest cursor instead of reading the gap.
     if (current.coverageThrough && current.coverageThrough.getTime() < earliest - 1) {
       const restarted = await this.deps.uow.run(tx => this.deps.sources.restart(tx, leaderAddress, network, current.revision, now));
       if (restarted.kind !== 'recorded') return null;
@@ -365,10 +330,8 @@ export class CopyLiveEngine {
       else {
         try { result = await this.deps.testnetSource.read({ leaderAddress, from, to, maxRequests: 8 }); }
         catch (error) {
-          // Only the initial admission can propagate this wait: the source
-          // client catches subsequent channel failures as incomplete reads.
-          // No provider evidence exists yet; retry the unchanged coverage
-          // cursor after admission permits, retaining the shared-IP backoff.
+          // Only initial admission throws this wait (later failures become
+          // incomplete reads): retry the same cursor when admitted, keeping the shared-IP backoff.
           if (error instanceof HyperliquidBudgetWait && Number.isFinite(error.retryMs))
             this.testnetSourceRetryAt.set(key, this.now() + Math.max(error.retryMs,
               error.reason === 'shared_capacity' ? SHARED_CAPACITY_RETRY_MS : 1000));
@@ -391,10 +354,9 @@ export class CopyLiveEngine {
     return { fast: viaFast, fills: read.fills.length, kind: applied.kind, state: applied.stream.state, through: applied.stream.coverageThrough?.getTime() ?? null };
   }
 
-  /** A testnet source read failed (thrown, refused, or left a gap): the next
-   * one comes TESTNET_SOURCE_RETRY_MS later, doubling per failure in a row,
-   * never later than the poll interval. One bad read used to cost the whole
-   * 60 s interval, and with it a trade (gate run 9, 2026-10-14). */
+  /** After a failed testnet read (thrown, refused, or gap): retry after
+   * TESTNET_SOURCE_RETRY_MS, doubling per consecutive failure, capped at the
+   * poll interval (gate run 9, 2026-10-14). */
   private retryTestnetSoon(key: string): void {
     const failures = (this.testnetFailures.get(key) ?? 0) + 1;
     this.testnetFailures.set(key, failures);
@@ -402,8 +364,7 @@ export class CopyLiveEngine {
     this.testnetSourceRetryAt.set(key, Math.max(this.testnetSourceRetryAt.get(key) ?? 0, this.now() + delay));
   }
 
-  /** Enqueues each copy's new legs, then merges what waits together into
-   * adjustments; returns the legs held back this pass. */
+  /** Enqueues and merges each copy's legs; returns the legs held back this pass. */
   private async prepareWork(mandates: readonly LiveMandateWork[]): Promise<Set<string>> {
     const held = new Set<string>();
     for (const m of mandates) {
@@ -415,12 +376,9 @@ export class CopyLiveEngine {
   }
 
   /**
-   * Same-coin legs of one copy that wait together become one follower
-   * adjustment per run (copy-live-adjustments.ts): the newest leg's row
-   * leads (its order carries the others, and its signal is the freshest),
-   * the others are recorded merged into it. Ratio sizing only: a fixed
-   * amount is spent once per trade. Returns the legs held back (an open too
-   * small for the exchange).
+   * Same-coin waiting legs become one adjustment per run (copy-live-adjustments.ts),
+   * led by the newest leg (freshest signal). Ratio sizing only (a fixed amount
+   * is spent once per trade). Returns legs held back as too small.
    */
   async merge(m: LiveMandateWork): Promise<string[]> {
     if (m.sizingMode !== 'ratio') return [];
@@ -473,13 +431,11 @@ export class CopyLiveEngine {
     const mandate = m ?? await this.mandateOf(row);
     if (!mandate) return;
     if (row.state === 'pending') {
-      // The leg's next order: its original one, or the attempt after the one
-      // released as never sent (the row's executionKey, copy-live-leg-attempt.ts).
+      // Original order, or the attempt after one released as never sent (copy-live-leg-attempt.ts).
       const attempt = this.pendingAttempt(row, mandate);
       if (attempt === null) { await this.deps.repository.update(row, { state: 'refused', reason: 'live_leg_attempt_unproven' }); return; }
       const key = this.attemptKey(row, mandate, attempt);
-      // A journal under this identity means an earlier pass reached the
-      // exchange boundary; only reconciliation may continue it.
+      // A journal under this key means an earlier pass reached the exchange: reconcile only.
       const journal = await this.deps.repository.journalState(key);
       if (journal !== null) { await this.deps.repository.update(row, { state: 'submitted', executionKey: key }); return; }
       return this.submit(row, mandate, signalAgeMs, attempt);
@@ -487,14 +443,10 @@ export class CopyLiveEngine {
     const state = row.executionKey ? await this.deps.repository.journalState(row.executionKey) : null;
     if (state === null) return;
     const attempt = this.attemptOf(row, mandate, row.executionKey!);
-    // Reconciliation of the row's own order (its attempt). A key that is none
-    // of the leg's attempts (never written here) falls back to the original
-    // order, as before attempts existed.
+    // Reconcile the row's own attempt; a key matching no attempt falls back to attempt 0.
     if (!TERMINAL_STATES.has(state)) { await this.execute(row, mandate, undefined, attempt ?? 0); return; }
-    // The terminal settlement loop (CopyLiveApiSettlementService, on the api
-    // and/or the copy worker: terminalSettlementRuns) owns only durable
-    // terminal testnet work; with neither running this row stays submitted.
-    // One it released as never sent comes back for its next attempt.
+    // Testnet terminal settlement belongs to CopyLiveApiSettlementService
+    // (terminalSettlementRuns); only a never-sent release comes back here for its next attempt.
     if (this.deps.network === 'testnet' && this.deps.apiTerminalSettlement) {
       if (row.reason === UNSENT_RELEASED) await this.afterUnsent(row, mandate, signalAgeMs);
       return;
@@ -529,12 +481,9 @@ export class CopyLiveEngine {
     return previous !== null && previous + 1 < MAX_LIVE_LEG_ATTEMPTS ? previous + 1 : null;
   }
   /**
-   * The leg's order was released as never sent (its request never began):
-   * the leg is planned again as its next attempt, a new order (new cloid,
-   * key, nonce) that goes through every gate of a first submission (submit),
-   * while its signal is still fresh (an open: maxSignalAgeSeconds; a close
-   * never ages), it is not a merged adjustment, and fewer than
-   * MAX_LIVE_LEG_ATTEMPTS were made. Otherwise it is refused as before.
+   * Order released as never sent: re-plan the leg as its next attempt (new
+   * cloid, key, nonce; every submit gate again) if its signal is fresh (a close
+   * never ages), it is not merged, and attempts < MAX_LIVE_LEG_ATTEMPTS; else refuse.
    */
   private async afterUnsent(row: DispatchRow, m: LiveMandateWork, signalAgeMs: number): Promise<void> {
     const previous = row.executionKey ? this.attemptOf(row, m, row.executionKey) : null;
@@ -549,16 +498,13 @@ export class CopyLiveEngine {
   }
 
   private async submit(row: DispatchRow, m: LiveMandateWork, signalAgeMs: number, attempt = 0): Promise<void> {
-    // Existing fixed claims are once per exchange trade, even across partial
-    // batches. This is only a refusal: the original journal still reconciles.
+    // A fixed amount is claimed once per exchange trade, even across partial batches.
     if (row.leg === 'open' && await this.deps.repository.knownFixedOpenClaim(row, m)) {
       await this.deps.repository.update(row, { state: 'refused', reason: 'fixed_trade_already_claimed' }); return;
     }
     const now = this.now();
-    // Only an open ages: a reduction or close is sent however late (CP-EXE-14-02).
-    // Refused for what it is, its signal's age: never for the last failure
-    // before it (gate 2026-10-13 11:15: refused `live_risk_busy`, a busy lock
-    // 146 ms long, at a source age of 115 s). That failure goes to the log.
+    // Only an open ages (CP-EXE-14-02). Refused as signal_expired, not as its
+    // last failure, which is only logged (gate 2026-10-13).
     if (row.leg === 'open' && now - row.leaderTime.getTime() > signalAgeMs) {
       if (row.reason && row.reason !== UNSENT_RETRY) this.deps.log?.(`leg ${row.id} refused: signal_expired (source age ${now - row.leaderTime.getTime()} ms, ${row.attempts} attempt(s), last ${row.reason})`);
       await this.deps.repository.update(row, { state: 'refused', reason: 'signal_expired' }); return;
@@ -567,51 +513,43 @@ export class CopyLiveEngine {
       // The stop closes every position itself; no new leg of a stopping copy is sent.
       await this.deps.repository.update(row, { state: 'refused', reason: 'copy_stopping' }); return;
     }
-    // Paused: no new risk. An open is refused for good (never sent, nor
-    // caught up after a resume, nor left ahead of a later close); a close
-    // still mirrors the leader (a safety exit).
+    // Paused: an open is refused for good (no catch-up after resume); a close still mirrors.
     if (m.strategyStatus === 'paused' && row.leg === 'open') {
       await this.deps.repository.update(row, { state: 'refused', reason: 'strategy_paused' }); return;
     }
-    // Only a current generation's (active or paused) close; anything else waits as before.
+    // Paused: only a current generation's (active or paused) close proceeds; anything else waits.
     const closable = m.strategyStatus === 'paused' && (m.mandateState === 'active' || m.mandateState === 'paused');
     if (m.strategyStatus !== 'active' && !closable) return;
     if (row.leg === 'close' && await this.deps.repository.closedByOwner(row.mandateId, row.accountId, row.coin)) {
       await this.deps.repository.update(row, { state: 'refused', reason: 'position_closed_by_owner' }); return;
     }
-    // Hyperliquid liquidated the copy's position itself (CP-EXE-16): the account
-    // is quarantined (follower_liquidated), so nothing of this close is sent.
+    // Liquidated by Hyperliquid (CP-EXE-16): account quarantined, nothing sent.
     if (row.leg === 'close' && await this.deps.repository.liquidatedSinceOpen(row.mandateId, row.accountId, row.coin)) {
       await this.deps.repository.update(row, { state: 'refused', reason: 'position_liquidated' }); return;
     }
     if (row.leg === 'close' && !await this.deps.repository.everOpened(row.mandateId, row.coin)) {
       await this.deps.repository.update(row, { state: 'refused', reason: 'no_follower_position' }); return;
     }
-    // A close of the coin still requested (the owner's, or one after the
-    // leader went flat) would close this open too: it waits for that close.
+    // A pending close request on the coin would close this open too: wait for it.
     if (row.leg === 'open' && await this.deps.repository.closeRequested(row.accountId, row.coin)) return;
     if (row.leg === 'open') {
-      // A flip opens only after its close leg settled (the planner proves it),
-      // or when the follower had nothing to close (the leader's old side was
-      // opened before this copy): the planner then proves the follower flat
-      // on the coin and that no close of this flip was ever journaled.
+      // A flip opens only after its close settled, or when the follower had
+      // nothing to close (the planner then proves it flat, no close journaled).
       const close = await this.deps.repository.dispatch(`${row.mandateId}|${row.sourceFillId}|close`);
       const nothingToClose = close?.state === 'refused' && close.reason === 'no_follower_position';
       if (close?.state === 'refused' && !nothingToClose) { await this.deps.repository.update(row, { state: 'refused', reason: 'flip_close_not_settled' }); return; }
       if (close && close.state !== 'settled' && !nothingToClose) return;
     }
-    // In the leader's order: an earlier leg of the coin still waiting goes first.
+    // Leader order: an earlier waiting leg of the coin goes first.
     if (await this.deps.repository.earlierPending(row)) return;
-    // Any other coin too: until another order on the account settles, this
-    // one's generation proof refuses it. A wait, not an attempt.
+    // Any unsettled order on the account would fail the generation proof: wait, not an attempt.
     if (await this.deps.repository.unsettledOnAccount(row)) return;
-    // Not before its retry time: a failed attempt's next one waits (retryDelayMs).
+    // Honour retryDelayMs after a failed attempt.
     if ((this.legRetryAt.get(row.id) ?? 0) > this.now()) return;
     await this.execute(row, m, row.leg === 'open' ? row.leaderTime.getTime() + signalAgeMs : undefined, attempt);
   }
 
-  /** Submits (first time) or reconciles (afterwards) the leg's one order. A
-   * first submission's budget wait never outlasts the signal (`signalDeadline`). */
+  /** Submits or reconciles the leg's order; a first submission's budget wait ends at `signalDeadline`. */
   private async execute(row: DispatchRow, m: LiveMandateWork, signalDeadline?: number, attempt = 0): Promise<void> {
     const attemptedAt = this.now();
     const timing: { sentAt?: number; ackedAt?: number } = {}, first = row.firstAttemptAt ?? new Date(attemptedAt);
@@ -631,16 +569,15 @@ export class CopyLiveEngine {
         `first attempt +${first.getTime() - row.leaderTime.getTime()}, sent ${times.sentAt ? `+${times.sentAt.getTime() - row.leaderTime.getTime()}` : '-'} ms after the leader`);
     } catch (error) {
       const reason = reasonOf(error);
-      // The mutable dispatch row retains only the latest refusal. Keep each
-      // attempt's safe code and timing so a later budget wait cannot hide an
-      // earlier evidence failure. Never serialize the error or provider body.
+      // The row keeps only the latest reason, so log each attempt (safe code only,
+      // never the error or provider body).
       this.deps.log?.(`leg ${row.id} attempt ${row.attempts + 1} failed: ${reason}; ` +
         `elapsed ${Math.max(0, this.now() - attemptedAt)} ms, source age ${Math.max(0, this.now() - row.leaderTime.getTime())} ms, ` +
         `exchange started ${timing.sentAt !== undefined}` +
         (error instanceof LiveReadComparisonError ? `, changed reads ${error.changedReads.join(',')}` : '') +
         (error instanceof LiveRiskBusyError ? `, held by ${liveRiskBusyDetail(error)}` : ''));
       if (error instanceof HyperliquidBudgetWait) this.deps.log?.(`leg ${row.id} budget unavailable: ${error.reason}, retry ${error.retryMs} ms`);
-      // Stored as live_execution_failed: say what it really was (Stage 2026-10-06).
+      // Stored as live_execution_failed; log what it really was.
       const unexpected = describeUnexpected(error);
       if (unexpected) this.deps.log?.(`leg ${row.id} failed unexpectedly: ${unexpected}`);
       const times = timing.sentAt ? { sentAt: new Date(timing.sentAt), ...(timing.ackedAt ? { ackedAt: new Date(timing.ackedAt) } : {}) } : {};
@@ -650,22 +587,17 @@ export class CopyLiveEngine {
       if (row.state === 'pending' && journal !== null && journal !== 'prepared') {
         await this.deps.repository.update(row, { state: 'submitted', executionKey: key, firstAttemptAt: first, attempts: row.attempts + 1, reason, ...times }); return;
       }
-      // An open still below the exchange minimum (refused before any journal
-      // claimed it) keeps waiting for more legs while its signal is young.
+      // An unjournaled open below the minimum waits for more legs while its signal is young.
       const signalAgeMs = await this.deps.repository.signalAgeLimitMs();
       if (row.state === 'pending' && row.leg === 'open' && reason === 'below_min_notional' && journal === null &&
         this.now() - row.leaderTime.getTime() < Math.max(0, signalAgeMs - HOLD_MARGIN_MS)) {
         await this.deps.repository.dissolve(row, row.attempts + 1); return;
       }
-      // A wait (live/error-class.ts `budget`: a local bucket, the shared
-      // meter's refusal of a read or a socket connect underneath, a busy
-      // risk lock) sent nothing and is not a failure: never an attempt, never
-      // what refuses a close at its limit (gate 2026-10-13 11:15: two meter
-      // refusals and a busy lock counted three attempts, nothing sent).
+      // A `budget`-class wait (live/error-class.ts) that sent nothing is not an
+      // attempt and never exhausts a close's limit (gate 2026-10-13).
       const waiting = classify(error).class === 'budget' && timing.sentAt === undefined;
       const attempts = waiting ? row.attempts : row.attempts + 1;
-      // An unsupported account mode read once right after a setup (testnet,
-      // 2026-10-12) may be the exchange catching up: final on its third read.
+      // Right after a setup the exchange may still report the old mode (testnet 2026-10-12): final only at the limit.
       const transient = reason === 'live_account_unsupported_abstraction' && attempts < ABSTRACTION_ATTEMPT_LIMIT;
       const permanent = row.state === 'pending' && !waiting && !transient && (PERMANENT.has(reason) || row.leg === 'open' && PERMANENT_OPEN.has(reason) || row.leg === 'close' && (reason === 'no_follower_position' || attempts >= CLOSE_ATTEMPT_LIMIT));
       if (permanent || row.state !== 'pending') this.legRetryAt.delete(row.id);
@@ -675,12 +607,9 @@ export class CopyLiveEngine {
   }
 
   /**
-   * The leader is flat on a coin (its latest fill closed it in full, no flip)
-   * and the follower is not: its close leg was refused (never sent or not
-   * sendable), or settled still owing part of the position (the reduction
-   * carry an IOC close left unfilled). Requests a reduce-only close of what
-   * the follower holds; the closer reads the account first and does nothing
-   * if it is already flat.
+   * Leader fully flat on a coin, follower maybe not (close refused, or settled
+   * with an IOC carry left): request a reduce-only close. The closer reads the
+   * account first and does nothing if already flat.
    */
   async reconcileFlat(m: Pick<LiveMandateWork, 'mandateId'>): Promise<number> {
     let requested = 0;

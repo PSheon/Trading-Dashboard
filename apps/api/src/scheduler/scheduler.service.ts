@@ -15,18 +15,11 @@ import { SNAPSHOT_QUEUE_MS, SNAPSHOT_RECONCILE_OVERLAP_MS, SWEEP_QUEUE_MS } from
 
 
 /**
- * Periodic jobs:
- * - every 5 min (W4): positions and equity of every active leader on every
- *   dex it uses → `position_snapshots` / `equity_snapshots`, and
- *   reconciliation: a position that changed with no stored fill since the
- *   previous snapshot triggers a fill sync;
- * - hourly, and at :15/:30/:45: sweep every address from its verified cursor;
- * - every minute: one backward backfill window for an address whose stored
- *   history has not reached its floor yet.
- *
- * None of these needs the trade feed: a `read` worker runs them with the
- * watcher's capabilities and no feed. The feed's own schedules (the §8
- * self-alert, new markets) are FeedMonitorService's, beside the feed.
+ * Periodic jobs (none needs the trade feed; a `read` worker runs them):
+ * - every 5 min (W4): position/equity snapshots of active leaders, and a fill sync when a
+ *   position changed with no stored fill since the previous snapshot;
+ * - hourly and :15/:30/:45: sweep every address from its verified cursor;
+ * - every minute: one backward backfill window for an address short of its floor.
  */
 @Injectable()
 export class SchedulerService {

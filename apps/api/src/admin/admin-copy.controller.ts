@@ -17,13 +17,9 @@ import { CopyControlService } from "../copy/copy-control.service.js";
 import { CopyRiskPolicyService } from "../copy/copy-risk-policy.service.js";
 import { AdminCopyControlDto, AdminCopyOrdersQueryDto, AdminCopyStrategiesQueryDto, AdminCopyStrategyParamsDto, PutCopyRiskDto } from "./dto/copy.dto.js";
 
-/**
- * The copy-trading admin (Stage 4 hand-off 「跟單管理介面」) over CopyModule's
- * exported services. Reads need `copy.read`. A stop command needs
- * `execution.pause`, a resume `execution.resume` and a risk policy
- * `risk.manage`: the services decide that from the parsed body and write
- * the admin audit event (copy.control / copy.risk) in the same transaction.
- */
+/** Copy-trading admin. Reads need `copy.read`; stop `execution.pause`, resume
+ * `execution.resume`, risk policy `risk.manage` — checked by the services, which audit
+ * in the same transaction. */
 @Controller("admin/copy")
 @RequirePermissions("admin.access", "copy.read")
 export class AdminCopyController {
@@ -76,9 +72,7 @@ export class AdminCopyController {
   }
 
   @ApiDoc("Platform- or user-level stop / resume command", "pause_new_risk, reduce_only, cancel_pending and close_positions need execution.pause; resume needs execution.resume. 409 stale_revision when expectedRevision is not the scope's current revision.")
-  // Checked here, before the body is read: the service checks again per
-  // command (resume also needs execution.resume), so a command added later
-  // without its own mapping still needs execution.pause.
+  // Baseline before the body is read; the service re-checks per command.
   @RequirePermissions("admin.access", "copy.read", "execution.pause")
   @ResponseMessage("Copy control applied")
   @Post("controls")

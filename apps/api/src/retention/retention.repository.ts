@@ -17,24 +17,16 @@ export interface RetentionOutcome {
 }
 
 /**
- * The retention job's lease and its deletes. Every delete removes at most
- * `limit` rows in one statement, oldest first, through an index (see
- * docs/data-retention.md for each plan); nothing here opens a long
- * transaction or locks a table.
+ * The retention job's lease and deletes: each delete removes at most `limit` rows in one
+ * index-driven statement (plans: docs/data-retention.md); no long transaction, no table lock.
  *
- * What is never removed:
- * - an outbox row that is not finished (`pending` / `processing`);
- * - a finished evaluation (`action_outbox`) whose action still has a
- *   delivery waiting, and a finished delivery (`notification_outbox`) whose
- *   action's evaluation is still open: while either side is unfinished the
- *   other is what stops the action from being evaluated or sent twice;
- * - a copy signal row at or above the consumer's checkpoint;
- * - an alert record whose delivery is still queued;
- * - a Hyperliquid socket lease that is not closed (reserved, open, closing,
- *   uncertain): it still reserves capacity, however old;
- * - `actions` themselves. Both outboxes reference `actions` (ON DELETE
- *   CASCADE), so deleting an action would take its queue rows with it; this
- *   job deletes queue rows only, which touches nothing else.
+ * Never removed:
+ * - an unfinished outbox row (`pending` / `processing`);
+ * - an evaluation whose delivery is unfinished, or a delivery whose evaluation is open
+ *   (the other side is what stops a double evaluate/send);
+ * - a copy signal at or above the consumer checkpoint; an alert whose delivery is queued;
+ * - a Hyperliquid socket lease not yet closed (it still reserves capacity);
+ * - `actions` (both outboxes cascade from them).
  */
 @Injectable()
 export class RetentionRepository {
@@ -79,13 +71,9 @@ export class RetentionRepository {
     return result.rowCount ?? 0;
   }
 
-  /**
-   * Purges up to `limit` account-deletion tombstones deleted before `cutoff`,
-   * oldest first, each with every record kept under it, in one transaction
-   * per tombstone (users/account-closure.plan.ts, children before parents).
-   * A tombstone that can't be purged (a row of someone else still points at
-   * one of its records) is left as it was and reported after the others.
-   */
+  /** Purges up to `limit` tombstones older than `cutoff` with their kept records, one
+   * transaction each. One that can't be purged (a foreign row still points in) is left
+   * and reported after the others. */
   async purgeDeletedAccounts(cutoff: Date, limit: number): Promise<number> {
     const due = await this.db.select({ id: users.id }).from(users)
       .where(and(isNotNull(users.deletedAt), lt(users.deletedAt, cutoff))).orderBy(asc(users.deletedAt), asc(users.id)).limit(limit);
@@ -121,9 +109,8 @@ const deliveries = (status: "sent" | "dry_run" | "failed", cutoff: Date, limit: 
     WHERE n.status = ${status} AND n.available_at < ${cutoff} AND n.created_at < ${cutoff}
       AND NOT EXISTS (SELECT 1 FROM action_outbox o WHERE o.action_id = n.action_id AND o.status IN ${UNFINISHED})
     ORDER BY n.available_at LIMIT ${limit})`;
-/** The `limit` lowest ids of one status, from (status, id), then those old
- * enough: ids are handed out in time order, so the old rows are the first
- * ones and the scan never goes past `limit` rows. */
+/** The `limit` lowest ids of one status, then those old enough: ids are time-ordered,
+ * so the scan never goes past `limit` rows. */
 const signals = (status: "done" | "failed", cutoff: Date, limit: number) => sql`
   (SELECT t.id FROM (SELECT s.id, coalesce(s.processed_at, s.created_at) AS at FROM copy_signal_outbox s
       WHERE s.status = ${status} AND s.id < coalesce((SELECT min(last_outbox_id) FROM copy_consumer_checkpoints), 0)

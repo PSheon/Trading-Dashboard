@@ -26,20 +26,11 @@ interface Recipient {
 }
 
 /**
- * Decides who gets a Telegram message for each new action, in-process,
- * driven by the Watcher's `action.created` event and durable outbox replay.
- *
- * Two ways to receive one:
- * - **Favorite alerts** (CopyDog-style): every user with an alert switched
- *   on for this trader, filtered by their side (buy/sell/both) and minimum
- *   notional, with a short per-(user, trader, coin) burst guard.
- * - **Admins, imported leaders**: for `leaders.source = 'import'`, every
- *   admin gets the default rules (`alert_rules` with no owner, R1–R3) with
- *   each rule's cooldown per admin.
- *
- * Someone who qualifies both ways gets one message. The admin's
- * `notifications.alertsEnabled` switch turns all of this off: nothing is
- * evaluated, sent or logged. System messages are unaffected.
+ * Who gets a Telegram message for each new action (`action.created` and outbox replay):
+ * - favorite alerts: users with an alert on this trader, filtered by side and minimum
+ *   notional, with a per-(user, trader, coin) burst guard;
+ * - admins, for imported leaders: the default rules (R1–R3) with per-admin cooldowns.
+ * One message per person. `notifications.alertsEnabled` off disables all of it (not system messages).
  */
 @Injectable()
 export class RulesService {
@@ -56,8 +47,7 @@ export class RulesService {
 
   @OnEvent(ACTION_CREATED_EVENT)
   async onActionCreated(action: ActionCreatedEvent): Promise<void> {
-    // The emitter doesn't await listeners; a rejection here must not become
-    // an unhandled one.
+    // The emitter doesn't await listeners: never let this reject.
     try {
       await this.evaluateAction(action);
     } catch (error) {
@@ -77,8 +67,7 @@ export class RulesService {
       await this.repository.lockActionScope(tx, action);
       const event = await this.repository.actionEvent(tx, action.id);
       if (event?.status === "done") return;
-      // Too old to be a live alert, whichever way it got here (the event,
-      // the outbox replay, a fill found by a late sweep): closed unevaluated.
+      // Too old to be a live alert, however it arrived: closed unevaluated.
       if (Date.now() - action.ts.getTime() > ALERT_MAX_AGE_MS) {
         if (event) await this.repository.markDone(tx, action.id, "expired");
         return;
@@ -94,8 +83,7 @@ export class RulesService {
     if (!(await this.settings.get("notifications")).alertsEnabled) return;
 
     const leader = await this.repository.getLeader(action.chain, action.address, db);
-    // An action only exists for a watched address; a leader deleted
-    // mid-flight is a no-op.
+    // A leader deleted mid-flight is a no-op.
     if (!leader) return;
 
     // One PostgreSQL transaction owns one connection; issue queries sequentially.

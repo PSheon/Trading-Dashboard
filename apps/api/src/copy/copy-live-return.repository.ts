@@ -1,5 +1,5 @@
 import { assertSetupAdmission, assertAccountAbortAdmission } from './copy-live-setup-barrier.js';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, eq, inArray, isNull, like, ne, or, sql } from 'drizzle-orm';
 import { copyExecutionAccounts, copyFundingOperations, copyLiveBuilderApprovals, copyLiveStopOperations, copyStrategies, users, walletWithdrawals } from '@trading-dashboard/shared/database';
@@ -15,18 +15,14 @@ import { blockingFunding } from './funding-blocking.js';
 import { deploymentNetwork } from './live-deployment.js';
 import { SYSTEM_SWEEP_ATTEMPTS } from '../config/constants/limits.js';
 import { FUNDING_NONCE_EXPIRY_MS, RETURN_CONSENT_WINDOW_MS } from '../config/constants/timings.js';
+import { jsonDigest } from '../common/crypto/digest.js';
 
 export type ReturnRow = typeof copyFundingOperations.$inferSelect;
 export type BuilderApprovalRow = typeof copyLiveBuilderApprovals.$inferSelect;
 const busy = () => new ConflictException({ statusCode: 409, code: 'funding_pending', message: 'Resolve the pending wallet operation first' });
 
-/**
- * A return to the main wallet prepared but never attempted, whose consent
- * window has passed, can never be sent (approve refuses consent_expired):
- * it is cancelled instead of holding the account's pending slot, so a new
- * return or deposit can start (the browser's idempotency key does not
- * survive a reload).
- */
+/** An unattempted return past its consent window can never be sent: cancelled so it stops holding
+ * the account's pending slot. */
 export async function expireStaleReturns(tx: DbTransaction, accountId: string): Promise<void> {
   await tx.update(copyFundingOperations).set({ status: 'cancelled', updatedAt: new Date() })
     .where(and(eq(copyFundingOperations.accountId, accountId), eq(copyFundingOperations.direction, 'to_main'), eq(copyFundingOperations.status, 'prepared'),
@@ -36,9 +32,8 @@ export async function expireStaleReturns(tx: DbTransaction, accountId: string): 
 }
 /** Idempotency keys of the worker's automatic returns: `sweep:<stop id>`,
  * then `sweep:<stop id>:<n>` for attempt n after one never sent. */
-export const SYSTEM_SWEEP_PREFIX = 'sweep:';
+const SYSTEM_SWEEP_PREFIX = 'sweep:';
 export const sweepRetryDelayMs = (attempt: number) => 60_000 * 2 ** attempt;
-const jsonDigest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 /** The evidence an automatic return records when it ended unsent: only the
  * worker's own process writes it, right after it proved no POST left. */
 export const sweepNotSentEvidence = (reason: 'worker_signature_unavailable' | 'sweep_not_dispatched', id: string) => jsonDigest({ reason, id });
@@ -50,11 +45,11 @@ export function keyedAttempt(idempotencyKey: string, base: string): number | nul
   return /^[1-9]\d{0,2}$/.test(n) ? Number(n) : null;
 }
 /** Attempt n of a stop's automatic return (null: not one). */
-export function sweepAttempt(row: Pick<ReturnRow, 'idempotencyKey' | 'stopId'>): number | null {
+function sweepAttempt(row: Pick<ReturnRow, 'idempotencyKey' | 'stopId'>): number | null {
   return row.stopId ? keyedAttempt(row.idempotencyKey, `${SYSTEM_SWEEP_PREFIX}${row.stopId}`) : null;
 }
 /** An automatic return that ended without reaching the exchange. */
-export function sweepNotSent(row: ReturnRow): boolean {
+function sweepNotSent(row: ReturnRow): boolean {
   return row.direction === 'to_main' && row.status === 'rejected' && !row.transactionHash &&
     (row.evidenceHash === sweepNotSentEvidence('worker_signature_unavailable', row.id) || row.evidenceHash === sweepNotSentEvidence('sweep_not_dispatched', row.id)) &&
     sweepAttempt(row) !== null;
@@ -69,12 +64,9 @@ export function sweepSuperseded(row: ReturnRow, rows: readonly ReturnRow[]): boo
 }
 
 /**
- * What the exchange's builder-fee cap, read at `readAt` (taken before the
- * read), proves about an approval whose outcome is unknown: approved once the
- * cap covers the rate; not executed (rejected) once its nonce could no
- * longer land when it was read and the cap still doesn't cover it; else
- * still unknown (null). An approval the exchange answered ok (`accepted`)
- * is never turned into a rejection.
+ * What the exchange's builder-fee cap, read at `readAt` (taken before the read), proves: approved once
+ * the cap covers the rate; rejected once the nonce had expired at the read and the cap still falls
+ * short; else unknown (null). An `accepted` approval is never turned into a rejection.
  */
 export function builderOutcome(row: Pick<BuilderApprovalRow, 'state' | 'nonce' | 'maxFeeTenthsBps'>, cap: number, readAt: number): 'approved' | 'rejected' | null {
   if (cap >= row.maxFeeTenthsBps) return 'approved';
@@ -83,7 +75,7 @@ export function builderOutcome(row: Pick<BuilderApprovalRow, 'state' | 'nonce' |
 
 /** Account context of a master-signed action: the owner, the copy's ready
  * account and its strategy, and an unfinished stop if any. */
-export interface MasterContext {
+interface MasterContext {
   owner: typeof users.$inferSelect; account: typeof copyExecutionAccounts.$inferSelect; strategy: typeof copyStrategies.$inferSelect;
   stop: typeof copyLiveStopOperations.$inferSelect | null;
 }
@@ -100,8 +92,7 @@ export class CopyLiveReturnRepository {
     const [owner] = await db.select().from(users).where(and(eq(users.id, userId), system ? undefined : isNull(users.disabledAt)));
     const [account] = await db.select().from(copyExecutionAccounts).where(and(eq(copyExecutionAccounts.id, accountId), eq(copyExecutionAccounts.userId, userId)));
     if (!owner?.embeddedWalletAddress || !account) throw new NotFoundException('Execution account not found');
-    // Only an account of the deployment's network: one of another network is
-    // history here (nothing on it is signed or sent).
+    // Only an account of the deployment's network: nothing on another network is signed or sent.
     if (account.state !== 'ready' || !account.address || !account.privyWalletId || !account.ownerQuorumId || account.network !== deploymentNetwork(this.config) ||
       account.privyUserId !== owner.privyUserId || account.address === owner.embeddedWalletAddress) throw new ConflictException('Execution account is not ready');
     const [strategy] = await db.select().from(copyStrategies).where(and(eq(copyStrategies.id, account.strategyId), eq(copyStrategies.userId, userId)));
@@ -116,9 +107,8 @@ export class CopyLiveReturnRepository {
   private nonce(tx: DbTransaction, network: string, address: string): Promise<number> {
     return allocateSignerNonce(tx, network, address, Date.now());
   }
-  /** A return of `amount` from the copy's account to the owner's main wallet.
-   * A sweep (`stopId`) belongs to the account's flat stop. One wallet
-   * operation of the account at a time. */
+  /** A return of `amount` to the owner's main wallet; a sweep belongs to the account's flat stop.
+   * One wallet operation of the account at a time. */
   async reserve(userId: number, accountId: string, input: { idempotencyKey: string; amount: string; sweep: boolean }): Promise<ReturnRow> {
     return this.locked(userId, async tx => {
       const { owner, account, strategy, stop } = await this.context(tx, userId, accountId);
@@ -144,12 +134,9 @@ export class CopyLiveReturnRepository {
     });
   }
   /**
-   * The automatic return of a flat stop on an account with the master
-   * signer (one-click plan §3c): everything withdrawable, keyed by the stop
-   * (`sweep:<stop id>`), so it is reserved once (again only after an attempt
-   * that provably never left, SYSTEM_SWEEP_ATTEMPTS). Waits (null) while the stop
-   * isn't flat or another wallet operation of the account or a main-wallet
-   * withdrawal is pending, instead of refusing as an owner's request does.
+   * A flat stop's automatic return (one-click plan §3c), keyed `sweep:<stop id>` so it is reserved
+   * once (again only after an attempt that provably never left, up to SYSTEM_SWEEP_ATTEMPTS).
+   * Waits (null) instead of refusing while the stop isn't flat or another operation is pending.
    */
   async reserveSystem(stop: { id: string; userId: number; accountId: string }, amount: string): Promise<ReturnRow | null> {
     return this.locked(stop.userId, async tx => {
@@ -199,11 +186,8 @@ export class CopyLiveReturnRepository {
       return claimed ?? null;
     });
   }
-  /** An owner's return whose send was refused before its POST (the caller's
-   * dispatch flag proves nothing left this process) goes back to prepared:
-   * approvable again, or cancelled once its consent window passes. Only the
-   * exact attempt this process claimed: anything that moved since (an
-   * outcome, a reconciliation) wins, and it stays as it is. */
+  /** A return refused before its POST (the caller's dispatch flag) goes back to prepared. Only the
+   * exact attempt this process claimed: anything that moved since wins. */
   async restoreNotDispatched(userId: number, attempt: ReturnRow): Promise<ReturnRow | null> {
     if (attempt.userId !== userId || attempt.direction !== 'to_main' || attempt.status !== 'unknown' || !attempt.attemptedAt || !attempt.claimedAt || attempt.setupAbortId) return null;
     const [row] = await this.locked(userId, tx => tx.update(copyFundingOperations).set({ status: 'prepared', claimedAt: null, attemptedAt: null, updatedAt: new Date() })
@@ -261,10 +245,8 @@ export class CopyLiveReturnRepository {
     });
     return row ?? null;
   }
-  /** A builder fee approval this pass began and proved never handed to the
-   * exchange (not signed, or refused before its POST) goes back to prepared:
-   * the next pass signs and sends it (same nonce). Only that exact attempt:
-   * anything that moved since wins, and it stays as it is. */
+  /** A builder fee approval proven never dispatched goes back to prepared (same nonce). Only that
+   * exact attempt: anything that moved since wins. */
   async restoreBuilderNotDispatched(userId: number, attempt: BuilderApprovalRow): Promise<BuilderApprovalRow | null> {
     if (attempt.userId !== userId || attempt.state !== 'unknown' || !attempt.attemptedAt) return null;
     const [row] = await this.locked(userId, tx => tx.update(copyLiveBuilderApprovals).set({ state: 'prepared', attemptedAt: null, updatedAt: new Date() })

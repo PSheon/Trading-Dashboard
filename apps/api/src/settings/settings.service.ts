@@ -26,18 +26,11 @@ import { SETTINGS_CACHE_TTL_MS } from '../config/constants/cache-ttls.js';
 export const SETTINGS_CHANNEL = "orbie_settings";
 
 /**
- * Site-wide settings an admin edits (`app_settings`, one jsonb row per
- * section). Reads merge the stored row over the zod defaults, so a section
- * nobody has saved yet still gets defaults. Damaged persisted security
- * switches fail closed; other fields recover individually.
- *
- * Cached per process. A save drops this process's cache after commit and
- * announces itself on SETTINGS_CHANNEL in the same transaction;
- * SettingsRelay drops every other process's cache when that arrives, so
- * the switches (signupsOpen, alertsEnabled, copyTradingEnabled,
- * maintenance) apply everywhere within the notification's delivery time,
- * not after a TTL. The 30 s TTL remains as a bound should a notification
- * ever be lost, and while the relay's connection is down nothing is cached.
+ * Site-wide admin settings (`app_settings`, one jsonb row per section), merged over zod
+ * defaults. Damaged security switches fail closed; other fields recover individually.
+ * Cached per process; a save NOTIFYs SETTINGS_CHANNEL in its transaction and SettingsRelay
+ * drops every process's cache, so switches apply at once. SETTINGS_CACHE_TTL_MS bounds a lost
+ * notification; nothing is cached while the relay is down.
  */
 @Injectable()
 export class SettingsService implements ConsumerCapSource {
@@ -61,10 +54,8 @@ export class SettingsService implements ConsumerCapSource {
     budgeter?.useConsumerCaps(this);
   }
 
-  /** Weight-per-minute caps of the labelled budget consumers (env, read at
-   * startup). The budgeter enforces them on what is actually sent and
-   * scales them to the budget the process has; the pool and cohort loops
-   * also pace themselves by the same values. */
+  /** Weight-per-minute caps of the labelled budget consumers (env); the budgeter
+   * enforces and scales them, and the pool/cohort loops pace by them too. */
   async consumerCaps(): Promise<Record<string, number>> {
     const w = this.tuning.weights;
     return { history: w.history, backfill: w.backfill, "pool.ledgers": w.poolLedger, "pool.performance": w.poolPerformance, cohort: w.cohort };
@@ -90,9 +81,8 @@ export class SettingsService implements ConsumerCapSource {
     this.inflight = undefined;
   }
 
-  /** SettingsRelay reports its LISTEN connection. Either way the cache is
-   * dropped: on a loss it can no longer be trusted, on a (re)connect a
-   * save made in the gap must be picked up. */
+  /** SettingsRelay's LISTEN state; either change drops the cache (a save may have
+   * been missed). */
   setRelayConnected(connected: boolean): void {
     this.relayConnected = connected;
     this.invalidate();

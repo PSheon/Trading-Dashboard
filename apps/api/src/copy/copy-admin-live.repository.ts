@@ -27,11 +27,8 @@ function awaitingCredit(row: typeof copyFundingOperations.$inferSelect): Pick<Ad
 }
 const latest = <T extends { createdAt: Date }>(rows: T[], match: (row: T) => boolean) => rows.filter(match).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0] ?? null;
 
-/**
- * B16/B18 read model for the admin: every testnet execution wallet with its
- * agent, grant, mandate and stop; copy wallet transfers; journal orders by
- * state; leader fill → order latency. SQL only, no exchange calls.
- */
+/** Admin live read model (B16/B18): wallets with agent, grant, mandate and stop; transfers;
+ * journal orders; fill → order latency. SQL only. */
 @Injectable()
 export class CopyAdminLiveRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb, private readonly config: AppConfig) {}
@@ -101,9 +98,7 @@ export class CopyAdminLiveRepository {
     });
   }
 
-  /** P50/P95 milliseconds from the leader's fill time to: the worker seeing
-   * the fill (signal), the order leaving (sent), the exchange's answer (ack),
-   * and the fill booked (settled). Legs whose leader fill is in the window. */
+  /** P50/P95 ms from leader fill to signal, sent, ack and settled, for fills in the window. */
   async latency(window: '24h' | '7d', now: Date): Promise<AdminLiveLatency> {
     const since = new Date(now.getTime() - (window === '24h' ? 86_400_000 : 7 * 86_400_000));
     const ms = (column: AnyColumn) => sql`extract(epoch from (${column} - ${copyLiveDispatches.leaderTime})) * 1000`;
@@ -135,12 +130,8 @@ export class CopyAdminLiveRepository {
       .innerJoin(copyExecutionWallets, eq(copyExecutionWallets.id, copyWalletAuthorizations.walletId))
       .where(and(eq(copyWalletAuthorizations.id, id), eq(copyExecutionWallets.network, this.network))).for('update', { of: copyWalletAuthorizations }))[0];
   }
-  /** The copy behind this grant: its strategy, the account's newest
-   * generation that was ever activated and not stopped (active, paused,
-   * revoked or expired: its positions may still be there), and the stop that
-   * has not ended. Decided by the account, not by the newest mandate: a
-   * renewal still prepared must not hide an older activated generation's
-   * positions. */
+  /** The copy behind this grant: strategy, the account's newest activated not-stopped generation
+   * (by account, so a prepared renewal can't hide older positions), and its open stop. */
   async grantCopy(tx: DbTransaction, id: string) {
     const [first] = await tx.select({ accountId: copyLiveMandates.accountId, strategyId: copyLiveMandates.strategyId }).from(copyLiveMandates)
       .where(eq(copyLiveMandates.authorizationId, id)).orderBy(desc(copyLiveMandates.createdAt)).limit(1);

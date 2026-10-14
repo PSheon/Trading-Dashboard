@@ -10,9 +10,9 @@ import type { HlUserFill } from "../hyperliquid/types.js";
 export type FillSource = "regular" | "twap";
 export type FillOrigin = "rest" | "s3";
 /** The pool or a transaction of it. */
-export type FillExecutor = Pick<DrizzleDb, "select" | "insert" | "delete" | "execute">;
+type FillExecutor = Pick<DrizzleDb, "select" | "insert" | "delete" | "execute">;
 
-export interface NewHistoryFill {
+interface NewHistoryFill {
   address: string;
   source: FillSource;
   origin: FillOrigin;
@@ -24,10 +24,9 @@ export interface StoredHistoryFill {
   fill: HlUserFill;
 }
 /** `from` inclusive; `before` exclusive; `through` inclusive. `source`: one
- * stream only. `newest`: at most this many rows, the latest ones (still
- * returned oldest first), so a read of a very active address is bounded. */
-/** `newest`: the newest that many rows; `oldest`: the oldest that many (both returned oldest first). */
-export interface FillRange { from?: Date; before?: Date; through?: Date; source?: FillSource; newest?: number; oldest?: number }
+ * stream only. `newest` / `oldest`: at most that many rows from that end
+ * (both returned oldest first). */
+interface FillRange { from?: Date; before?: Date; through?: Date; source?: FillSource; newest?: number; oldest?: number }
 
 /** Rows per INSERT: 27 parameters each, far below the protocol's 65,535. */
 const INSERT_BATCH = 500;
@@ -59,11 +58,9 @@ export class HistoryFillStore {
   constructor(private readonly db: DrizzleDb, private readonly legacy: "refuse" | "ignore" = "refuse") {}
 
   /**
-   * Rows of the raw layout (`analysis_history_fills`, before migration
-   * 0021) that were not converted are invisible here; checkpoints already
-   * count them as read. So nothing is read or written until
-   * `history:convert` has retired that table. Checked once per process;
-   * a refusal is checked again on the next call.
+   * Unconverted raw-layout rows would be invisible yet counted as read by
+   * checkpoints, so nothing is read or written until `history:convert` has
+   * retired the raw table. Checked once per process (a refusal rechecks).
    */
   private ready(): Promise<void> {
     if (this.legacy === "ignore") return Promise.resolve();
@@ -191,13 +188,10 @@ export class HistoryFillStore {
   }
 
   /**
-   * Dictionary ids of addresses or terms, adding the ones not there yet.
-   * Looked up before inserting, so a batch of known values takes no
-   * sequence number and no row lock. Always on the pool, never inside the
-   * caller's transaction: a dictionary row is harmless if that transaction
-   * rolls back, and two transactions adding the same new terms in a
-   * different order would otherwise deadlock. Ids never change, but they
-   * are not cached: the lookup is one indexed query per batch.
+   * Dictionary ids of addresses or terms, adding missing ones. Looked up
+   * first so known values take no sequence number or row lock. Always on
+   * the pool, never in the caller's transaction: an orphan dictionary row
+   * is harmless, and in-transaction inserts in differing order could deadlock.
    */
   private async ids(kind: "account" | "term", wanted: string[]): Promise<Map<string, number>> {
     const db = this.db;

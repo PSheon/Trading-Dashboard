@@ -1,10 +1,5 @@
-/**
- * Exact arithmetic on Hyperliquid's decimal strings ("24513.75250433",
- * "5366091643.4300003052") and Postgres `numeric` values, as bigints scaled
- * by 10^18. Revenue is summed and diffed across thousands of snapshots, so
- * floats would drift; the final value is converted to a number only for the
- * JSON response.
- */
+/** Exact arithmetic on HL decimal strings and `numeric` values as bigints scaled by 10^18
+ * (revenue sums thousands of snapshots; floats would drift). Numbers only for JSON output. */
 
 const SCALE = 18;
 const FACTOR = 10n ** BigInt(SCALE);

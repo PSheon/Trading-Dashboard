@@ -14,21 +14,14 @@ import { safeErrorText } from "../runtime/safe-error-text.js";
 
 /** `dir` of a fill built from the feed (the feed has none; only spot dirs
  * mean anything to the classifier). */
-export const FEED_FILL_DIR = "feed";
+const FEED_FILL_DIR = "feed";
 
 /**
- * The fast path (Stage 2 §5): actions straight from the `trades` feed.
- *
- * Hyperliquid's fill index lags the feed by up to seconds (sometimes
- * forever), but `clearinghouseState` doesn't: it includes every fill up to
- * its `time`. So each feed trade gets its `startPosition` from the
- * address's position book, the trades become fill-shaped objects, and the
- * same `classifyFills` as for real fills turns them into actions, which are
- * alerted on at once. No `userFillsByTime` here: `FillSyncService` stores the
- * real fills afterwards and corrects an action the book got wrong.
- *
- * The feed has no liquidation flag, fee or closedPnl; a liquidation is
- * first reported by its shape (reduce/close) and corrected later.
+ * The fast path (Stage 2 §5): actions straight from the `trades` feed. The fill
+ * index lags (sometimes forever) but `clearinghouseState` includes every fill
+ * up to its `time`, so each trade takes `startPosition` from the position book
+ * and goes through `classifyFills`. `FillSyncService` corrects mistakes later;
+ * a liquidation (no flag in the feed) first shows as a reduce/close.
  */
 @Injectable()
 export class FeedActionsService {

@@ -205,9 +205,9 @@ export const vi: Messages = {
     }
   },
   copyFunding: {
-    "title": "Nạp vốn chiến lược trên testnet",
-    "hint": "Chuyển USDC thử nghiệm từ tài khoản chính sang tài khoản riêng. Kiểm tra và ký giao dịch đã chuẩn bị. Khi tiền đã về và đồng ý sao chép đã được ký, việc sao chép bắt đầu trên testnet. Số dư mô phỏng không thay đổi.",
-    "unavailable": "Chưa hỗ trợ nạp vốn chiến lược trên mainnet hoặc dịch vụ ví không khả dụng.",
+    "title": "Nạp vốn chiến lược",
+    "hint": "Chuyển USDC từ tài khoản chính sang tài khoản riêng. Kiểm tra và ký giao dịch đã chuẩn bị. Khi tiền đã về và đồng ý sao chép đã được ký, việc sao chép bắt đầu. Số dư mô phỏng không thay đổi.",
+    "unavailable": "Hiện chưa thể nạp vốn chiến lược hoặc dịch vụ ví không khả dụng.",
     "amount": "Số tiền nạp",
     "prepare": "Chuẩn bị chuyển tiền",
     "confirm": "Xác nhận và ký",

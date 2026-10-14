@@ -25,24 +25,12 @@ const LINK_CALLBACK = /^link:(ok|no):([A-Za-z0-9_-]{16,55})$/;
 
 
 /**
- * The official bot's side of the conversation: receives updates by long
- * polling `getUpdates` (with an offset, so each update is confirmed once
- * handled) in the background, and answers `/start <token>` (asks to link
- * the chat to the token's account, masked, with Confirm / Cancel buttons;
- * only Confirm links it),
- * `/start` (welcome, or resume a paused chat), `/stop` (pause) and
- * `/help`. Blocking the bot pauses the chat's alerts too.
- *
- * Runs in the worker process only (TelegramWorkerModule). Polls only with
- * TELEGRAM_BOT_POLLING (default true) and a token set.
- * Telegram allows one poller per token: a 409 means another process has
- * it, which is logged and backed off from, never fatal. A 401/404 means the
- * token itself is wrong, and polling stops.
- *
- * Replies here are always sent, whatever TELEGRAM_DRY_RUN says: they answer
- * a person who just pressed Start, and without them nobody could link a
- * chat on a dry-run deployment. Dry run covers alerts and system messages
- * only (NotifyService).
+ * The official bot's conversation: long-polls `getUpdates` and answers
+ * `/start <token>` (Confirm/Cancel link prompt), `/start`, `/stop` and `/help`.
+ * Blocking the bot pauses the chat's alerts. Worker only, with
+ * TELEGRAM_BOT_POLLING and a token. One poller per token: a 409 backs off, a
+ * 401/404 stops polling. Replies ignore TELEGRAM_DRY_RUN, or nobody could link
+ * a chat on a dry-run deployment.
  */
 @Injectable()
 export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestroy {

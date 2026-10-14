@@ -41,11 +41,9 @@ export class ActionsController {
   }
 
   /**
-   * Server-sent events: each new feed row matching the filters (`action`),
-   * slow-path corrections (`update`), a heartbeat comment every ~15 s.
-   * Resume with `Last-Event-ID: <action id>` (replays up to 200 missed
-   * rows). Browsers call it with fetch streaming, so the Authorization
-   * header works as on GET /actions. 429 beyond the per-IP/global limits.
+   * Server-sent events: new matching feed rows (`action`), corrections
+   * (`update`), heartbeats. Resume with `Last-Event-ID: <action id>`. Fetch
+   * streaming, so Authorization works as on GET /actions. 429 over limits.
    */
   @SkipTransform()
   @ApiHeader({ name: "Last-Event-ID", required: false, description: "Positive int64 action id; resumes up to 200 missed rows. Empty or whitespace-only values are treated as absent.", schema: { type: "string", pattern: "^[1-9]\\d{0,18}$" } })

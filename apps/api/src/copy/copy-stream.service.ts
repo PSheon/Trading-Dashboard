@@ -34,16 +34,9 @@ interface Subscriber {
 }
 
 /**
- * GET /me/copy/stream: the signed-in owner's copy events as they commit
- * (CopyDog's `portfolio-feed`: fills that open, add to, reduce, close or
- * liquidate a copy's position, deposits into a copy, withdrawals and the
- * sweep back at stop, hub withdrawals), as server-sent events.
- *
- * Owner-scoped by construction: a stream only ever reads its owner's rows
- * (GET /me/copy/events' query), and a notification carries nothing but the
- * owner's id. Each frame's SSE id is the event id; `Last-Event-ID` replays
- * what was missed (bounded; `reset` beyond). The JWT is rechecked before
- * every delivery and heartbeat; a revoked or expired session ends the stream.
+ * GET /me/copy/stream: the owner's copy events as SSE as they commit. Owner-scoped by
+ * construction (notifications carry only the owner id). `Last-Event-ID` replays what was missed
+ * (bounded; `reset` beyond). The JWT is rechecked before every delivery and heartbeat.
  */
 @Injectable()
 export class CopyStreamService implements OnModuleDestroy {

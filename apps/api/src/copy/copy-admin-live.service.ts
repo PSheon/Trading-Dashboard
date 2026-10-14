@@ -9,13 +9,8 @@ import { UnitOfWork } from '../db/unit-of-work.js';
 import { CopyAdminLiveRepository } from './copy-admin-live.repository.js';
 import { CopyLiveStopRepository } from './copy-live-stop.repository.js';
 
-/**
- * B16 admin live operations over testnet copies. Reads need copy.read (the
- * controller); revoking a copy's trading grant needs execution.pause and is
- * audited (copy.grant.revoke) in the same transaction. A revoked grant stops
- * every new order of that wallet at once (the risk authority refuses
- * `wallet_authorization_revoked`); the owner prepares a new mandate to resume.
- */
+/** Admin live operations (B16). Reads need copy.read; revoking a grant needs execution.pause and
+ * stops every new order of that wallet at once (`wallet_authorization_revoked`). */
 @Injectable()
 export class CopyAdminLiveService {
   /** Replaced in tests. */
@@ -27,24 +22,14 @@ export class CopyAdminLiveService {
   latency(window: '24h' | '7d'): Promise<AdminLiveLatency> { return this.repository.latency(window, this.now()); }
 
   /**
-   * Revoking a grant whose copy may still hold positions or resting orders
-   * would strand them: the stop executor closes and cancels with that grant,
-   * so with it revoked a stop stays in closing forever and the owner can
-   * neither pause, prepare a new mandate nor close by hand (testnet
-   * regression review, 6a). So:
-   * - `force`: revoked now, whatever the copy holds (audited with
-   *   positionsMayRemain);
-   * - the copy has ended or never traded (no activated generation on the
-   *   account and no open stop): revoked now;
-   * - otherwise the copy is stopped now (with the account's open stop, or a
-   *   new one) and the grant marked revoke requested: from then on it
-   *   authorises only that stop's reduce-only closes and owner-consented
-   *   cancellations (effectiveGrantScopes), and it is revoked when the stop
-   *   ends, when the stop is blocked or gone, or after the deadline once it is flat (never while it still closes),
-   *   whichever comes first (CopyLiveStopWorkerRepository.expirePendingRevokes);
-   * - asked again while pending: revoked now if the stop it waited for is
-   *   blocked or no longer open, else the same pending answer.
-   * Audited as copy.grant.revoke, with the reason.
+   * Revoking a grant with positions left would strand them: the stop executor needs it (review 6a).
+   * - `force`: revoked now (audited with positionsMayRemain);
+   * - copy ended or never traded: revoked now;
+   * - otherwise the copy is stopped and the grant marked revoke-requested: it then authorises only
+   *   that stop's closes and consented cancels, and is revoked when the stop ends, blocks or goes,
+   *   or after the deadline once flat (expirePendingRevokes);
+   * - asked again while pending: revoked now if the stop is blocked or gone.
+   * Audited as copy.grant.revoke.
    */
   async revoke(id: string, input: unknown, actor: RequestUser): Promise<AdminRevokedLiveGrant> {
     const { reason, force } = parseOr400(adminRevokeLiveGrantSchema, input);
@@ -78,22 +63,17 @@ export class CopyAdminLiveService {
       if (!live && !stop) return revokeNow('copy_ended');
       if (!stop && copy?.activated) {
         try {
-          // Keyed by the generation, not the grant version (which a pending
-          // revoke does not change): a later revoke of a later generation
-          // must not get back an old, already stopped stop.
+          // Keyed by generation, not grant version, so a later generation never gets an old stop.
           stop = await this.stops.request(tx, copy.activated.userId, copy.activated.id,
             { idempotencyKey: `admin-revoke-${id}-${copy.activated.id}-${copy.activated.revision}`.slice(0, 128), expectedMandateRevision: copy.activated.revision }, () => now.getTime());
         } catch (error) {
-          // The copy cannot be stopped from here (its records disagree): do
-          // not revoke into a stranded account; the admin sees why (force
-          // remains available).
+          // Can't be stopped: don't revoke into a stranded account (force remains available).
           if (error instanceof HttpException) throw new ConflictException({ statusCode: 409, code: 'live_revoke_needs_stop',
             message: 'This copy could not be stopped, so its grant was not revoked (a stop needs it to close the positions). Check the copy\'s stop, or revoke now (force) if positions may stay open.' });
           throw error;
         }
       }
-      // A stop that cannot run (blocked: its tracking is unproven) or has
-      // already ended cannot use the grant: revoke now, said so in the audit.
+      // A blocked or ended stop cannot use the grant: revoke now.
       if (!stop || stop.state === 'stopped') return revokeNow('stop_not_open');
       if (stop.state === 'blocked') return revokeNow('stop_blocked');
       const grant = await this.repository.requestRevoke(tx, id, now);

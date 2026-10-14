@@ -12,13 +12,8 @@ function match(tag: string): Locale | undefined {
   return localeEnum.find((l) => l === primary);
 }
 
-/**
- * The first supported language of an `Accept-Language` header, in the
- * order the client prefers them (q-values honoured). The web app sends the
- * language the page is shown in; any other client sends its own
- * preference. Undefined when nothing listed is supported or the header is
- * absent: the caller keeps its default.
- */
+/** The first supported language of `Accept-Language` by q-value; undefined when none
+ * (the caller keeps its default). */
 export function preferredLocale(header: string | string[] | undefined): Locale | undefined {
   const raw = Array.isArray(header) ? header.join(",") : header;
   if (!raw || raw.length > 400) return undefined;

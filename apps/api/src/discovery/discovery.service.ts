@@ -24,11 +24,11 @@ import { DiscoveryRepository } from "./discovery.repository.js";
 import { BOARDS_TTL_MS, SEARCH_TTL_MS } from '../config/constants/cache-ttls.js';
 
 /** Addresses per GET /discover/cards. */
-export const CARDS_MAX = 200;
+const CARDS_MAX = 200;
 /** Cards per home row (CopyDog scrolls 7 on desktop, more on swipe). */
-export const HOME_ROW_SIZE = 12;
+const HOME_ROW_SIZE = 12;
 /** Matches read per source (KOL registry, leaderboard) before ranking. */
-export const SEARCH_PER_SOURCE = 25;
+const SEARCH_PER_SOURCE = 25;
 
 interface Snapshot {
   candidates: Candidate[];
@@ -37,11 +37,8 @@ interface Snapshot {
 }
 
 /**
- * The explore page's boards and the home page's rows (Stage 3 §0.5, §1),
- * built in memory from the discovery pool (`discovery_traders`, ≈1,200
- * rows). Home market selection also reads the cached exchange volume ranking.
- * The pool snapshot is cached
- * `BOARDS_TTL_MS`; each board is a filter and sort over it.
+ * The explore boards and home rows (Stage 3 §0.5, §1): filters and sorts over
+ * an in-memory snapshot of `discovery_traders`, cached `BOARDS_TTL_MS`.
  */
 @Injectable()
 export class DiscoveryService {
@@ -89,13 +86,9 @@ export class DiscoveryService {
     return { items: coinIndex(candidates), pool, updatedAt };
   }
 
-  /** One coin's leaderboard from the pool snapshot. A coin nobody in the
-   * pool made money on is an empty board, not an error; `listed` says
-   * whether the name is a Hyperliquid perp market at all (main dex or
-   * HIP-3), so the page can tell "a real market with no data yet" (200)
-   * from "no such market" (404). A coin with rows is listed by definition;
-   * otherwise the cached catalog answers, and null means it is not known
-   * yet. */
+  /** One coin's board from the pool snapshot (empty, not an error, when nobody
+   * made money on it). `listed` lets the page tell an empty real market (200)
+   * from no such market (404); null means the catalog does not know yet. */
   async coin(coin: string): Promise<CoinBoardResponse> {
     const { candidates, pool } = await this.snapshot();
     const board = coinBoard(candidates, coin);
@@ -104,11 +97,9 @@ export class DiscoveryService {
   }
 
   /**
-   * The header search (CopyDog's `/traders/search`): traders whose KOL
-   * name, 𝕏 handle or leaderboard name contains `q`, or whose address
-   * starts with it, as cards, by all-time PnL (unknown counts as 0, as
-   * CopyDog orders them). Two indexed-or-bounded reads plus the card reads;
-   * each answer is cached `SEARCH_TTL_MS`; no Hyperliquid calls.
+   * The header search (CopyDog's `/traders/search`): name/handle contains `q` or
+   * address starts with it, by all-time PnL (unknown as 0, as CopyDog). No
+   * Hyperliquid calls; cached `SEARCH_TTL_MS`.
    */
   search(query: DiscoverSearchQuery): Promise<DiscoverSearchResponse> {
     const q = query.q.trim();
@@ -129,15 +120,10 @@ export class DiscoveryService {
   }
 
   /**
-   * Every home row in one read, as CopyDog's home builds them: 精選 (KOLs by
-   * copy score), top crypto (copy score), top stocks (stock PnL), and one row
-   * per `discovery.homeMarkets` coin, in that fixed order (that coin's PnL;
-   * CopyDog's BTC ETH SOL HYPE SPX Gold NVDA TSLA, which no volume ranking
-   * replaces; trending markets are tiles only); only traders whose
-   * sparkline moves. The calculator takes six from 精選 then named top-ROI
-   * traders, as CopyDog's home hero does (bundle 2026-10-04, `be()`): ROI >
-   * 5%, win rate > 10%, a positive account value, a sparkline of more than
-   * three points ending ≥ 0, preferring PnL ≥ $100K, highest ROI first.
+   * Every home row, as CopyDog builds them: 精選, top crypto, top stocks, and one
+   * row per `discovery.homeMarkets` coin in fixed order (trending markets are
+   * tiles only); only traders whose sparkline moves. The calculator follows
+   * CopyDog's home hero filter (bundle 2026-10-04, `be()`).
    */
   async home(): Promise<HomeBoardsResponse> {
     const [{ candidates, scores, pool }, discovery] = await Promise.all([this.snapshot(), this.settings.get("discovery")]);
@@ -173,12 +159,8 @@ export class DiscoveryService {
       freshness: boardFreshness([...featured, ...crypto, ...stocks, ...markets.flatMap(m => m.items), ...calculator]) };
   }
 
-  /**
-   * The traders the site shows performance figures for: every board's top
-   * 100 in every sort and window (crypto and stocks top 100, the KOL
-   * board, every configured coin board) and the home rows. The pool's
-   * performance loop refreshes these first.
-   */
+  /** The traders the site shows (every board's top 100 in every sort and
+   * window, and the home rows); the pool's performance loop favours these. */
   async visibleAddresses(): Promise<Set<string>> {
     const [{ candidates, scores, pool }, discovery] = await Promise.all([this.snapshot(), this.settings.get("discovery")]);
     const shown = new Set<string>();
@@ -195,11 +177,8 @@ export class DiscoveryService {
     return shown;
   }
 
-  /**
-   * Watchlist cards for these addresses, in the order given (duplicates
-   * dropped, at most `CARDS_MAX`): two indexed list reads plus the cached
-   * pool snapshot for scores; no Hyperliquid calls. See {@link traderCard}.
-   */
+  /** Watchlist cards in the order given (deduplicated, at most `CARDS_MAX`);
+   * no Hyperliquid calls. */
   async cards(addresses: string[]): Promise<TraderCardsResponse> {
     const unique = [...new Set(addresses.map((a) => a.toLowerCase()))].slice(0, CARDS_MAX);
     const [rows, identities, { scores }] = await Promise.all([this.repository.poolRowsOf(unique), this.repository.identitiesOf(unique), this.snapshot()]);
@@ -238,14 +217,12 @@ export class DiscoveryService {
 }
 
 /** Trending tiles shown per kind after CopyDog's fixed ones. */
-export const TRENDING_TILES = 2;
+const TRENDING_TILES = 2;
 
 /**
  * 依市場瀏覽's trending tiles, as CopyDog's `leaderboard/trending-coins` picks
- * them: of the markets by 24h exchange volume (`MarketCatalogService.trending`,
- * largest first), the first two main-dex coins and the first two stock
- * markets that are not already fixed tiles. On 2026-10-04 that gives ZEC and
- * PUMP, as CopyDog served (NEAR, third, was a static Orbie tile).
+ * them: by 24h volume, the first main-dex coins and stock markets that are not
+ * already fixed tiles (matched CopyDog on 2026-10-04).
  */
 export function trendingTiles(byVolume: readonly string[]): { coins: string[]; stocks: string[] } {
   const fixedCrypto = new Set<string>(HOME_TILE_CRYPTO);

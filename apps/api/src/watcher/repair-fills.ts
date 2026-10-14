@@ -3,16 +3,11 @@
  *
  *   DATABASE_URL=postgres://… pnpm --filter @trading-dashboard/api fills:repair [options]
  *
- * Watched addresses (active `leaders`): each is caught up from its verified
- * cursor, then backfilled backward window by window until the REST API's
- * retention start, the one-year floor or the fill cap; the stored span is
- * then checked for position breaks (each re-read) and the trader's
- * analytics are rebuilt from the verified span. What REST no longer holds
- * is reported as `partialSince`, never claimed.
- *
- * Other addresses of the tracked set whose analytics have no raw fills
- * behind them (computed before raw rows were kept): a history job over the
- * range they claim is created; `--untracked N` also runs N of them now.
+ * Watched addresses: caught up, backfilled to retention / the one-year floor /
+ * the fill cap, checked for position breaks, analytics rebuilt. What REST no
+ * longer holds is reported as `partialSince`, never claimed.
+ * Tracked addresses whose analytics no raw fill backs get a history job;
+ * `--untracked N` also runs N of them now.
  *
  * Options:
  *   --addresses a,b     only these watched addresses (default: all active)
@@ -24,10 +19,9 @@
  *   --untracked-addresses a,b   complete exactly these
  *   --dry-run           report what would be done; no REST call, no write
  *
- * Idempotent and resumable: progress is in `fill_coverage` /
- * `analysis_history_jobs`, fills are keyed by tid, and a second run only
- * reads what the first did not finish. Safe beside a running worker (every
- * span move is a compare-and-set). Never deletes a row.
+ * Idempotent and resumable (`fill_coverage` / `analysis_history_jobs`, fills
+ * keyed by tid). Safe beside a running worker (span moves are compare-and-set).
+ * Never deletes a row.
  */
 import "reflect-metadata";
 import { existsSync } from "node:fs";
@@ -45,16 +39,14 @@ const option = (name: string) => {
 };
 const list = (name: string) => option(name)?.split(",").map((value) => value.trim().toLowerCase()).filter(Boolean);
 
-export const MAX_REPAIR_WEIGHT_PER_MIN = 150;
-/** The budgeter's bucket, and the room left under the limit for a full
- * page: a list call is admitted before its size is known and may take the
- * bucket 100 below zero, so the refill rate is set 50 under the limit.
- * Full pages (120 weight) are then at least 72 s apart and a rolling minute
- * stays at about the limit; the sustained rate is `weight − 50`. */
+const MAX_REPAIR_WEIGHT_PER_MIN = 150;
+/** The budgeter's bucket, and the room under the limit for a full page: a list
+ * call is admitted before its size is known and may take the bucket 100 below
+ * zero, so the refill rate is set 50 under the limit. */
 const BURST = 20;
 const HEADROOM = 50;
 
-export interface RepairOptions {
+interface RepairOptions {
   addresses?: string[];
   weightPerMin: number;
   maxWindows: number;
@@ -67,7 +59,7 @@ export interface RepairOptions {
 
 interface Span { from: string | null; through: string | null; status: string | null; fills: number; breaks: number }
 
-export async function repairFills(options: RepairOptions) {
+async function repairFills(options: RepairOptions) {
   const log = options.log ?? ((line: string) => console.log(line));
   const weight = Math.min(MAX_REPAIR_WEIGHT_PER_MIN, Math.max(HEADROOM + 10, options.weightPerMin));
   // The api's modules as an application context: no routes, and no watcher,

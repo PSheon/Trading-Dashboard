@@ -5,32 +5,27 @@ import { liveSourceDigest, parseLiveSourceFill, type LiveSourceFillEvidence } fr
 import { address, LiveBoundaryError } from '../live/wallet-authorization.js';
 import { FOLLOW_UP_MAX_MS, FOLLOW_UP_MIN_MS, LIVE_EVIDENCE_MAX_AGE_MS, WITNESS_EXPIRY_MS } from '../../config/constants/timings.js';
 
-/** Provider reads of the fast source, both in the mainnet live lane. Each
- * acquires its base weight plus the worst-case list surcharge and gives back
- * what the answer didn't use (`HyperliquidInfoClient.postList`). */
+/** Fast-source provider reads (mainnet live lane; worst-case list weight
+ * acquired, unused part returned: `HyperliquidInfoClient.postList`). */
 export interface FastSourceReader {
-  /** `userFillsByTime` from `from` to now, and when the request left
-   * (after any budget wait: the read certifies nothing before it). */
+  /** `userFillsByTime` from `from` to now, and when the request left (after any budget wait). */
   fills(leader: string, from: number): Promise<{ fills: HlUserFill[]; sentAt: number }>;
-  /** `userTwapSliceFillsByTime` from `from` to now, each slice as a fill
-   * tagged with its TWAP id (`twapSliceToFill`, as the watcher stores it). */
+  /** `userTwapSliceFillsByTime`, each slice as a fill tagged with its TWAP id (`twapSliceToFill`). */
   twapSlices(leader: string, from: number): Promise<HlUserFill[]>;
 }
 
-/** A window with this many rows is saturated (the source contract): the
- * read is cut short of the row that would reach it. */
-export const FAST_SOURCE_WINDOW_ROWS = 500;
+/** A window with this many rows is saturated (source contract); the read stops short of it. */
+const FAST_SOURCE_WINDOW_ROWS = 500;
 /** Hyperliquid's per-call row cap: a full page may have more after it. */
 const PAGE_ROWS = 2000;
 const ZERO_HASH = /^0x0{64}$/;
-/** As `fills.raw` holds it: a JSON round trip, like the jsonb column (no
- * undefined members, plain objects). */
+/** Normalised as the `fills.raw` jsonb column holds it (JSON round trip). */
 const stored = (fill: HlUserFill): HlUserFill => JSON.parse(JSON.stringify(fill)) as HlUserFill;
 const untaggedZeroHash = (fill: HlUserFill) => (fill.twapId === undefined || fill.twapId === null) && typeof fill.hash === 'string' && ZERO_HASH.test(fill.hash);
 /** Weight Hyperliquid counts for one list answer: base 20, plus 1 per 20 items. */
 export const listWeight = (items: number) => 20 + Math.ceil(items / 20);
 
-export interface FastSourceStats { reads: number; twapReads: number; weight: number; rows: number }
+interface FastSourceStats { reads: number; twapReads: number; weight: number; rows: number }
 interface LeaderState {
   /** Trades the feed reported, by tid, until REST returns them. */
   witnessed: Map<string, number>;
@@ -42,27 +37,20 @@ interface LeaderState {
 }
 
 /**
- * The realtime mainnet copy signal. The trade feed only says *when* to read;
- * the fills come from one `userFillsByTime` read in the live lane, from the
- * stream's `coverage_through + 1` to now.
+ * Realtime mainnet copy signal. The trade feed only says *when* to read; fills
+ * come from `userFillsByTime` from `coverage_through + 1` to now.
  *
- * A read certifies its span only up to `min(readStart − G, the earliest
- * trade the feed reported that REST has not returned yet − 1)`: the fill
- * index trails the exchange, so fills younger than G may still be missing,
- * and a reported trade proves a fill exists. Fills past that bound are left
- * for the next read.
+ * A read certifies only up to `min(sentAt − G, earliest witnessed-but-unreturned
+ * trade − 1)`: the REST index trails the exchange by up to G.
  *
- * Rows are normalised exactly like the watched source (`fills.raw`): a
- * ordinary fill as REST returned it, a TWAP slice as `twapSliceToFill`, a
- * zero-hash fill without a TWAP id left out, and spot fills skipped. The same
- * tid read by both paths is then the same evidence, never a conflict. The
- * TWAP endpoint is read only when a zero-hash fill or a missing reported
- * trade calls for it.
+ * Rows are normalised like the watched source (`fills.raw`), so the same tid
+ * from both paths is the same evidence. The TWAP endpoint is read only when a
+ * zero-hash fill or a missing witnessed trade calls for it.
  */
 export class FastMainnetSource {
   private readonly leaders = new Map<string, LeaderState>();
   private readonly counters = new Map<string, FastSourceStats>();
-  /** The last read's clock per leader (asked, left, answered): timing logs. */
+  /** Last read's timing per leader, for logs. */
   readonly lastTiming = new Map<string, { asked: number; sentAt: number; answeredAt: number }>();
   constructor(private readonly reader: FastSourceReader, readonly graceMs: number, private readonly now: () => number = Date.now,
     private readonly log?: (message: string) => void,
@@ -105,8 +93,7 @@ export class FastMainnetSource {
     state.lastReadAt = asked;
     const counter = this.counters.get(leaderAddress) ?? { reads: 0, twapReads: 0, weight: 0, rows: 0 };
     this.counters.set(leaderAddress, counter);
-    // The observation starts when the request left: a wait for the mainnet
-    // budget before it neither ages the evidence nor certifies anything.
+    // Observation starts when the request left, not before any budget wait.
     const answer = await this.reader.fills(leaderAddress, from), observedAt = answer.sentAt;
     if (!Number.isSafeInteger(observedAt) || observedAt < asked || observedAt > this.now()) throw new LiveBoundaryError('live_source_request_invalid');
     this.lastTiming.set(leaderAddress, { asked, sentAt: observedAt, answeredAt: this.now() });
@@ -114,8 +101,7 @@ export class FastMainnetSource {
     counter.reads++; counter.weight += listWeight(regular.length); counter.rows += regular.length;
     const byTid = new Map<string, HlUserFill>();
     for (const row of regular) byTid.set(String(row.tid), row);
-    // A trade reported more than G ago that REST did not return may be a
-    // TWAP slice, which only the TWAP endpoint returns with its id.
+    // A witnessed trade older than G that REST lacks may be a TWAP slice.
     const missingOld = [...state.witnessed].some(([tid, time]) => time >= from && !byTid.has(tid) && observedAt - time > this.graceMs);
     let requests = 1;
     if (regular.some(untaggedZeroHash) || missingOld) {
@@ -133,19 +119,15 @@ export class FastMainnetSource {
     }
     const rows = [...byTid.values()].filter(row => Number.isSafeInteger(row.time) && row.time >= from)
       .sort((a, b) => a.time - b.time || (BigInt(a.tid) < BigInt(b.tid) ? -1 : 1));
-    // G is on Hyperliquid's clock: when ours runs ahead, `observedAt` is that
-    // much later than the exchange's now, so the bound moves back by it (the
-    // measured skew includes the answer's latency: never less than the truth).
+    // G is on Hyperliquid's clock: move the bound back by how far ours runs
+    // ahead (the measured skew includes latency, so it never under-counts).
     let to = Math.min(observedAt - this.graceMs - Math.max(0, this.clockAheadMs() ?? 0), Math.min(...state.witnessed.values()) - 1);
     // A full page may stop mid-millisecond; a window must stay unsaturated.
     if (regular.length >= PAGE_ROWS) to = Math.min(to, regular[regular.length - 1]!.time - 1);
     const inWindow = () => rows.filter(row => row.time <= to);
-    // A window of this many rows stops before the millisecond that fills it,
-    // except when that is the window's first millisecond (a sweep of many
-    // makers, a liquidation): stopping before it would end every later read
-    // before `from` as well, and the stream would never pass it. The answer
-    // holds that millisecond whole (a full page already ends `to` before its
-    // last millisecond), so the window is that millisecond alone, sealed.
+    // A saturated window stops before the millisecond that fills it, unless that
+    // is `from` itself (a sweep, a liquidation): then the window is that
+    // millisecond alone, sealed, or the stream could never pass it.
     let sealed = false;
     if (inWindow().length >= FAST_SOURCE_WINDOW_ROWS) {
       const at = inWindow()[FAST_SOURCE_WINDOW_ROWS - 1]!.time;
@@ -155,9 +137,8 @@ export class FastMainnetSource {
     const kept = inWindow(), past = rows.filter(row => row.time > to && !isOutOfScopeSpotFill(row) && !untaggedZeroHash(row));
     state.beyond = past.length ? past[0]!.time : null;
     state.misses = [...state.witnessed.values()].some(time => observedAt - time > this.graceMs) ? state.misses + 1 : 0;
-    // A full page all in the first millisecond (or a sealed one past the
-    // 2,000-row cap): that millisecond cannot be read whole. The stream goes
-    // to gap (incomplete) with an alert instead of waiting forever unseen.
+    // `from`'s millisecond exceeds one page: it cannot be read whole, so the
+    // stream goes to gap with an alert instead of stalling unseen.
     if (to < from && regular.length >= PAGE_ROWS && regular[regular.length - 1]!.time === from || sealed && kept.length >= PAGE_ROWS)
       return this.unreadable(leaderAddress, from, observedAt, regular.filter(row => row.time === from).slice(0, PAGE_ROWS), requests);
     if (to < from) return null;
@@ -176,8 +157,7 @@ export class FastMainnetSource {
     return { ...result, sourceDigest: liveSourceDigest(result) };
   }
 
-  /** An incomplete read of the millisecond at `from` (it certifies nothing):
-   * applied, it puts the stream into gap, so the stall is seen. */
+  /** An incomplete read of `from`'s millisecond: certifies nothing, puts the stream in gap. */
   private unreadable(leaderAddress: string, from: number, observedAt: number, rows: HlUserFill[], requests: number): LiveSourceReadResult {
     this.log?.(`ALERT fast source: ${leaderAddress} has ${rows.length}+ fills at ${new Date(from).toISOString()}, more than one read returns; ` +
       'that millisecond cannot be read whole, stream set to gap (incomplete_coverage)');

@@ -93,11 +93,9 @@ export class KolService {
   }
 
   /**
-   * Imports a CSV (see `parseKolCsv`): valid rows are upserted, invalid ones
-   * reported and skipped; with `replace`, KOLs the file doesn't list are
-   * removed (only when the file has no invalid rows, so a typo can't wipe
-   * the registry). All in one transaction. The seed command
-   * (`seed-kols.ts`) uses this same path.
+   * Imports a CSV in one transaction: valid rows upserted, invalid ones reported;
+   * `replace` removes unlisted KOLs only when no row is invalid (a typo can't
+   * wipe the registry). Also the seed path.
    * @throws BadRequestException when the header is unusable.
    */
   async importCsv(csv: string, replace: boolean, actor: AuditActor): Promise<KolImportResponse> {

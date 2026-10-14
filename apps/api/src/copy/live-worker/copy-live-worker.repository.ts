@@ -17,8 +17,8 @@ import { liveCopySettingsDigest } from '../copy-live-mandate-consent.js';
 import { canonicalLiveSourceLegs, decodeLiveSourceFill, liveSourceLegId } from '../live/copy-live-source-evidence.js';
 import { liveSourceExecutionAttempt } from '../live/copy-live-leg-attempt.js';
 
-// A fill can still have an unsettled risk reservation. Prioritize its settlement
-// before another same-coin leg; a terminal journal alone is not a release proof.
+// Unresolved: in flight, never-placed awaiting release, or a reservation not yet
+// released (a terminal journal alone is not a release proof).
 const unresolvedExecution = sql`exists (select 1 from ${copyLiveExecutions} j where j.key = ${copyLiveDispatches.executionKey}
   and (j.state in ('prepared', 'submitting', 'unknown', 'resting')
     or (j.state = 'rejected' and j.record->>'errorCode' = ${NEVER_PLACED})
@@ -39,17 +39,14 @@ export interface LiveMandateWork {
 }
 /** A merged leg: never sent on its own; its lead row's order carries it. */
 export const MERGED_REASON = 'merged_into_adjustment';
-/** A submitted leg whose order was released as never sent (its request never
- * began) by the API's testnet settlement: the worker decides its next attempt. */
+/** Submitted leg released as never sent by the api's testnet settlement; the worker plans its next attempt. */
 export const UNSENT_RELEASED = 'unsent_released';
-/** A pending leg to be planned again after its previous attempt (the row's
- * executionKey) was released as never sent. */
+/** Pending leg to re-plan after its previous attempt (executionKey) was released as never sent. */
 export const UNSENT_RETRY = 'unsent_retry';
 export interface LiveStreamWork { network: LiveSourceNetwork; leaderAddress: string; earliestCursor: Date }
 
-/** SQL for the live worker. Short transactions only; no provider I/O here.
- * Only the deployment's network: a generation, leg or order of another
- * network (a database that moved networks) is never worked here. */
+/** SQL for the live worker: short transactions, no provider I/O, and only the
+ * deployment's network (rows of another network are never worked). */
 @Injectable()
 export class CopyLiveWorkerRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb, private readonly uow: UnitOfWork, private readonly config: AppConfig) {}
@@ -59,9 +56,7 @@ export class CopyLiveWorkerRepository {
     return sql`exists (select 1 from ${copyLiveMandates} n where n.id = ${copyLiveDispatches.mandateId} and n.network = ${this.network})`;
   }
 
-  /** Consent generations that are acknowledged and unexpired: active, or
-   * paused by the owner (a pause stops new risk only; the engine still
-   * mirrors the leader's closes of a paused copy, never its opens). */
+  /** Acknowledged, unexpired generations, active or paused (a paused copy still mirrors closes). */
   async mandates(now: number): Promise<LiveMandateWork[]> {
     const rows = await this.db.select({ mandate: copyLiveMandates, account: copyExecutionAccounts, strategy: copyStrategies, activatedAt: copyLiveActivations.activatedAt, activationState: copyLiveActivations.state,
       settings: copyStrategyVersions.settings, budgetUsd: copyLiveStrategyConfigs.budgetUsd })
@@ -94,12 +89,9 @@ export class CopyLiveWorkerRepository {
   }
 
   /**
-   * A funded, acknowledged generation starts trading: its strategy goes from
-   * paused to active once. Only a generation the owner's approval left
-   * `pending`, and only while the strategy is exactly as approval left it
-   * (paused, same control revision: no pause, reduce-only or kill switch
-   * since), with platform and user controls clear. Funded means a credited
-   * transfer to the account and none pending; a stop request blocks it.
+   * Starts a funded `pending` generation: strategy paused → active, once, only
+   * if unchanged since approval (same control revision), controls clear, a
+   * credited transfer and none pending, and no open stop.
    */
   async activateFunded(mandates: readonly LiveMandateWork[], now: number): Promise<string[]> {
     const activated: string[] = [];
@@ -142,8 +134,7 @@ export class CopyLiveWorkerRepository {
     return parsed.success ? parsed.data : DEFAULT_COPY_RISK_LIMITS;
   }
 
-  /** A copy's legs that may still merge: pending, on their own, never sent
-   * (no journal for their order identity), with their source fills. */
+  /** Legs that may still merge (pending, unmerged, no journal), with their source fills. */
   async mergeable(mandateId: string, keyOf: (row: DispatchRow) => string, limit = 200) {
     const rows = await this.db.select({ dispatch: copyLiveDispatches, fill: copyLiveSourceFills }).from(copyLiveDispatches)
       .innerJoin(copyLiveSourceFills, eq(copyLiveSourceFills.id, copyLiveDispatches.sourceFillId))
@@ -154,8 +145,7 @@ export class CopyLiveWorkerRepository {
       .where(inArray(copyLiveExecutions.key, rows.map(row => keyOf(row.dispatch))))).map(row => row.key));
     return rows.filter(row => !journals.has(keyOf(row.dispatch)));
   }
-  /** Makes `lead` one order for itself and `members`: each member is
-   * recorded merged into it (refused, never sent on its own), all or none. */
+  /** `lead` becomes one order for itself and `members` (refused as merged), all or none. */
   async merge(lead: Pick<DispatchRow, 'id' | 'mandateId'>, members: readonly string[]): Promise<boolean> {
     return this.uow.run(async tx => {
       const led = await tx.update(copyLiveDispatches).set({ adjustmentId: lead.id, updatedAt: new Date() })
@@ -167,17 +157,13 @@ export class CopyLiveWorkerRepository {
       return true;
     }).catch(error => { if (error instanceof Error && error.message === 'adjustment_merge_conflict') return false; throw error; });
   }
-  /** Legs refused without an order, from pending and never sent: an open
-   * superseded while too small (below_min_notional), a leg that waited to be
-   * merged until its signal was too old (merged_signal_expired). */
+  /** Refuses unsent pending legs: too small (below_min_notional) or aged out waiting to merge. */
   async refusePending(ids: readonly string[], reason: 'below_min_notional' | 'merged_signal_expired'): Promise<void> {
     if (!ids.length) return;
     await this.db.update(copyLiveDispatches).set({ state: 'refused', reason, updatedAt: new Date() })
       .where(and(inArray(copyLiveDispatches.id, [...ids]), eq(copyLiveDispatches.state, 'pending'), isNull(copyLiveDispatches.adjustmentId)));
   }
-  /** Keep later same-coin legs behind uncertain execution outcomes and
-   * never-placed orders still awaiting release. Definite fills continue
-   * through the original generation and settlement proof checks. */
+  /** An earlier same-coin leg is still pending or unresolved: this one waits. */
   async earlierPending(row: Pick<DispatchRow, 'id' | 'mandateId' | 'coin' | 'leaderTime'>): Promise<boolean> {
     const [earlier] = await this.db.select({ id: copyLiveDispatches.id }).from(copyLiveDispatches)
       .where(and(eq(copyLiveDispatches.mandateId, row.mandateId), eq(copyLiveDispatches.coin, row.coin),
@@ -185,14 +171,9 @@ export class CopyLiveWorkerRepository {
         sql`(${copyLiveDispatches.leaderTime}, ${copyLiveDispatches.id}) < (${row.leaderTime}, ${row.id})`)).limit(1);
     return earlier !== undefined;
   }
-  /** Another order on this copy's account is still unsettled (sent or in
-   * flight, its reservation not yet released, or a never-placed one not yet
-   * released): every order's generation projection refuses until it is
-   * (copy-live-generation-projection.ts: each other journal must be settled
-   * or released), so a leg waits for it instead of spending its evidence,
-   * sockets and the user's risk lock on a refusal (gate run 10, 2026-10-14:
-   * ETH's attempts failed while BTC's settlement was starved). Released as
-   * never sent (UNSENT_RELEASED) is the worker's own next attempt, not a wait. */
+  /** Another order on the account is unresolved: the generation projection
+   * (copy-live-generation-projection.ts) would refuse, so wait rather than spend
+   * evidence and the risk lock (gate run 10, 2026-10-14). UNSENT_RELEASED is not a wait. */
   async unsettledOnAccount(row: Pick<DispatchRow, 'id' | 'accountId'>): Promise<boolean> {
     const [other] = await this.db.select({ id: copyLiveDispatches.id }).from(copyLiveDispatches)
       .where(and(eq(copyLiveDispatches.accountId, row.accountId), eq(copyLiveDispatches.state, 'submitted'), ne(copyLiveDispatches.id, row.id),
@@ -205,9 +186,8 @@ export class CopyLiveWorkerRepository {
       .where(and(eq(copyLiveDispatches.adjustmentId, leadId), ne(copyLiveDispatches.id, leadId))).orderBy(asc(copyLiveDispatches.leaderTime), asc(copyLiveDispatches.id));
     return rows.map(row => row.fill);
   }
-  /** An adjustment refused below the exchange minimum before any order
-   * identity was claimed: its legs go back to waiting on their own (marked
-   * `below_min_notional`), so the next same-side legs can join them. */
+  /** Undoes an unjournaled adjustment below the minimum: its legs wait again as
+   * `below_min_notional`, so later legs can join them. */
   async dissolve(lead: Pick<DispatchRow, 'id' | 'state' | 'attempts' | 'reason'>, attempts: number): Promise<boolean> {
     return this.uow.run(async tx => {
       const led = await tx.update(copyLiveDispatches).set({ adjustmentId: null, reason: 'below_min_notional', attempts, updatedAt: new Date() })
@@ -219,9 +199,8 @@ export class CopyLiveWorkerRepository {
     });
   }
 
-  /** Each coin's latest work row of a generation (the leader's latest leg,
-   * a flip's open after its close), with its leader fill and the coin's
-   * reduction carry (what a settled close still owes the follower). */
+  /** Each coin's latest leg (a flip's open sorts after its close), with its fill
+   * and the coin's reduction carry (what settled closes still owe). */
   async latestByCoin(mandateId: string): Promise<{ row: DispatchRow; fill: typeof copyLiveSourceFills.$inferSelect; carry: string | null }[]> {
     const rows = await this.db.selectDistinctOn([copyLiveDispatches.coin], { row: copyLiveDispatches, fill: copyLiveSourceFills, carry: copyLiveReductionCarry.carry })
       .from(copyLiveDispatches).innerJoin(copyLiveSourceFills, eq(copyLiveSourceFills.id, copyLiveDispatches.sourceFillId))
@@ -230,11 +209,8 @@ export class CopyLiveWorkerRepository {
       .orderBy(copyLiveDispatches.coin, sql`${copyLiveDispatches.leaderTime} desc`, sql`case when ${copyLiveDispatches.leg} = 'open' then 0 else 1 end`, sql`${copyLiveDispatches.id} desc`).limit(1024);
     return rows.map(({ row, fill, carry }) => ({ row, fill, carry: carry ?? null }));
   }
-  /** Asks the worker's single-position closer (copy_live_manual_closes, run
-   * after the legs by CopyLiveManualCloser) to close what the follower still
-   * holds of `row.coin` once the leader is flat: reduce-only IOCs by the
-   * approved agent until the position is gone. One request per leader close
-   * (`reconcile:<row id>`); none while a close of the coin is requested. */
+  /** Requests a CopyLiveManualCloser close of `row.coin` after the leader went
+   * flat; idempotent per leader close (`reconcile:<row id>`). */
   async requestFlatClose(row: Pick<DispatchRow, 'id' | 'userId' | 'accountId' | 'strategyId' | 'coin'>, at: Date): Promise<boolean> {
     const inserted = await this.db.insert(copyLiveManualCloses).values({ id: randomUUID(), userId: row.userId, accountId: row.accountId, strategyId: row.strategyId,
       idempotencyKey: `reconcile:${row.id}`.slice(0, 200), coin: row.coin, createdAt: at, updatedAt: at }).onConflictDoNothing().returning({ id: copyLiveManualCloses.id });
@@ -251,9 +227,8 @@ export class CopyLiveWorkerRepository {
   async record(rows: (typeof copyLiveDispatches.$inferInsert)[]): Promise<void> {
     if (rows.length) await this.db.insert(copyLiveDispatches).values(rows).onConflictDoNothing();
   }
-  /** Reconcile uncertain predecessors that block fresh same-coin work first.
-   * Otherwise preserve fresh-signal priority, including a flip's close when
-   * its open is pending, followed by unrelated reconciliation. */
+  /** Order: unresolved legs blocking a pending same-coin leg, then pending legs
+   * (and a flip's close whose open is pending), then other reconciliation. */
   async open(limit = 100, mandateIds?: readonly string[]): Promise<DispatchRow[]> {
     if (mandateIds && !mandateIds.length) return [];
     const fresh = sql`case when ${copyLiveDispatches.state} = 'submitted' and ${unresolvedExecution} and exists (select 1 from ${copyLiveDispatches} p where p.mandate_id = ${copyLiveDispatches.mandateId}
@@ -265,18 +240,15 @@ export class CopyLiveWorkerRepository {
       .where(and(inArray(copyLiveDispatches.state, ['pending', 'submitted']), this.ownNetwork(), mandateIds ? inArray(copyLiveDispatches.mandateId, [...mandateIds]) : undefined))
       .orderBy(fresh, asc(copyLiveDispatches.leaderTime), asc(copyLiveDispatches.id)).limit(limit);
   }
-  /** Fills the watcher confirmed over REST inside both its verified span and
-   * the leader's mainnet copy stream's coverage that the stream does not
-   * hold. Zero-hash fills without a TWAP id are left out on both paths. */
+  /** Watcher-verified fills inside the stream's coverage that the stream lacks
+   * (zero-hash non-TWAP fills excluded, as on both ingest paths). */
   async unmirroredFills(leader: string, limit = 100): Promise<{ tid: string; time: number; coin: string; streamFrom: number; streamThrough: number; verifiedFrom: number; verifiedThrough: number }[]> {
     const id = `mainnet:${leader}`;
     const rows = await this.db.select({ tid: fills.tid, ts: fills.ts, coin: fills.coin, streamFrom: copyLiveSourceStreams.coverageFrom, streamThrough: copyLiveSourceStreams.coverageThrough,
       verifiedFrom: fillCoverage.verifiedFrom, verifiedThrough: fillCoverage.verifiedThrough }).from(fills)
       .innerJoin(fillCoverage, and(eq(fillCoverage.chain, fills.chain), eq(fillCoverage.address, fills.address)))
       .innerJoin(copyLiveSourceStreams, eq(copyLiveSourceStreams.id, id))
-      // greatest/least skip NULLs: a stream with no coverage yet (a copy just
-      // started) would otherwise return rows whose bounds are null (Stage
-      // 2026-10-12: TypeError in the audit).
+      // greatest/least skip NULLs, so null bounds are excluded explicitly (Stage 2026-10-12).
       .where(and(eq(fills.chain, CHAIN_DEFAULT), eq(fills.address, leader),
         isNotNull(copyLiveSourceStreams.coverageFrom), isNotNull(copyLiveSourceStreams.coverageThrough),
         isNotNull(fillCoverage.verifiedFrom), isNotNull(fillCoverage.verifiedThrough),
@@ -292,11 +264,8 @@ export class CopyLiveWorkerRepository {
     const [row] = await this.db.select().from(copyLiveDispatches).where(eq(copyLiveDispatches.id, id));
     return row ?? null;
   }
-  /** Moves a work row on from exactly the row its caller read (compare and
-   * set on state, attempts and reason), never from a terminal one (settled,
-   * refused): a stale or concurrent pass changes nothing, so two passes that
-   * read the same attempt cannot both count it, and neither can overwrite
-   * the other's reason. */
+  /** CAS on the row as read (state, attempts, reason), never from a terminal
+   * state: a stale or concurrent pass changes nothing. */
   async update(read: Pick<DispatchRow, 'id' | 'state' | 'attempts' | 'reason'>, patch: Partial<typeof copyLiveDispatches.$inferInsert>): Promise<boolean> {
     if (read.state !== 'pending' && read.state !== 'submitted') return false;
     const { id: _id, mandateId: _m, sourceFillId: _f, leg: _l, ...allowed } = patch;
@@ -310,10 +279,9 @@ export class CopyLiveWorkerRepository {
     const [row] = await this.db.select({ state: copyLiveExecutions.state }).from(copyLiveExecutions).where(eq(copyLiveExecutions.key, key));
     return row?.state ?? null;
   }
-  /** A negative admission hint only. A prior fixed claim already prevents a
-   * second spend through the final SQL unique index, including failed claims.
-   * Check its immutable source and original journal before costly provider reads.
-   * This never releases a claim or proves that its order settled. */
+  /** A negative admission hint only (the SQL unique index is what blocks a second
+   * fixed spend): skips provider reads when another fill of the trade already
+   * claimed it. Never releases a claim or proves settlement. */
   async knownFixedOpenClaim(row: DispatchRow, work: LiveMandateWork): Promise<boolean> {
     if (row.leg !== 'open' || row.state !== 'pending' || work.sizingMode !== 'fixed' || row.mandateId !== work.mandateId || row.userId !== work.userId || row.strategyId !== work.strategyId || row.accountId !== work.accountId) return false;
     const [binding] = await this.db.select({ dispatch: copyLiveDispatches, mandate: copyLiveMandates, account: copyExecutionAccounts,
@@ -362,18 +330,14 @@ export class CopyLiveWorkerRepository {
         claim.journal.record.key === key && claim.journal.record.fingerprint === claim.provenance.fingerprint && claim.provenance.sourceDigest === original.sourceDigest && claim.provenance.settingsDigest === consent.settingsDigest;
     } catch { return false; }
   }
-  /** Whether this generation ever opened `coin`: a close of a position the
-   * copy never held (opened before the cursor) has nothing to reduce. */
+  /** Whether this generation ever opened `coin` (else a close has nothing to reduce). */
   async everOpened(mandateId: string, coin: string): Promise<boolean> {
     const [row] = await this.db.select({ id: copyLiveDispatches.id }).from(copyLiveDispatches)
       .where(and(eq(copyLiveDispatches.mandateId, mandateId), eq(copyLiveDispatches.coin, coin), eq(copyLiveDispatches.leg, 'open'), inArray(copyLiveDispatches.state, ['submitted', 'settled']))).limit(1);
     return row !== undefined;
   }
-  /** Whether the owner closed `coin` by hand after this generation's latest
-   * open of it: the leader's later reductions have nothing left to reduce.
-   * Only a close requested after that open settled (both on our clock) saw
-   * the open's position, and only one that placed an order closed anything;
-   * an open still in flight is never counted as closed. */
+  /** Whether the owner closed `coin` by hand after the latest open settled (our
+   * clock) with an order placed; an unsettled open never counts as closed. */
   async closedByOwner(mandateId: string, accountId: string, coin: string): Promise<boolean> {
     const [open] = await this.db.select({ settledAt: copyLiveDispatches.settledAt }).from(copyLiveDispatches)
       .where(and(eq(copyLiveDispatches.mandateId, mandateId), eq(copyLiveDispatches.coin, coin), eq(copyLiveDispatches.leg, 'open'), inArray(copyLiveDispatches.state, ['submitted', 'settled'])))
@@ -384,18 +348,14 @@ export class CopyLiveWorkerRepository {
         sql`jsonb_array_length(${copyLiveManualCloses.executionKeys}) > 0`)).limit(1);
     return closed !== undefined;
   }
-  /** Whether a single-position close of `coin` (the owner's, or one after the
-   * leader went flat) is still requested on this account: a new open of the
-   * coin waits for it, or the closer would close the fresh open as well. */
+  /** A single-position close of `coin` is still requested (a new open waits, or it would be closed too). */
   async closeRequested(accountId: string, coin: string): Promise<boolean> {
     const [row] = await this.db.select({ id: copyLiveManualCloses.id }).from(copyLiveManualCloses)
       .where(and(eq(copyLiveManualCloses.accountId, accountId), eq(copyLiveManualCloses.coin, coin), eq(copyLiveManualCloses.state, 'requested'))).limit(1);
     return row !== undefined;
   }
-  /** Whether Hyperliquid liquidated this account's `coin` after this
-   * generation's latest open of it (CP-EXE-16): a booked fill whose own
-   * `liquidation` marker names the account. Compared on exchange time (the
-   * leader's fill), never on our clock or on price. */
+  /** Hyperliquid liquidated `coin` after the latest open (CP-EXE-16): a booked
+   * fill whose `liquidation` marker names the account, on exchange time. */
   async liquidatedSinceOpen(mandateId: string, accountId: string, coin: string): Promise<boolean> {
     const [open] = await this.db.select({ at: copyLiveDispatches.leaderTime }).from(copyLiveDispatches)
       .where(and(eq(copyLiveDispatches.mandateId, mandateId), eq(copyLiveDispatches.coin, coin), eq(copyLiveDispatches.leg, 'open'), inArray(copyLiveDispatches.state, ['submitted', 'settled'])))

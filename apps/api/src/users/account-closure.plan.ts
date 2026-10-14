@@ -1,20 +1,14 @@
 import { sql, type SQL } from "drizzle-orm";
 
 /**
- * What account deletion does with every place a users.id is stored
- * (docs/account-deletion.md). test/account-closure-guard.spec.ts reads the
- * live schema and fails when a column holding a user id is missing here, or
- * when the database's own delete rule disagrees with the handling below, so
- * a new table can't make deletion fail on a foreign key again.
- *
- * - `cascade`: personal data, removed with the user row (ON DELETE CASCADE).
- * - `set_null`: kept without attribution (ON DELETE SET NULL).
- * - `tombstone`: a record that must be kept (money, orders, consent, audit).
- *   It is re-pointed to the deletion's anonymous tombstone user, so it stays
- *   valid without identifying the person, and is purged with that tombstone
- *   after RETENTION_ACCOUNT_DELETION_DAYS ({@link purgeStatements}).
+ * Account deletion's handling of every column holding a users.id (docs/account-deletion.md).
+ * test/account-closure-guard.spec.ts fails when a user-id column is missing here or its
+ * FK delete rule disagrees.
+ * - `cascade`: personal data (ON DELETE CASCADE). `set_null`: kept unattributed.
+ * - `tombstone`: must be kept (money, orders, consent, audit); re-pointed to the anonymous
+ *   tombstone user and purged after RETENTION_ACCOUNT_DELETION_DAYS ({@link purgeStatements}).
  */
-export type UserReferenceHandling = "cascade" | "set_null" | "tombstone";
+type UserReferenceHandling = "cascade" | "set_null" | "tombstone";
 
 export const USER_REFERENCES = {
   // Personal data: deleted with the account.
@@ -82,12 +76,8 @@ export const USER_REFERENCES = {
 } as const satisfies Record<string, UserReferenceHandling>;
 export type UserReference = keyof typeof USER_REFERENCES;
 
-/**
- * Rows deleted explicitly just before the user row, because a RESTRICT key
- * would otherwise stop the cascade: alert records of the user's own alert
- * rules (they are the user's alerts, but another account's alert row could
- * point at the rule too). Keyed by the restricting `table.column`.
- */
+/** Rows deleted just before the user row because a RESTRICT key would stop the cascade
+ * (any alert row may point at the user's rules). Keyed by the restricting `table.column`. */
 export function deletedBeforeUser(userId: number): Record<string, SQL> {
   return {
     "alerts.rule_id": sql`delete from alerts where rule_id in (select id from alert_rules where user_id = ${userId})`,
@@ -109,7 +99,7 @@ export const KEPT_STRATEGY = sql.join([sql.raw(`(s.mode <> 'paper'`),
   ...STRATEGY_RECORD_TABLES.map((table) => sql.raw(` or exists (select 1 from ${table} r where r.strategy_id = s.id)`)), sql.raw(")")], sql``);
 
 /** A referral code an invite was made with (`c` is referral_codes). */
-export const KEPT_REFERRAL_CODE = sql`exists (select 1 from referral_attributions a where a.code_id = c.id)`;
+const KEPT_REFERRAL_CODE = sql`exists (select 1 from referral_attributions a where a.code_id = c.id)`;
 
 function split(reference: string): [string, string] {
   const [table, column] = reference.split(".");
@@ -136,16 +126,8 @@ export function repointStatements(userId: number, tombstoneId: number): Array<{ 
   return out;
 }
 
-/**
- * Removes one tombstone and every kept record under it, children before
- * parents (the foreign keys are RESTRICT on purpose). The guard checks that
- * every table reachable from a tombstoned table through a non-cascading
- * foreign key is listed, and that each comes before the tables it points at.
- * Shared rows (leader fills and streams, policies) are never touched.
- */
-/** Break the funding/abort FK cycle only when purging an expired tombstone.
- * Owner bindings and funding markers remain intact throughout retention.
- * The enclosing purge transaction rolls this back on any failed deletion. */
+/** Breaks the funding/abort FK cycle, only for an expired tombstone; the enclosing
+ * purge transaction rolls it back on any failed deletion. */
 export function purgeDetachedReferences(tombstoneId: number, cutoff: Date): Record<string, SQL> {
   return {
     "copy_funding_operations.setup_abort_id": sql`update copy_funding_operations f set setup_abort_id = null
@@ -155,6 +137,8 @@ export function purgeDetachedReferences(tombstoneId: number, cutoff: Date): Reco
   };
 }
 
+/** Removes one tombstone and its kept records, children before parents (RESTRICT FKs
+ * on purpose; the guard checks the order). Shared rows (leader fills, policies) are never touched. */
 export function purgeStatements(tombstoneId: number): Array<{ table: string; statement: SQL }> {
   const t = tombstoneId;
   const accounts = sql`(select id from copy_execution_accounts where user_id = ${t})`;

@@ -30,12 +30,11 @@ import type { CopyLiveFlatCarry } from './copy-live-flat-carry.js';
 import type { SystemStopOutcome } from '../copy-live-stop-system.js';
 import { FLAT_CARRY_RETRY_MS, LIVE_EVIDENCE_MAX_AGE_MS, REVOKE_DEADLINE_MS } from '../../config/constants/timings.js';
 
-// A single-position close gives up after copy.live.stop.retry.closeAttempts
-// orders (the owner can ask again, or stop the copy); a stop never does (it
-// backs off). A tracked order's cancel after retry.cancelAttempts.
+// A single-position close gives up after retry.closeAttempts orders and a cancel
+// after retry.cancelAttempts; a stop never gives up (it backs off).
 const TERMINAL: ReadonlySet<string> = new Set(['filled', 'partial', 'cancelled', 'rejected']);
 /** Below this the account holds nothing worth a transfer back (USDC). */
-export const SWEEP_DUST_USD = '0.01';
+const SWEEP_DUST_USD = '0.01';
 export interface StopperDependencies {
   readonly repository: CopyLiveStopWorkerRepository;
   readonly closer: ReduceOnlyCloser;
@@ -43,17 +42,15 @@ export interface StopperDependencies {
   readonly canceller: StopCanceller | null;
   /** True once a transfer back to the owner's main wallet has been credited. */
   readonly swept: (stop: StopRow) => Promise<boolean>;
-  /** The automatic return of accounts with the master signer; without it
-   * (or for a legacy account) the owner returns the funds by hand. */
+  /** Automatic return (master-signer accounts); otherwise the owner returns funds by hand. */
   readonly autoReturn?: AutoReturn | null;
   readonly log?: (message: string) => void;
-  /** How often the system stops are looked for (AppConfig.copy.live.stop; default today's). */
+  /** AppConfig.copy.live.stop (system-stop check interval, retry limits). */
   readonly timings?: LiveStopTimings;
   /** A revoke-requested grant is revoked anyway after this long. */
   readonly revokeDeadlineMs?: number;
-  /** The system's stops (CopyLiveSystemStops): copies whose agent is about
-   * to expire (an expired agent can't sign the stop's closes, stranding the
-   * positions), and admin close-alls the api did not finish. */
+  /** System stops (CopyLiveSystemStops): copies whose agent is about to expire
+   * (an expired agent can't sign the closes), and unfinished admin close-alls. */
   readonly systemStops?: {
     readonly agentExpiryMarginMs: number;
     stopExpiring(marginMs: number): Promise<SystemStopOutcome>;
@@ -62,43 +59,31 @@ export interface StopperDependencies {
     resumePendingCloseAll(): Promise<Array<{ event: string; liveStops: number; liveUnhandled: readonly { accountId: string; code: string }[] }>>;
   } | null;
 }
-/** The stored reason: a boundary code (live/error-class.ts), else
- * stop_step_failed. A stop never gives up, whatever the class: it backs off. */
+/** Stored reason: a boundary code (live/error-class.ts), else stop_step_failed. */
 const reason = (error: unknown) => { const classified = classify(error);
   return (classified.source === 'boundary' && classified.code !== null ? classified.code : 'stop_step_failed').replace(/[^a-z0-9_]/g, '_').slice(0, 80); };
-/** For the log: the stored reason, then what it stood for (stop_step_failed
- * hides an HTTP code, a Hyperliquid wait, a TypeError). */
+/** Log form: the stored reason plus the error's safe fields (stop_step_failed hides the cause). */
 const why = (error: unknown) => `${reason(error)} ${JSON.stringify(errorLogFields(error))}`;
 
 /**
- * Executes owner stop requests, resumable at every step because each step's
- * state is the stop row's own (requested → cancelling → closing → flat →
- * stopped) and each order has a fixed identity:
- * 1. wait until no order of the account is in flight (unknown ones are being
- *    reconciled by the engine; a prepared one is harmless once expired);
- * 2. cancel tracked resting orders — under the copy's setup consent;
- * 3. reduce-only IOC closes of every position, by the approved agent;
- * 4. confirm flat from a fresh account observation (no position, no order),
- *    recorded as the flat certificate;
- * 5. stopped once the account was swept back to the main wallet (or holds
- *    only dust): generations and strategy end, the leader is unwatched.
+ * Executes owner stop requests; resumable because the state lives on the stop
+ * row and every order has a fixed identity:
+ * 1. requested: wait until no order of the account is in flight (an expired prepared one is harmless);
+ * 2. cancelling: cancel tracked resting orders under the copy's setup consent;
+ * 3. closing: reduce-only IOC closes of every position by the approved agent;
+ * 4. flat: certified from a fresh observation (no position, no order);
+ * 5. stopped: once swept back to the main wallet (or only dust remains).
  */
 export class CopyLiveStopper {
   private systemCheckedAt = Number.NEGATIVE_INFINITY;
-  /** A stop whose step failed is not stepped again before this time
-   * (liveRetryDelayMs: the copy legs' retry policy). Gate 2026-10-13 11:16:
-   * a stop whose observation the shared meter refused was stepped again on
-   * every pass, many times a second, each opening sockets into a full
-   * connect window (`stop … kept for the next pass:
-   * live_account_observation_unavailable`). */
+  /** A failed stop is not stepped again before this time (liveRetryDelayMs),
+   * so it can't re-open sockets every pass (gate 2026-10-13). */
   private readonly retryAt = new Map<string, number>();
   constructor(private readonly deps: StopperDependencies, private readonly now: () => number = Date.now) {}
 
   async tick(): Promise<void> {
-    // System stops, once a minute: an admin close-all whose stops the api
-    // never started is finished, and a copy whose agent expires within the
-    // margin is stopped (close, then return) while the agent can still sign.
-    // Their stops run below.
+    // System stops (every systemCheckMs): finish unstarted admin close-alls, and
+    // stop copies whose agent expires within the margin while it can still sign.
     const system = this.deps.systemStops;
     if (system && this.now() - this.systemCheckedAt >= (this.deps.timings ?? DEFAULT_LIVE_STOP_TIMINGS).systemCheckMs) {
       this.systemCheckedAt = this.now();
@@ -117,9 +102,8 @@ export class CopyLiveStopper {
         for (const refused of outcome.refused) this.deps.log?.(`copy account ${refused.accountId} was liquidated and could not be stopped: ${refused.code}`);
       } catch (error) { this.deps.log?.(`liquidation stop check failed: ${why(error)}`); }
     }
-    // A pending admin revoke is bounded: once the stop it waits for is
-    // blocked or gone, or past the deadline once that stop is flat, the
-    // grant is revoked (audited by the system). A stop still closing keeps it.
+    // A pending admin revoke is bounded: revoked once its stop is blocked or
+    // gone, or flat past the deadline. A stop still closing keeps the grant.
     for (const forced of await this.deps.repository.expirePendingRevokes(this.now(), this.deps.revokeDeadlineMs ?? REVOKE_DEADLINE_MS)) {
       this.deps.log?.(`grant ${forced.id} revoked without its stop ending (${forced.reason})`);
     }
@@ -146,9 +130,8 @@ export class CopyLiveStopper {
 
   private async requested(stop: StopRow, account: CloseAccount): Promise<void> {
     const inflight = (await this.deps.repository.inflight(stop.accountAddress)).filter(row => !this.expiredPrepared(row.record));
-    // A single-position close the owner asked for before the stop (no copy
-    // provenance, a reduce-only order): its own closer stopped working it
-    // once the copy began stopping, so the stop finishes it here.
+    // An owner single-position close from before the stop (no intent, reduce-only)
+    // is no longer worked by its closer, so the stop settles it.
     for (const row of inflight.filter(row => !row.intent && row.record.action.orders[0]?.r === true && row.record.state !== 'resting'))
       await this.deps.closer.settle(account, row.record.key);
     if (inflight.some(row => row.record.state === 'resting')) { await this.deps.repository.move(stop, 'cancelling', { issue: null }, this.now()); return; }
@@ -177,27 +160,23 @@ export class CopyLiveStopper {
     if (snapshot.restingOrders.some(order => !order.cloid || !tracked.has(order.cloid))) { await this.deps.repository.issue(stop, 'stop_untracked_resting_orders'); return; }
     const open = snapshot.positions.filter(position => !Dec.from(position.size).isZero);
     if (!open.length && !snapshot.restingOrders.length) return this.markFlat(stop, snapshot);
-    // What the stop shows after this pass: null only when every close went out.
+    // The stop's issue after this pass: null only when every close went out.
     let shown: string | null = null;
     for (const position of open) {
-      // One new order per coin per pass: attempt n has a fixed cloid; a
-      // terminal attempt that left a remainder moves on to attempt n+1,
-      // after a back-off and at a wider price. A stop never runs out of
-      // attempts: it keeps closing, and says so.
+      // One order per coin per pass; attempt n has a fixed cloid. A remainder
+      // moves to attempt n+1 after a back-off, at a wider price, without limit.
       const next = await this.nextAttempt(stop.id, account, position.coin);
       if (next.attempt > 0) shown ??= 'stop_close_retrying';
       if (!next.inFlight && next.previousEndedAt !== null && this.now() - next.previousEndedAt < closeRetryDelayMs(next.attempt)) continue;
       const record = await this.deps.closer.close({ account, coin: position.coin, seed: next.seed, attempt: next.attempt,
         stillWanted: async () => (await this.deps.repository.get(stop.id))?.state === 'closing' });
-      // A close that ended unsent (or was refused) is retried with a fresh
-      // order on the next pass; until then the stop says so.
+      // Unsent or rejected: a fresh order next pass.
       if (record?.state === 'rejected') shown = record.errorCode === CLOSE_NEVER_SENT ? 'stop_close_not_sent' : 'stop_close_rejected';
     }
     await this.deps.repository.issue(stop, shown);
   }
 
-  /** The stop's current close attempt for `coin`: the first that is not
-   * terminal (in flight, or not made yet), found 64 identities per query. */
+  /** The first non-terminal close attempt for `coin` (in flight or unmade), 64 keys per query. */
   private async nextAttempt(stopId: string, account: CloseAccount, coin: string): Promise<{ attempt: number; seed: string; inFlight: boolean; previousEndedAt: number | null }> {
     let previousEndedAt: number | null = null;
     for (let start = 0; ; start += 64) {
@@ -224,15 +203,14 @@ export class CopyLiveStopper {
     if (snapshot.positions.some(p => !Dec.from(p.size).isZero) || snapshot.restingOrders.length) {
       await this.deps.repository.issue(stop, 'stop_account_not_flat'); return;
     }
-    // Nothing left to return: the stop ends without a transfer.
+    // Only dust: end without a transfer.
     if (Dec.from(snapshot.withdrawable).lt(SWEEP_DUST_USD) && Dec.from(snapshot.perpEquity).lt(SWEEP_DUST_USD)) { await this.deps.repository.finish(stop, this.now()); return; }
     const outcome = this.deps.autoReturn ? await this.deps.autoReturn.sweep(stop, snapshot.withdrawable) : 'legacy';
     if (outcome === 'sent') { await this.deps.repository.issue(stop, 'stop_returning_to_main_wallet'); return; }
-    // Sent with its answer lost: the main wallet's ledger confirms it (never resent).
+    // Answer lost: the main wallet's ledger confirms it; never resent.
     if (outcome === 'unknown') { await this.deps.repository.issue(stop, 'stop_return_unconfirmed'); return; }
     if (outcome === 'waiting') { await this.deps.repository.issue(stop, 'stop_return_waiting'); return; }
-    // Legacy accounts, and a sweep that could not be signed or was refused:
-    // the owner returns the funds (one signature).
+    // Legacy account, or sweep unsigned/refused: the owner returns the funds.
     await this.deps.repository.issue(stop, 'stop_awaiting_return_to_main_wallet');
   }
 
@@ -242,13 +220,11 @@ export class CopyLiveStopper {
 }
 
 /**
- * Cancels one tracked resting order with Codex's cancellation signer and
- * transport: a cancel by the order's own cloid, signed by the approved agent
- * on the deployment's network, under the setup consent of the generation that
- * placed the order (or an owner cancellation consent stored before the one
- * signing model, still honoured; no new ones are taken), while the stop is
- * cancelling and the grant and exchange approval are current. One attempt per claim; an unknown outcome is reconciled from
- * the order's status by the executor before another attempt.
+ * Cancels one tracked resting order by its cloid, signed by the approved agent
+ * under the placing generation's setup consent (or a legacy owner cancel
+ * consent, still honoured), while the stop is cancelling and the grant and
+ * exchange approval are current. One attempt per claim; an unknown outcome is
+ * reconciled before another.
  */
 export class StopCanceller {
   constructor(private readonly network: HyperliquidNetwork, private readonly pool: Pool, private readonly db: DrizzleDb, private readonly config: AppConfig, private readonly global: HyperliquidGlobalTransport,
@@ -260,10 +236,8 @@ export class StopCanceller {
     if (!target.intent) return 'stop_cancel_target_unproven';
     const consentRow = await this.repository.consent(stop.id), now = this.now();
     const parsed = consentRow ? liveStopCancellationIntentSchema.safeParse(consentRow.intent) : null;
-    // An owner consent stored for this stop before the one signing model, or
-    // else the setup consent of the generation that placed the order. The
-    // owner is never asked for a new one: without either, the stop reports
-    // that no cancellation authority exists.
+    // A legacy owner consent for this stop, else the placing generation's setup
+    // consent; never a new one (without either: authority missing).
     let intent: { agentWalletId: string; agentOwnerQuorumId: string; agentAddress: string; accountAddress: string; workerQuorumId: string; nonce: number; expiresAt: number };
     let consentDigest: string, currentDigest: () => Promise<string | null>, revision: number | null;
     if (consentRow?.consentDigest && parsed?.success && liveStopCancellationIntentDigest(parsed.data) === consentRow.intentDigest) {
@@ -298,8 +272,7 @@ export class StopCanceller {
     const verifier = new HyperliquidAgentApprovalVerifier(this.network, this.acquire, this.global.fetchInfo, this.now);
     const authority: TrackedCancellationAuthority = { authorize: async (op, phase) => {
       const current = await this.repository.get(stop.id), digestNow = await currentDigest(), grant = await findCurrentWalletAuthorization(this.db, account.authorizationId, 'stop');
-      // A disabled owner's stop still cancels: disabling stops new risk, not
-      // the unwinding of what is open (the grant is loaded for the stop).
+      // A disabled owner's stop still cancels: disabling blocks new risk, not unwinding.
       if (current?.state !== 'cancelling' || (revision !== null && current.revision !== revision) || digestNow !== consentDigest || !await this.repository.ownerExists(stop.userId) ||
         !grant || grant.revokedAt !== null || grant.expiresAt <= this.now() || address(grant.signerAddress) !== authorization.signerAddress) throw new LiveBoundaryError('cancel_current_authority_invalid');
       const exchangeApproval = await verifier.verify(grant), checkedAt = this.now();
@@ -321,11 +294,9 @@ export class StopCanceller {
 }
 
 /**
- * Executes owner single-position closes on running copies: reduce-only IOC
- * orders by the approved agent until the observation shows no position in
- * that market. Each attempt's key is recorded before its order, attempt n has
- * a fixed cloid, and an unfinished order is only reconciled. A stop takes
- * over (and closes everything) if one starts.
+ * Owner single-position closes on running copies: reduce-only IOC orders until
+ * the market shows no position. Each attempt's key is recorded before its
+ * order (fixed cloid); an unfinished order is only reconciled. A stop takes over.
  */
 export class CopyLiveManualCloser {
   constructor(private readonly repository: CopyLiveStopWorkerRepository, private readonly closer: ReduceOnlyCloser,
@@ -334,9 +305,9 @@ export class CopyLiveManualCloser {
     /** Resets what earlier closes still owed of the coin once it is flat. */
     private readonly carry: Pick<CopyLiveFlatCarry, 'owed' | 'reset'>, private readonly log?: (message: string) => void, private readonly now: () => number = Date.now,
     private readonly closeAttempts = DEFAULT_LIVE_STOP_TIMINGS.retry.closeAttempts) {}
-  /** Closes found flat whose carry reset waits: not observed again before this time. */
+  /** Flat closes whose carry reset waits: not observed again before this time. */
   private readonly carryRetryAt = new Map<string, number>();
-  /** A close whose step failed: not stepped again before this time (liveRetryDelayMs, as a stop). */
+  /** A failed close is not stepped again before this time (liveRetryDelayMs). */
   private readonly retryAt = new Map<string, number>();
   async tick(): Promise<void> {
     const rows = await this.repository.manualCloses();
@@ -356,9 +327,8 @@ export class CopyLiveManualCloser {
     if (status === 'stopping' || status === 'stopped') { await this.repository.finishManual(row.id, 'refused', 'copy_stopping'); return; }
     const account = await this.repository.closeAccountOf(row);
     if (!account) { await this.repository.finishManual(row.id, 'refused', 'agent_unavailable'); return; }
-    // A close after the leader went flat ends once the copy journaled or sent
-    // an open of the coin again: what the follower holds may then include it.
-    // An open not journaled yet waits for this close, never the reverse.
+    // A leader-flat close ends once the copy journaled a new open of the coin
+    // (the position may now include it); an unjournaled open waits for this close.
     const stillWanted = async () => (await this.repository.manualClose(row.id))?.state === 'requested' && !['stopping', 'stopped'].includes(await this.repository.strategyStatus(row.strategyId) ?? 'stopped') &&
       !await this.repository.leaderReopened(row.idempotencyKey);
     const last = row.executionKeys.at(-1);
@@ -373,18 +343,16 @@ export class CopyLiveManualCloser {
       if (row.executionKeys.length) await this.scanner.runFor(row.accountId);
       await this.repository.finishManual(row.id, 'refused', 'leader_reopened'); return;
     }
-    // Found flat, its carry reset waits: observed again only after a while.
     if (this.now() < (this.carryRetryAt.get(row.id) ?? 0)) return;
-    // Read before the observation: the carry of the position it finds closed.
+    // Read the carry before the observation that finds the position closed.
     const owed = await this.carry.owed(row);
     const snapshot = await this.closer.observe(account.accountAddress);
     const position = snapshot.positions.find(p => p.coin === row.coin && !Dec.from(p.size).isZero);
     if (!position) {
       // The close's own fills must be booked before the copy trades again.
       if (row.executionKeys.length) await this.scanner.runFor(row.accountId);
-      // Flat: what settled closes still owed of the coin is owed of nothing.
-      // While a leg of the coin is in flight the close stays requested (an open
-      // of the coin keeps waiting) and the reset is tried on a later pass.
+      // Flat: reset the coin's carry. With a leg in flight the reset fails and
+      // the close stays requested (holding opens) until a later pass.
       if (!await this.carry.reset(row, account.accountAddress, owed)) {
         this.carryRetryAt.set(row.id, this.now() + FLAT_CARRY_RETRY_MS);
         this.log?.(`close ${row.id} of ${row.coin}: flat, its reduction carry is reset on a later pass`); return;
@@ -394,7 +362,7 @@ export class CopyLiveManualCloser {
     }
     if (row.executionKeys.length >= this.closeAttempts) { await this.repository.finishManual(row.id, 'refused', 'close_attempts_exhausted'); return; }
     const attempt = row.executionKeys.length;
-    // A retry waits after the previous attempt ended, and goes at a wider price.
+    // A retry backs off after the previous attempt ended (and goes at a wider price).
     const previous = last ? (await this.repository.journalStates([last])).get(last) : undefined;
     if (previous && this.now() - previous.updatedAt < closeRetryDelayMs(attempt)) return;
     const seed = `manual:${row.id}:${attempt}`, key = `${this.closer.network}:${address(account.accountAddress)}:${closeCloid(seed)}`;

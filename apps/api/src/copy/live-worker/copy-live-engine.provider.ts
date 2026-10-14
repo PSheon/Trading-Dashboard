@@ -49,20 +49,15 @@ export const LIVE_ENGINE = Symbol('LIVE_ENGINE');
 /** Risk inputs the runtime requires besides slippage and the price check. */
 const EXTRA_RISK_BUFFER_BPS = '5', RESTING_BUILDER_FEE_CAP_TENTHS_BPS = 100;
 
-/** The copies one owner may hold: the stricter of the deployment's cap
- * (COPY_LIVE_MAX_STRATEGIES_PER_USER) and the newest explicit risk policy;
- * the deployment's cap alone when there is no policy yet. */
+/** Max copies per owner: the stricter of COPY_LIVE_MAX_STRATEGIES_PER_USER and the newest risk policy. */
 export async function liveMaxStrategiesPerUser(db: DrizzleDb, caps: LiveCopyCaps): Promise<number> {
   const [row] = await db.select({ limits: copyRiskPolicies.limits }).from(copyRiskPolicies).orderBy(desc(copyRiskPolicies.version)).limit(1);
   const parsed = row ? copyRiskLimitsSchema.safeParse(row.limits) : undefined;
   return effectiveMaxStrategiesPerUser(caps, parsed?.success ? parsed.data : null);
 }
 
-/** Builds the engine from the worker's concrete dependencies, on the
- * deployment's network. Null unless COPY_TRADING_MODE is testnet or live
- * (whose prerequisites startup already checked).
- * Refuses startup when one order's evidence can't fit the order bucket
- * (assertLiveEvidenceCapacity). */
+/** Builds the engine; null unless COPY_TRADING_MODE is testnet or live. Refuses
+ * startup if one order's evidence can't fit the order bucket (assertLiveEvidenceCapacity). */
 export const liveEngineProvider: FactoryProvider<CopyLiveEngine | null> = {
   provide: LIVE_ENGINE,
   inject: [AppConfig, DATABASE_POOL, DRIZZLE_CLIENT, UnitOfWork, CopyMarketService, CopyFollowerLedger,
@@ -76,19 +71,14 @@ export const liveEngineProvider: FactoryProvider<CopyLiveEngine | null> = {
     const network = live.network;
     if (network !== wallet.network) throw new Error(`The copy engine's network (${network}) is not the wallet network (${wallet.network})`);
     const logger = new Logger('CopyLiveEngine');
-    // The process's one bucket for the wallet network (HyperliquidModule),
-    // shared with the worker's setup pass and snapshot collector: no other
-    // bucket on the same network (on testnet a separate host with its own
-    // per-IP limit, so it neither starves nor is starved by the mainnet
-    // watcher's budget; on mainnet the worker's own mainnet budget).
+    // The process's single bucket for the wallet network (HyperliquidModule),
+    // shared with setups and the snapshot collector.
     const { budget: walletBudget, transport: walletGlobal, config: walletConfig } = wallet;
     const fit = assertLiveEvidenceCapacity({ capacity: walletBudget.liveCapacity, maxStrategiesPerUser: await liveMaxStrategiesPerUser(db, live.caps),
       network: wallet.network, budgetPerMin: walletConfig.value.hyperliquid.budgetPerMin });
     logger.log(`Order bucket (${wallet.network}): capacity ${fit.capacity}; the heaviest order evidence (${fit.users - 1} accounts + the leader) weighs ${fit.weight}`);
-    // Every read and action takes its weight through reserveLive: a wait
-    // that runs out is a HyperliquidBudgetWait (stored as live_budget_wait),
-    // one heavier than the bucket fails at once (live_budget_over_capacity).
-    // These readers bound the wait themselves (their clock): at most 5 s.
+    // reserveLive: a timed-out wait is HyperliquidBudgetWait; a weight over the
+    // bucket fails at once (live_budget_over_capacity). Readers wait at most 5 s.
     const reserve = liveBudget(walletBudget, { maxWaitMs: 5000 });
     const reference = new MainnetSourceReferenceReader(market);
     const options = { slippageBps: String(live.slippageBps), extraRiskBufferBps: EXTRA_RISK_BUFFER_BPS,
@@ -98,21 +88,17 @@ export const liveEngineProvider: FactoryProvider<CopyLiveEngine | null> = {
         Date.now, weight => { if (weight > 0) walletBudget.adjust(-weight); },
         { acquire: liveBudget(walletBudget, { maxWaitMs: Math.min(180_000, walletBudget.refillMs()) }), maxWaitMs: Math.min(180_000, walletBudget.refillMs()) + 2000 }));
     const closer = new ReduceOnlyCloser(network, pool, db, uow, walletConfig, walletGlobal, walletBudget, Math.max(100, live.slippageBps * 3));
-    // A copy is stopped a day before its agent expires (the stop's closes
-    // need it), and an admin close-all the api did not finish is resumed.
+    // Stop copies before their agent expires (closes need it); resume unfinished admin close-alls.
     const stopTimings = live.stop ?? DEFAULT_LIVE_STOP_TIMINGS;
-    const systemStops = new CopyLiveSystemStops(db, uow, new CopyLiveStopRepository(db, new CopyLiveMandateRepository(db, config)), config);
+    const systemStops = new CopyLiveSystemStops(db, uow, new CopyLiveStopRepository(new CopyLiveMandateRepository(db, config)), config);
     const stopper = new CopyLiveStopper({ repository: stops, closer, log: message => logger.warn(message), revokeDeadlineMs: live.revokeDeadlineMs, timings: stopTimings,
       systemStops: { agentExpiryMarginMs: stopTimings.agentExpiryMarginMs, stopExpiring: marginMs => systemStops.stopExpiring(marginMs), stopLiquidated: () => systemStops.stopLiquidated(), resumePendingCloseAll: () => systemStops.resumePendingCloseAll() },
       canceller: new StopCanceller(network, pool, db, walletConfig, walletGlobal, walletBudget, stops, (account, key) => closer.reconcile(account, key)),
-      // The stop ends once a sweep to the main wallet is credited: signed by
-      // the worker under the owner's policy (CopyModule's one signer).
+      // The stop ends once a sweep to the main wallet is credited.
       swept: stop => returns.swept(stop.id),
       autoReturn: new CopyLiveAutoReturn(network, returns, new CopyFundingExchangeClient(walletBudget, walletGlobal), workerSigner) });
     const manual = new CopyLiveManualCloser(stops, closer, scanner, new CopyLiveFlatCarry(network, pool), message => logger.warn(message), Date.now, stopTimings.retry.closeAttempts);
-    // Realtime mainnet signal (COPY_LIVE_FAST_SOURCE): the worker's mainnet
-    // info client in the live lane, which acquires the worst case and gives
-    // back what each answer didn't use.
+    // Realtime mainnet signal (COPY_LIVE_FAST_SOURCE) via the info client's live lane.
     const fast = live.fastSource ? {
       source: new FastMainnetSource({
         fills: (leader, from) => info.userFillsSince(leader, from, 'live'),
@@ -129,7 +115,7 @@ export const liveEngineProvider: FactoryProvider<CopyLiveEngine | null> = {
       // an order never waits for background (liveStandbyNeed).
       standby: async mandates => { const need = liveStandbyNeed(mandates, network, fit.weight); if (need >= 1) await walletGlobal.standbyLive(need); },
       repository, sources, uow, watched: new WatchedMainnetSource(db, Date.now, message => logger.warn(message)),
-      // Testnet leaders (a testnet deployment only: a mainnet one copies mainnet leaders).
+      // Testnet leaders (testnet deployment only).
       testnetSource: new HyperliquidLiveSourceClient('testnet', weight => reserve(weight), walletGlobal.fetchInfo,
         Date.now, weight => { if (weight > 0) walletBudget.adjust(-weight); }),
       runtime: hooks => new LiveExecutionRuntime(network, pool, walletConfig, walletGlobal, walletBudget, options, Date.now, { ...hooks, reference }),
@@ -137,8 +123,7 @@ export const liveEngineProvider: FactoryProvider<CopyLiveEngine | null> = {
       settlementObservation: key => snapshots.saveSettlement(key),
       log: message => logger.warn(message),
       trace: message => logger.log(message),
-      // The paper copier's cached leader capital: holds an open too small for
-      // the exchange until the leader's next adds join it.
+      // Cached leader capital (paper copier's), for holding too-small opens.
       leaderEquity: async leader => { const equity = await market.leaderEquity(leader); return equity.state === 'known' ? equity.value.toString() : null; },
       ...(fast ? { fast } : {}),
     }, { ...DEFAULT_ENGINE_OPTIONS, testnetSourceIntervalMs: live.testnetSourceIntervalMs });

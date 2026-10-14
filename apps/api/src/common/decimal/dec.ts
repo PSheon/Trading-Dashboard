@@ -17,25 +17,14 @@ function divRound(a: bigint, b: bigint): bigint {
 export type DecInput = Dec | string | number | bigint;
 
 /**
- * An exact decimal for money, sizes and prices: a bigint scaled by 10^18
- * (the representation `admin/decimal.ts` already uses for revenue), with the
- * arithmetic the copy engine needs. Immutable.
- *
- * - Addition, subtraction and comparison are exact.
- * - Multiplication and division are exact to 18 decimals and round the 19th
- *   half away from zero. Hyperliquid sizes and prices have at most 8
- *   decimals each, so a size × a price is exact; a division (a ratio, an
- *   average entry price) is the only place a value is rounded, and it is
- *   rounded here, once, not by a binary float.
- * - `round(dp)` and `floor(dp)` quantize to the scale a value is stored or
- *   sent at (money: {@link USD_DP}; sizes: the coin's `szDecimals`), so what
- *   is added to a balance is exactly what is written to the ledger.
- *
- * Numbers come in through their shortest decimal form (`0.1` is "0.1", not
- * 0.1000000000000000055…), so settings and limits typed as JSON numbers are
- * taken at face value. Values leave as decimal strings (`toString`) for
- * Postgres `numeric`, or as a JS number (`toNumber`) only at the JSON
- * boundary, for display.
+ * Immutable exact decimal for money, sizes and prices: a bigint scaled by 10^18 (as in
+ * `admin/decimal.ts`).
+ * - +, −, comparison exact; ×, ÷ exact to 18 decimals, 19th rounded half away from zero
+ *   (HL sizes/prices have ≤ 8 decimals, so only divisions ever round).
+ * - `round(dp)` / `floor(dp)` quantize to the stored/sent scale ({@link USD_DP}, `szDecimals`),
+ *   so a balance gets exactly what the ledger records.
+ * Numbers enter via their shortest decimal form (`0.1` is "0.1"); values leave as strings
+ * for `numeric`, or `toNumber` only at the JSON boundary.
  */
 export class Dec {
   static readonly ZERO = new Dec(0n);

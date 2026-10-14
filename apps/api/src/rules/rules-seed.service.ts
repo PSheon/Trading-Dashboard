@@ -35,14 +35,9 @@ const DEFAULT_RULES: SeedRow[] = [
 ];
 
 /**
- * Idempotent insert-only seed for the default rules. Runs on the worker
- * process's bootstrap (RulesSeedModule)
- * (skipped under `NODE_ENV=test`, same pattern as `WatcherService` — tests
- * call `seedDefaultRules()` directly against a controlled db instance).
- * Idempotency relies on the partial unique index on `alert_rules.kind` where
- * `user_id` is null (see packages/shared/src/schema/db.ts) — `onConflictDoNothing` means re-running
- * this on every restart never duplicates rows, and never clobbers params
- * administrators have since edited.
+ * Insert-only seed of the default rules on worker bootstrap (skipped under `NODE_ENV=test`).
+ * Idempotent via the partial unique index on `alert_rules.kind` where `user_id` is null:
+ * restarts never duplicate rows or clobber admin edits.
  */
 @Injectable()
 export class RulesSeedService implements OnApplicationBootstrap, OnModuleDestroy {
@@ -57,8 +52,7 @@ export class RulesSeedService implements OnApplicationBootstrap, OnModuleDestroy
     void this.seedWithRetry();
   }
 
-  /** A database that isn't reachable yet at boot must not crash the
-   * process (an unhandled rejection exits Node); keep trying. */
+  /** An unreachable DB at boot must not crash the process; keep trying. */
   private async seedWithRetry(): Promise<void> {
     try {
       if (this.stopped || this.jobs.stopping) return;

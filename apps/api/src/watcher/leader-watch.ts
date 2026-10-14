@@ -24,17 +24,11 @@ export class WatchCapacityError extends Error {
 const WATCH_CAPACITY_LOCK = 4_203_401;
 
 /**
- * Makes sure `address` is watched because someone favorited or copies it,
- * in the caller's transaction. A new row gets `source`; an existing
- * user-sourced row that had been switched off is switched on again, by
- * either path (a copy-sourced row whose last copy stopped is watched again
- * when someone favorites it, and the other way round). Returns true when
- * the row was created.
- *
- * `limit` (`general.maxWatchedAddresses`): when watching `address` would
- * add one to the user-watched addresses and that many are already active,
- * throws {@link WatchCapacityError} and changes nothing. An address that is
- * already watched (by anyone, or as an imported leader) always passes.
+ * Makes sure `address` is watched because someone favorited or copies it, in
+ * the caller's transaction: a new row gets `source`, a switched-off
+ * user-sourced row is switched on by either path. Returns true when created.
+ * Over `limit` throws {@link WatchCapacityError} and changes nothing; an
+ * already watched address always passes.
  */
 export async function watchLeader(tx: DbTransaction, address: string, source: (typeof USER_SOURCES)[number], limit?: number): Promise<boolean> {
   if (limit !== undefined) {

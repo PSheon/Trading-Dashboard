@@ -100,9 +100,8 @@ export class ReferralRepository {
   }
   async bind(userId: number, code: string) {
     return this.db.transaction(async tx => {
-      // Serialize graph mutations before acquiring any owner locks. Pairwise
-      // owner locks alone cannot prevent a concurrent three-or-more-user cycle.
-      // This short transaction performs only local SQL, never provider I/O.
+      // Serialize graph mutations first: pairwise owner locks can't prevent a 3+ user cycle.
+      // Local SQL only, never provider I/O.
       await tx.execute(sql`select pg_advisory_xact_lock(7410, 0)`);
       const [target] = await tx.select().from(referralCodes).where(eq(referralCodes.code, code));
       if (!target) throw new NotFoundException('Referral code not found');
@@ -131,9 +130,7 @@ export class ReferralRepository {
       const now = new Date(nowResult.rows[0]!.now), user = locked.get(userId)!;
       if (now.getTime() < user.createdAt.getTime() || now.getTime() >= user.createdAt.getTime() + policy.bindWindowSeconds * 1000)
         throw conflict('referral_bind_closed', 'The referral binding window has closed');
-      // Deleting an account and signing up again opens no new window: a
-      // returning identity (keyed hash, retention window) can't bind, so an
-      // inviter can't re-invite the same person for credit.
+      // A returning identity (deletion-markers.ts) can't bind: no re-inviting for credit.
       if (await isReturningIdentity(tx, user, this.config)) throw conflict('referral_bind_closed', 'The referral binding window has closed');
       const [row] = await tx.insert(referralAttributions).values({ id: randomUUID(), referredUserId: userId, referrerUserId: target.userId,
         codeId: target.id, policyVersion: policy.version, boundAt: now }).returning();

@@ -29,7 +29,7 @@ import { BUSY_RETRY_AFTER_MS, PAGE_DEADLINE_MS } from '../config/constants/http.
 
 /** Addresses per sparkline request without a session (one explore page);
  * a signed-in caller may ask for 30 (`SparklinesQueryDto`). */
-export const ANONYMOUS_SPARKLINE_MAX = 25;
+const ANONYMOUS_SPARKLINE_MAX = 25;
 
 /** Errors that mean "not now" rather than "Hyperliquid failed": the page
  * budget is full, or the work was dropped because a request sharing it was
@@ -42,12 +42,10 @@ export function isBusyError(error: unknown): boolean {
 }
 
 /**
- * Discovery (Stage 2 §4). Public: anyone can browse the leaderboard and any
- * trader's page; `favorite` flags are filled in for a signed-in caller.
- * A trader page is several requests so the cheap first paint (`:address`)
- * never waits on the expensive fill lists (`:address/activity`,
- * `:address/fills`). Any of them answers 503 `{code: "busy"}` with
- * Retry-After when it can't be ready in time (`PAGE_DEADLINE_MS`).
+ * Discovery (Stage 2 §4). Public; `favorite` is filled in for a signed-in
+ * caller. A trader page is split so the cheap first paint never waits on
+ * the fill lists. Any route answers 503 busy with Retry-After past
+ * `PAGE_DEADLINE_MS`.
  */
 @Public()
 @Controller("traders")
@@ -153,11 +151,9 @@ export class TradersController {
   }
 
   /**
-   * A Hyperliquid failure is a 502, not a 500. An answer that isn't ready
-   * within `pageDeadlineMs` (the request budget is backed up), or whose
-   * work the budget refused (`PageBusyError`), is a 503 busy with
-   * Retry-After. Calls already sent carry on into the caches, so the retry
-   * starts from them; calls still queued are dropped with the answer.
+   * Hyperliquid failure → 502. Not ready within `pageDeadlineMs`, or refused
+   * by the budget → 503 busy with Retry-After (sent calls still fill the
+   * caches for the retry).
    */
   private async upstream<T>(promise: Promise<T>, address: string): Promise<T> {
     // It may settle after we have answered; that is not an unhandled error.

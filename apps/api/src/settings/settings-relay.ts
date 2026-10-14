@@ -7,17 +7,9 @@ import { SETTINGS_RELAY_RETRY_MS } from '../config/constants/background.js';
 
 
 /**
- * Makes a settings save in one process visible in every other one at once
- * (review finding 16): `SettingsService.patch` sends a NOTIFY in its own
- * transaction, and each process (api and worker alike) holds one LISTEN
- * connection here and drops its cached snapshot when it arrives.
- *
- * The notification is a hint; the rows stay the source of truth. While the
- * listening connection is down a notification could be missed, so the
- * service is told and reads the database on every call until the
- * connection is back (and the cache is dropped once more on reconnect).
- * Without a pool (unit tests that hand the service a fake database) this
- * does nothing and the service keeps its plain 30 s cache.
+ * One LISTEN connection per process that drops the settings cache on another process's
+ * save (review 16). The NOTIFY is a hint; rows stay the truth. While disconnected the
+ * service reads the DB on every call. Without a pool (unit tests) it does nothing.
  */
 @Injectable()
 export class SettingsRelay implements OnApplicationBootstrap, OnModuleDestroy {

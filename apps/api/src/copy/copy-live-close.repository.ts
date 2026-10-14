@@ -10,9 +10,8 @@ import type { DrizzleDb } from '../db/drizzle.provider.js';
 import { lockCopyUser } from './copy-user-lock.js';
 
 export type CloseRow = typeof copyLiveManualCloses.$inferSelect;
-/** CopyDog's single-position close on a running testnet copy: a durable
- * request the worker executes with reduce-only IOC orders by the approved
- * agent. The copy keeps following its leader. */
+/** Single-position close on a running copy: a durable request the worker executes with reduce-only
+ * IOC orders by the approved agent; the copy keeps following. */
 @Injectable()
 export class CopyLiveCloseRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb, private readonly config: AppConfig) {}

@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { TtlCache } from "../src/traders/ttl-cache.js";
 import { HEAVY_CACHE_MAX_ENTRIES, SPARKLINE_CACHE_MAX_ENTRIES, TradersService } from "../src/traders/traders.service.js";
 import type { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
-import { testConfig } from "./config-test-utils.js";
 
 /** Expired entries must not stay resident until 5 000 other keys push them
  * out: the api and worker kept GBs of fill lists for traders nobody had
@@ -50,7 +49,6 @@ describe("TtlCache sweeping", () => {
 
   it("the trader caches holding whole fill lists and portfolios are small", () => {
     const service = new TradersService(
-      testConfig(),
       {} as never,
       {} as HyperliquidInfoClient,
       {} as never,

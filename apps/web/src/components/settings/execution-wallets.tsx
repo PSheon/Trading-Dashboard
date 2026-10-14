@@ -51,7 +51,7 @@ export function ExecutionWalletSettings() {
               </div>
               <div className="h-9 w-32 rounded-full bg-inset" />
             </div>
-            {/* 策略測試網注資 and the other sections' heads. */}
+            {/* 策略注資 and the other sections' heads. */}
             <SkelBar line="mt-5 h-5" className="h-3 w-32" />
             <SkelBar line="h-5" className="h-2.5 w-full max-w-md" />
             <SkelBar line="h-5" className="h-2.5 w-24" />

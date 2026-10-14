@@ -5,10 +5,11 @@ import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
+import { escapeLike } from "../common/sql/escape-like.js";
 import { HistoryFillStore } from "../traders/history-fill.store.js";
 import type { DbTransaction } from "../db/unit-of-work.js";
 
-export type DiscoveryRow = typeof discoveryTraders.$inferSelect;
+type DiscoveryRow = typeof discoveryTraders.$inferSelect;
 export type DiscoveryFigures = Partial<Omit<typeof discoveryTraders.$inferInsert, "chain" | "address" | "poolRank" | "inPool">>;
 
 /** What the pool loops order their work by. */
@@ -57,8 +58,6 @@ export interface CoinAggregate {
 }
 
 const mine = eq(discoveryTraders.chain, CHAIN_DEFAULT);
-/** Escapes LIKE wildcards so a query is matched literally. */
-const likeEscape = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
 
 /**
  * `discovery_traders` (the pool's cached figures) plus the reads the pool
@@ -94,11 +93,8 @@ export class DiscoveryRepository {
     return rows.map((r) => r.address);
   }
 
-  /**
-   * Makes the pool exactly `entries`: new addresses are added (never
-   * attempted, so they go first), ranks are updated, and rows no longer
-   * selected are deleted. One transaction.
-   */
+  /** Makes the pool exactly `entries` in one transaction (new rows, never
+   * attempted, go first). */
   async syncPool(tx: DbTransaction, entries: Array<{ address: string; poolRank: number | null }>): Promise<{ added: number; removed: number }> {
     let added = 0;
     for (let i = 0; i < entries.length; i += 1000) {
@@ -309,8 +305,8 @@ export class DiscoveryRepository {
    * (leaderboard names by all-time PnL), so a one-letter query stays cheap.
    */
   async searchAddresses(q: string, perSource: number): Promise<string[]> {
-    const text = `%${likeEscape(q)}%`;
-    const prefix = /^0x[0-9a-f]*$/i.test(q) ? `${likeEscape(q.toLowerCase())}%` : null;
+    const text = `%${escapeLike(q)}%`;
+    const prefix = /^0x[0-9a-f]*$/i.test(q) ? `${escapeLike(q.toLowerCase())}%` : null;
     const handle = q.replace(/^@/, "").replace(/^(?:https?:\/\/)?(?:www\.)?(?:x|twitter)\.com\//i, "");
     const [kols, stats] = await Promise.all([
       this.db
@@ -318,7 +314,7 @@ export class DiscoveryRepository {
         .from(kolTraders)
         .where(and(eq(kolTraders.chain, CHAIN_DEFAULT), or(
           ilike(kolTraders.displayName, text),
-          handle ? ilike(kolTraders.xHandle, `%${likeEscape(handle)}%`) : undefined,
+          handle ? ilike(kolTraders.xHandle, `%${escapeLike(handle)}%`) : undefined,
           prefix ? like(kolTraders.address, prefix) : undefined,
         )))
         .orderBy(asc(kolTraders.sortOrder), asc(kolTraders.address))

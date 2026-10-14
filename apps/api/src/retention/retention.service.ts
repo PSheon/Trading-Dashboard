@@ -13,9 +13,9 @@ import { DAY_MS } from "../config/constants/time.js";
 import { CLOSED_WS_LEASE_RETENTION_MS, RETENTION_MIN_INTERVAL_MS } from '../config/constants/background.js';
 
 /** Off-peak: 18:00–22:00 UTC is 02:00–06:00 in Taipei, where most users are. */
-export const RETENTION_WINDOW_UTC = { fromHour: 18, toHour: 22 } as const;
+const RETENTION_WINDOW_UTC = { fromHour: 18, toHour: 22 } as const;
 
-export interface RetentionLimits {
+interface RetentionLimits {
   /** Rows per DELETE statement. */
   batchSize: number;
   /** DELETE statements per table per run; the rest waits for the next run. */
@@ -27,9 +27,9 @@ export interface RetentionLimits {
   /** The lease lasts this long past the last statement. */
   leaseMs: number;
 }
-export const RETENTION_LIMITS: RetentionLimits = { batchSize: 2_000, maxBatchesPerTable: 250, pauseMs: 200, maxRunMs: 20 * 60_000, leaseMs: 5 * 60_000 };
+const RETENTION_LIMITS: RetentionLimits = { batchSize: 2_000, maxBatchesPerTable: 250, pauseMs: 200, maxRunMs: 20 * 60_000, leaseMs: 5 * 60_000 };
 
-export type RetentionRun =
+type RetentionRun =
   | { ran: false; reason: "disabled" | "outside_window" | "recent" | "leased" | "stopping" }
   | ({ ran: true } & RetentionOutcome);
 
@@ -57,9 +57,8 @@ export function inRetentionWindow(now: Date): boolean {
 }
 
 /**
- * Data retention (review findings 3 and 20; privacy policy §6). Once a day,
- * off-peak, the worker deletes what is older than the periods in
- * RETENTION_* (deploy-time, read at startup):
+ * Data retention (review 3, 20; privacy policy §6): once a day, off-peak, the worker
+ * deletes what is older than RETENTION_* (deploy-time):
  *
  * | data | default |
  * | --- | --- |
@@ -72,11 +71,8 @@ export function inRetentionWindow(now: Date): boolean {
  * | alert delivery records (`alerts`) | 30 days |
  * | closed Hyperliquid socket leases (`hyperliquid_ws_leases`) | 1 day after closing (fixed) |
  *
- * Deletes are bounded (`RETENTION_LIMITS`): a table that has more to remove
- * than one run allows is finished by the next runs ("partial"). A lease row
- * (`retention_state`) keeps two workers from cleaning at once and carries
- * the last run for the admin system page; each run also writes one admin
- * audit entry (`retention.run`) with the rows removed per table.
+ * Deletes are bounded (`RETENTION_LIMITS`); leftovers wait for the next run ("partial").
+ * A lease row (`retention_state`) keeps two workers apart; each run is audited (`retention.run`).
  */
 @Injectable()
 export class RetentionService {

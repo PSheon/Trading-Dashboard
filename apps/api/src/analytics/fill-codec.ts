@@ -5,12 +5,9 @@ import type { HlUserFill } from "../hyperliquid/types.js";
  * `userFillsByTime`, a TWAP slice or an archive line) and the typed columns
  * of `history_fills`.
  *
- * The contract is exactness: `decodeFill(encodeFill(fill))` equals `fill`
- * value for value, including the decimal strings as Hyperliquid wrote them
- * ("0.0" is not "0"). Each field has one canonical shape that its column
- * reproduces exactly; a value in any other shape — and every key this file
- * does not know — is kept verbatim in `extra` instead, so nothing is ever
- * rounded, normalised or dropped:
+ * Contract: `decodeFill(encodeFill(fill))` equals `fill` value for value,
+ * decimal strings as written ("0.0" is not "0"). A value in a non-canonical
+ * shape, and every unknown key, is kept verbatim in `extra`:
  *
  * | Field | Column | Canonical shape (anything else → `extra`) |
  * | --- | --- | --- |
@@ -26,8 +23,7 @@ import type { HlUserFill } from "../hyperliquid/types.js";
  * | builder, liquidation.liquidatedUser | bytea | 0x + 40 lower-case hex |
  * | liquidation | 3 columns | object of `method` (string), `markPx` (decimal) and optionally `liquidatedUser`, nothing else |
  *
- * Key order is not part of a JSON value and is not kept (the previous
- * `jsonb` column did not keep it either).
+ * Key order is not part of a JSON value and is not kept.
  */
 export interface FillColumns {
   tid: bigint;

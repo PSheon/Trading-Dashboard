@@ -205,9 +205,9 @@ export const id: Messages = {
     }
   },
   copyFunding: {
-    "title": "Pendanaan strategi di testnet",
-    "hint": "Transfer USDC uji dari akun utama ke akun khusus. Tinjau dan tanda tangani transfer yang disiapkan. Setelah dana masuk dan persetujuan salin ditandatangani, penyalinan dimulai di testnet. Saldo simulasi kamu tidak berubah.",
-    "unavailable": "Pendanaan strategi mainnet belum tersedia atau penyedia dompet tidak tersedia.",
+    "title": "Pendanaan strategi",
+    "hint": "Transfer USDC dari akun utama ke akun khusus. Tinjau dan tanda tangani transfer yang disiapkan. Setelah dana masuk dan persetujuan salin ditandatangani, penyalinan dimulai. Saldo simulasi kamu tidak berubah.",
+    "unavailable": "Pendanaan strategi belum tersedia saat ini, atau penyedia dompet tidak tersedia.",
     "amount": "Jumlah pendanaan",
     "prepare": "Siapkan transfer",
     "confirm": "Konfirmasi dan tanda tangani",

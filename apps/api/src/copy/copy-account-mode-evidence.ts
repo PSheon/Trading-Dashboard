@@ -24,16 +24,13 @@ const stateSchema = z.object({ marginSummary: summary, crossMarginSummary: summa
   withdrawable: decimal, time: integer, assetPositions: z.array(z.unknown()).max(0) });
 const dexSchema = z.array(z.object({ name: z.string().regex(LIVE_DEX_NAME).max(40) }).nullable()).min(1).max(MAX_LIVE_PERP_DEXES);
 const fail = (): never => { throw new LiveBoundaryError('account_mode_absence_unproven'); };
-/** Why an absence proof was not made (logged, and on the error): the check
- * that failed, the cause's code, how long the all-venue socket read took,
- * whether the socket was refused by the shared meter (its connect, lease or
- * subscription caps), and the meter's state then. */
-export interface AccountModeAbsenceFailure {
+/** Why an absence proof failed: the check, cause code, socket read timing, and any meter refusal. */
+interface AccountModeAbsenceFailure {
   readonly check: string; readonly cause: string; readonly wsReadMs: number | null; readonly wsConnectRefused: boolean;
   readonly elapsedMs: number; readonly quota?: unknown;
 }
 /** account_mode_absence_unproven, with what failed (AccountModeAbsenceFailure). */
-export class AccountModeAbsenceUnproven extends LiveBoundaryError {
+class AccountModeAbsenceUnproven extends LiveBoundaryError {
   constructor(readonly detail: AccountModeAbsenceFailure) { super('account_mode_absence_unproven'); }
 }
 /** The shared meter's socket refusals (reserveSocket): connect units, the
@@ -45,10 +42,8 @@ function unique(values: readonly string[]) { if (new Set(values).size !== values
 function fresh(at: number, now: number) { if (!Number.isSafeInteger(at) || at <= 0 || at > now || now - at > LIVE_EVIDENCE_MAX_AGE_MS) fail(); }
 
 
-/** Bootstrap evidence proves empty exposure only; default balances never
- * become standard equity/margin. Every actual perp venue must be observed.
- * One all-venue source serves every user of this process: a proof waits for
- * its turn (`turn`) before its clock starts, instead of being refused. */
+/** Proves empty exposure across every perp venue. One all-venue source per process: a proof waits
+ * its `turn` before its clock starts instead of being refused. */
 export class HyperliquidAccountModeAbsenceReader implements AccountModeAbsenceReader, OnModuleDestroy {
   private readonly source: LiveAllDexsAccountSource;
   private tail: Promise<void> = Promise.resolve();
@@ -61,9 +56,8 @@ export class HyperliquidAccountModeAbsenceReader implements AccountModeAbsenceRe
     void Promise.resolve(this.source.close?.())
       .catch((error: unknown) => new Logger('HyperliquidAccountModeAbsenceReader').warn(`all-venue source close failed: ${safeErrorText(error)}`));
   }
-  /** Waits (at most `maxWaitMs`) for this process's all-venue source: the
-   * proofs before it to finish and a second since the last one. Taken
-   * before any evidence clock starts; released when the proof's read is over. */
+  /** Waits (≤ `maxWaitMs`) for the all-venue source, a second after the previous proof; taken before
+   * any evidence clock, released when the read ends. */
   async turn({ signal, maxWaitMs = LIVE_RESERVE_WAIT_MS }: LiveReserveOptions = {}): Promise<AccountModeAbsenceTurn> {
     signal?.throwIfAborted();
     let done!: () => void;
@@ -129,8 +123,7 @@ export class HyperliquidAccountModeAbsenceReader implements AccountModeAbsenceRe
       const list = dexSchema.parse(rawDexes);
       if (list[0] !== null) fail();
       const dexes = ['', ...list.flatMap(row => row ? [row.name] : [])]; unique(dexes);
-      // Existing arbitrary agent authority and spot-held collateral are outside
-      // the newly dedicated dormant bootstrap this action is allowed to change.
+      // Extra agents or spot collateral are outside what this bootstrap may change.
       step = 'extra_agents';
       if (extraAgentsSchema.parse(agents).length) fail();
       step = 'spot_balances';

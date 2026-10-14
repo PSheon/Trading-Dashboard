@@ -9,7 +9,7 @@ export const AVATAR_MAX_BYTES = 512 * 1024;
  * changes whenever the bytes do). */
 export const AVATAR_MAX_AGE_S = 30 * 24 * 3_600;
 
-export type AvatarImageType = "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+type AvatarImageType = "image/png" | "image/jpeg" | "image/gif" | "image/webp";
 
 /** Hosts whose images are never fetched: CopyDog's own CDN and API (Paul's
  * rule: never take another site's copies). */
@@ -43,12 +43,9 @@ export function allowedImageUrl(raw: string): boolean {
   return host.includes(".");
 }
 
-/**
- * Whether a resolved address is on the public internet. The avatar fetch runs
- * inside the deployment's private network, so loopback, private, link-local,
- * CGNAT, multicast and reserved ranges are refused (IPv4, IPv6 and
- * IPv4-mapped IPv6).
- */
+/** Whether a resolved address is public; the fetch runs inside the private
+ * network, so loopback, private, link-local, CGNAT, multicast and reserved
+ * ranges are refused (IPv4, IPv6, IPv4-mapped). */
 export function isPublicAddress(address: string): boolean {
   const ip = address.toLowerCase();
   const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(ip);
@@ -74,12 +71,9 @@ export function isPublicAddress(address: string): boolean {
 }
 
 /**
- * GET `url` connecting only to `address`, the one already vetted
- * (`isPublicAddress`): the host name is not resolved again, so a name that
- * answers a public address to the check and a private one to the connection
- * (DNS rebinding) reaches nothing new. TLS still verifies the certificate
- * for the URL's host name (SNI). No redirects are followed. The answer is a
- * standard Response whose body streams.
+ * GET `url` connecting only to the already-vetted `address` (no re-resolution,
+ * so DNS rebinding reaches nothing new). TLS still verifies the URL's host name.
+ * No redirects are followed; the body streams.
  */
 export function pinnedGet(url: string, address: string, init: { headers?: Record<string, string>; signal?: AbortSignal } = {}): Promise<Response> {
   const target = new URL(url);
@@ -127,12 +121,8 @@ export function avatarEtag(bytes: Uint8Array): string {
   return `"${createHash("sha256").update(bytes).digest("base64url").slice(0, 22)}"`;
 }
 
-/**
- * The URL boards, home and the trader page return for a cached avatar:
- * a path on this api, versioned by the ETag so it can be cached for a
- * month; null when nothing is cached (the web then draws its generated
- * avatar).
- */
+/** The api path of a cached avatar, versioned by its ETag so it can be cached
+ * long; null when nothing is cached (the web draws a generated one). */
 export function kolAvatarPath(address: string, etag: string | null | undefined): string | null {
   if (!etag) return null;
   return `/kols/${address}/avatar?v=${avatarVersion(etag)}`;

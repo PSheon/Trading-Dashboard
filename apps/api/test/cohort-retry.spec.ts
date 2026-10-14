@@ -40,7 +40,7 @@ function setup(fail: (address: string) => unknown, worker = false) {
     },
   };
   const jobs = new BackgroundJobs();
-  const service = new CohortService(config as never, repository as unknown as CohortRepository, info as unknown as HyperliquidInfoClient, {} as never, jobs);
+  const service = new CohortService(config as never, repository as unknown as CohortRepository, info as unknown as HyperliquidInfoClient, jobs);
   Object.assign(service, { builtAt: at, tokensAt: at - 60_000 });
   return { service, rows, info, jobs, repository, config };
 }

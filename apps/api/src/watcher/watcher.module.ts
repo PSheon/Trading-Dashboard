@@ -9,11 +9,9 @@ import { WatcherRepository } from "./watcher.repository.js";
 import { WatcherService } from "./watcher.service.js";
 
 /**
- * The watcher's capabilities: the watch list, sweeps and copied catch-ups,
- * fill sync, account state, the fast path's pieces and the (unstarted) trade
- * feed. Importing it starts nothing: no feed, no timer. The `read` worker's
- * schedules use it as is; WatcherRuntimeModule (the `copy` or `all` worker)
- * starts the watcher and its feed.
+ * The watcher's capabilities (watch list, sweeps, fill sync, account state,
+ * fast path, unstarted feed). Importing it starts nothing;
+ * WatcherRuntimeModule starts the watcher and feed.
  */
 @Module({
   imports: [HyperliquidModule, IngestionModule],

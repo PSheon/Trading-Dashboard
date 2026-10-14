@@ -15,16 +15,11 @@ import { ALERT_EVERY_MS, AWAITING_CREDIT_ALERT_AFTER_MS } from '../config/consta
 import { ABANDONED_APPROVAL_WINDOW_MS, AWAITING_CREDIT_MAX_WAIT_MS } from '../config/constants/timings.js';
 
 /**
- * The worker's side of a live copy setup: its pass over every due setup
- * (tick), one setup advanced as far as it can go under a lease (drive),
- * and what a step that did not finish does next (failed, awaitCredit).
- * Composed by CopyLiveSetupService, whose own `drive` the pass goes through
- * (`hooks.drive`), so a test's spy on the service sees every drive.
+ * The worker's side of a live copy setup: the pass (tick), one setup under a lease (drive), and what
+ * an unfinished step does next (failed, awaitCredit). The pass goes through the service's own `drive`
+ * (`hooks.drive`) so a spy on it sees every drive. Lease, step budget and retries:
+ * AppConfig.copy.live.setup (startup refuses a step budget that does not fit the lease).
  */
-// The driver's lease, a step's budget inside it (reserve wait, signature,
-// POST), the HTTP answer and confirm waits and the retries are
-// AppConfig.copy.live.setup (config/live-timings.ts): startup refuses a step
-// budget that does not fit the lease.
 /** Failures that are the deadline passing (the setup ends `expired`). */
 const EXPIRED_ISSUES: readonly string[] = ['setup_expired', 'setup_deposit_uncredited'];
 /** An expired identity proof's timing (AgentIdentityEvidenceExpired), for the log. */
@@ -35,12 +30,12 @@ function identityTiming(error: unknown): { elapsedMs?: number; spans?: unknown }
 }
 
 
-export interface SetupDriverDeps {
+interface SetupDriverDeps {
   readonly steps: SetupSteps; readonly provisioning: SetupProvisioning; readonly agents: CopyAgentService; readonly aborts: CopyLiveSetupAbortService | null;
   readonly capacity: SetupRestCapacity | null; readonly workerSigner: WorkerMasterSigner | null; readonly walletRows: CopyWalletRepository;
 }
 /** The service's own public methods the pass goes through. */
-export interface SetupDriverHooks { drive(id: string, signer: SetupSigner | null): Promise<SetupRow> }
+interface SetupDriverHooks { drive(id: string, signer: SetupSigner | null): Promise<SetupRow> }
 
 export class SetupDriver extends SetupPart {
   private readonly steps: SetupSteps; private readonly provisioning: SetupProvisioning; private readonly agents: CopyAgentService; private readonly aborts: CopyLiveSetupAbortService | null;
@@ -51,9 +46,8 @@ export class SetupDriver extends SetupPart {
     this.capacity = deps.capacity; this.workerSigner = deps.workerSigner; this.walletRows = deps.walletRows;
   }
 
-  /** The worker's signer for this setup's account: the worker quorum under
-   * the owner's policy, recorded on the account at confirm. Null when the
-   * account has none (or it was taken off), or the worker can't sign here. */
+  /** The worker quorum under the owner's policy, recorded on the account at confirm; null when
+   * absent, detached, or the worker can't sign here. */
   async workerPolicySigner(row: SetupRow): Promise<SetupSigner | null> {
     if (!this.workerSigner?.available || !row.accountId) return null;
     const account = await this.walletRows.account(row.accountId, row.userId);
@@ -63,8 +57,7 @@ export class SetupDriver extends SetupPart {
   }
   /** The worker's pass: every confirmed, unfinished setup that is due. */
   async tick(): Promise<number> {
-    // Admission is quick; each persistent abort runs as a tracked worker
-    // job so slow ledger/proof reads do not block unrelated copy execution.
+    // Each abort runs as a tracked job so slow proof reads never block copy execution.
     await this.aborts?.tick();
     let worked = 0;
     for (const row of await this.repository.open(new Date(this.now()), this.network)) {
@@ -79,12 +72,9 @@ export class SetupDriver extends SetupPart {
   /** When each abandoned approval was last looked at (one look a minute). */
   private readonly approvalChecks = new Map<string, number>();
   /**
-   * An agent whose approval was being signed or sent when its setup ended
-   * (the deadline passed with the approval unknown): no setup drives it any
-   * more, so the worker reconciles it here, a few a pass, each at most once
-   * a minute, for three days (an approval's nonce can't land later than
-   * that). An approval that landed shows the agent active; one never sent
-   * goes back to ready. Nothing is signed or sent.
+   * Approvals left in flight when their setup ended: reconciled here (a few a pass, each at most once a
+   * minute, within ABANDONED_APPROVAL_WINDOW_MS, after which the nonce can't land). Read-only: nothing
+   * is signed or sent.
    */
   private async reconcileAbandonedApprovals(): Promise<number> {
     if (!this.agents.available) return 0;
@@ -100,11 +90,8 @@ export class SetupDriver extends SetupPart {
     }
     return checked;
   }
-  /**
-   * Advances one setup as far as it can go now, under a lease. Steps that
-   * need a signature run only with the worker's signer; without one the
-   * setup waits (`worker_signer_unavailable`) until its deadline.
-   */
+  /** Advances one setup under a lease. Without the worker's signer it waits
+   * (`worker_signer_unavailable`) until its deadline. */
   async drive(id: string, signer: SetupSigner | null): Promise<SetupRow> {
     const leased = await this.repository.lease(id, this.timings.leaseMs);
     if (!leased) return (await this.repository.get(id))!;
@@ -116,8 +103,7 @@ export class SetupDriver extends SetupPart {
         catch (error) {
           // A step may have recorded a child id on the row: work on the latest.
           row = (await this.repository.get(id)) ?? row;
-          // Another driver/cancellation may have ended it while I/O was in
-          // flight. A late failure cannot overwrite that terminal outcome.
+          // A late failure never overwrites a terminal outcome reached meanwhile.
           if (!DRIVEN_STAGES.includes(row.stage)) break;
           row = await this.failed(row, error);
           break;
@@ -128,19 +114,11 @@ export class SetupDriver extends SetupPart {
     } finally { await this.repository.release(id, leased.leaseToken); }
   }
   /**
-   * Records what a step that did not finish does next: decideRetry
-   * (live/error-class.ts, THE retry policy of every live step) under the
-   * setup's policy (setupRetryPolicy):
-   * - wait (a Hyperliquid weight, or a step waiting on what it started):
-   *   back at its time, never an attempt. A weight wait is logged and kept
-   *   on the row (lastWait, with how many waits this stage had): a setup
-   *   looping on hyperliquid_busy says which bucket and why.
-   * - owner: the code is shown; looked at again, never exhausted. A Privy
-   *   identity proof that kept expiring arrives here exhausted
-   *   (IDENTITY_UNVERIFIED_ISSUE) with an ALERT the first time.
-   * - end: the setup ends (failed, or expired for a deadline).
-   * - retry: one attempt more, backed off (a failed provider read at least
-   *   PROVIDER_READ_RETRY_MS, as a leg's and a stop's).
+   * What an unfinished step does next, by decideRetry (live/error-class.ts) under setupRetryPolicy:
+   * - wait: back at its time, never an attempt; a weight wait is logged and kept as lastWait.
+   * - owner: code shown, retried; an exhausted identity proof becomes IDENTITY_UNVERIFIED_ISSUE (ALERT once).
+   * - end: failed, or expired for a deadline.
+   * - retry: one attempt more, backed off.
    */
   private async failed(row: SetupRow, error: unknown): Promise<SetupRow> {
     const decision = decideRetry(error, row.attempts, setupRetryPolicy(this.timings)), now = this.now();
@@ -174,12 +152,9 @@ export class SetupDriver extends SetupPart {
     }
   }
   /**
-   * The deposit is not credited yet: look again after a wait that doubles
-   * each pass of this stage (AWAITING_CREDIT_MAX_WAIT_MS at most), counted
-   * on the row (lastWait.waits) so a restart keeps it. Never an attempt. The
-   * first wait sets the issue (a change: a new revision); every later one is
-   * bookkeeping only (defer: no revision, no updatedAt). Past
-   * AWAITING_CREDIT_ALERT_AFTER_MS since the confirm, an ALERT, rate-limited.
+   * Deposit not credited yet: a doubling wait (at most AWAITING_CREDIT_MAX_WAIT_MS) counted in
+   * lastWait.waits, never an attempt. Only the first wait is a revision; later ones defer. A
+   * rate-limited ALERT past AWAITING_CREDIT_ALERT_AFTER_MS since confirm.
    */
   private async awaitCredit(row: SetupRow, now: number): Promise<SetupRow> {
     const prior = row.lastWait?.step === row.stage && row.lastWait.reason === 'awaiting_credit' ? row.lastWait : null;

@@ -18,11 +18,8 @@ function hexUnits(value: string | undefined, decimals: number): number {
   return Number(units / scale) + Number(units % scale) / Number(scale);
 }
 
-/**
- * Read-only Arbitrum JSON-RPC for the deposit address: USDC not yet bridged
- * and ETH for gas, on the wallet network's chain (HYPERLIQUID_ARBITRUM_RPC_URL).
- * One batched POST, no Hyperliquid weight. Never signs or sends anything.
- */
+/** Read-only Arbitrum JSON-RPC (HYPERLIQUID_ARBITRUM_RPC_URL): unbridged USDC and gas ETH
+ * of the deposit address, one batched POST. Never signs or sends. */
 @Injectable()
 export class ArbitrumBalanceClient {
   constructor(private readonly config: AppConfig) {}

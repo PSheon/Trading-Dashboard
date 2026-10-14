@@ -1,7 +1,6 @@
 import { Injectable, Logger, Optional, type OnModuleDestroy } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 
-import { AppConfig } from "../config/app-config.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { budgetConsumer } from "../hyperliquid/request-budgeter.service.js";
 import { forEachConcurrent } from "../runtime/concurrency.js";
@@ -29,28 +28,14 @@ interface Expected {
 /**
  * Leader watcher (§4.2 W1–W3, Stage 2 §5).
  *
- * Fast path: the `trades` feed reports that a leader traded; the leader's
- * trades within `GROUP_GAP_MS` are gathered and `FeedActionsService` turns
- * them into actions (and alerts) from the feed and the position book, with
- * no fill query in between.
- *
- * Slow path: a few seconds later, in the background lane, one
- * `userFillsByTime` per address (coalesced, at least 15 s apart) stores the
- * real fills, corrects any action the fast path got wrong, and turns fills
- * the feed missed into actions. For an address someone copies the stored
- * fills are the copy signals, so its slow path uses the live lane
- * (`FillSyncService.lane`).
- *
- * Nothing is lost if the feed is, or the process: a sweep reads each
- * address from its verified cursor in `fill_coverage`, which only a
- * completed read moves. A socket outage drops the position books and
- * sweeps, the process start sweeps (covering any length of downtime), and
- * `SchedulerService` sweeps every address hourly. Storage dedupes fills,
- * and an action covers each fill once, so overlaps cost weight, never
- * duplicates.
- *
- * The watch list is re-read from `leaders` every 15 s (A2: a new address is
- * watched within a minute; A3: a deactivated one is dropped).
+ * Fast path: a leader's feed trades within `GROUP_GAP_MS` become actions (and
+ * alerts) via `FeedActionsService`, from the feed and position book only.
+ * Slow path (confirm): a coalesced `userFillsByTime` per address stores the real
+ * fills, corrects fast-path mistakes and adds what the feed missed (live lane
+ * for a copied leader, see `FillSyncService.lane`).
+ * Sweeps (on start, on a socket gap, hourly) read from each address's verified
+ * cursor in `fill_coverage`, so no outage loses a fill; overlaps never duplicate.
+ * The watch list is re-read every WATCHED_REFRESH_MS (A2/A3).
  */
 @Injectable()
 export class WatcherService implements OnModuleDestroy {
@@ -70,9 +55,8 @@ export class WatcherService implements OnModuleDestroy {
   /** Newest fill time each address's confirms have already read; the next
    * one needn't reach further back than just before it. */
   private readonly readThrough = new Map<string, number>();
-  /** Addresses whose feed trades Hyperliquid's info API never returned
-   * (seen live 2026-09-29: an account whose userFills stopped six days
-   * earlier while it kept trading). Cleared when a confirm finds them all. */
+  /** Addresses whose feed trades the info API never returned (seen 2026-09-29).
+   * Cleared when a confirm finds them all. */
   private readonly fillsUnavailable = new Map<string, { missedTrades: number; since: Date; loggedAt: number }>();
   private readonly timers = new Set<ReturnType<typeof setTimeout>>();
   private watchedTimer: ReturnType<typeof setInterval> | undefined;
@@ -90,7 +74,6 @@ export class WatcherService implements OnModuleDestroy {
   private watched = new Set<string>();
 
   constructor(
-    private readonly config: AppConfig,
     private readonly feed: TradeFeedService,
     private readonly fillSync: FillSyncService,
     private readonly accounts: AccountStateService,
@@ -212,11 +195,8 @@ export class WatcherService implements OnModuleDestroy {
     void this.sweep();
   }
 
-  /**
-   * At most one fast-path run per address is scheduled or running. Trades
-   * that arrive meanwhile wait in `pending` and go in the next run, which
-   * starts as soon as the current one ends.
-   */
+  /** At most one fast-path run per address; trades arriving meanwhile wait in
+   * `pending` for the next run. */
   private async drain(address: string): Promise<void> {
     const burst = this.pending.get(address);
     this.pending.delete(address);
@@ -379,13 +359,9 @@ export class WatcherService implements OnModuleDestroy {
   }
 
   /**
-   * Has the copy stream audited against a copied leader's verified span
-   * (COPY_LEADER_VERIFIED_EVENT). Its listener, CopyLiveWorkerService, lives
-   * in the process whose watcher runs (the `copy` or `all` worker), so only
-   * a started watcher emits. A `read` worker's sweeps (a watcher never
-   * started) still move `fill_coverage` for copied leaders first, but emit
-   * nothing: no listener exists there, and the copy worker's catchUpCopied
-   * (every COPIED_CATCH_UP_MS) audits every watched copied leader.
+   * Emits COPY_LEADER_VERIFIED_EVENT for the copy stream audit. Only a started
+   * watcher emits: the listener lives in the `copy`/`all` worker, and a `read`
+   * worker's sweeps are covered there by catchUpCopied.
    */
   private verified(address: string): void {
     if (!this.running) return;
@@ -396,8 +372,8 @@ export class WatcherService implements OnModuleDestroy {
     }
   }
 
-  /** Catches up every copied leader's verified span (every 2 min), then
-   * has its copy stream audited. One run at a time. */
+  /** Catches up each copied leader's verified span, then has its copy stream
+   * audited. One run at a time. */
   catchUpCopied(): Promise<void> {
     if (this.jobs.stopping) return Promise.resolve();
     this.copiedFlight ??= this.jobs.run(async () => {

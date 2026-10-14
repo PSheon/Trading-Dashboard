@@ -64,7 +64,7 @@ beforeEach(async () => {
   canceller = { cancel: vi.fn(async () => 'stop_cancellation_authority_missing') };
   vi.mocked(closer.observe).mockClear(); vi.mocked(closer.close).mockClear(); vi.mocked(closer.settle).mockClear();
   await db.insert(schema.leaders).values({ address: seed.consent.leaderAddress, active: true, source: 'copy' });
-  await new CopyLiveStopService(new CopyLiveStopRepository(db, new CopyLiveMandateRepository(db, testConfig())), new UnitOfWork(db), () => clock)
+  await new CopyLiveStopService(new CopyLiveStopRepository(new CopyLiveMandateRepository(db, testConfig())), new UnitOfWork(db), () => clock)
     .request(1, 'mandate', { idempotencyKey: 'stop-request-key-0001', expectedMandateRevision: 2 });
 });
 afterAll(async () => { await closeTestDb(); });
@@ -97,7 +97,7 @@ describe('testnet stop execution', () => {
   });
 
   it('an admin revoking the grant during a stop keeps it for the stop (reduce-only) and revokes it when the stop ends', async () => {
-    const admin = new CopyAdminLiveService(new CopyAdminLiveRepository(db, testConfig()), new UnitOfWork(db), new CopyLiveStopRepository(db, new CopyLiveMandateRepository(db, testConfig())));
+    const admin = new CopyAdminLiveService(new CopyAdminLiveRepository(db, testConfig()), new UnitOfWork(db), new CopyLiveStopRepository(new CopyLiveMandateRepository(db, testConfig())));
     admin.now = () => new Date(clock);
     const stop = await stopRow();
     const revoked = await admin.revoke('grant', { reason: 'leaked agent key' }, { kind: 'user', id: 1, privyUserId: 'did:privy:risk-source', role: 'admin' } as never);
@@ -308,7 +308,7 @@ describe('testnet stop execution', () => {
       executionKeys: [key], createdAt: new Date(clock), updatedAt: new Date(clock) });
     await journal(key, 'submitting');
     const [mandate] = await db.select().from(schema.copyLiveMandates);
-    await new CopyLiveStopService(new CopyLiveStopRepository(db, new CopyLiveMandateRepository(db, testConfig())), new UnitOfWork(db), () => clock)
+    await new CopyLiveStopService(new CopyLiveStopRepository(new CopyLiveMandateRepository(db, testConfig())), new UnitOfWork(db), () => clock)
       .request(1, 'mandate', { idempotencyKey: 'stop-request-key-0002', expectedMandateRevision: mandate!.revision });
     const stop = await stopRow();
     expect(stop).toMatchObject({ state: 'requested', trackingComplete: true, issue: null, trackedExecutionCount: 0 });
@@ -327,7 +327,7 @@ describe('testnet stop execution', () => {
     await db.update(schema.copyLiveMandates).set({ state: 'active' });
     // A deployment that executes actual copies (COPY_TRADING_MODE testnet).
     const base = testConfig(), live = { get value() { return { ...base.value, copy: { ...base.value.copy, live: { network: 'testnet' } } }; } } as unknown as typeof base;
-    const system = new CopyLiveSystemStops(db, new UnitOfWork(db), new CopyLiveStopRepository(db, new CopyLiveMandateRepository(db, live)), live);
+    const system = new CopyLiveSystemStops(db, new UnitOfWork(db), new CopyLiveStopRepository(new CopyLiveMandateRepository(db, live)), live);
     system.now = () => clock;
     const expiring = () => new CopyLiveStopper({ repository: new CopyLiveStopWorkerRepository(db, new UnitOfWork(db), testConfig()), closer, canceller: canceller as unknown as StopCanceller,
       swept: async () => swept, systemStops: { agentExpiryMarginMs: AGENT_EXPIRY_STOP_MARGIN_MS, stopExpiring: margin => system.stopExpiring(margin), resumePendingCloseAll: async () => [] } }, () => clock);
@@ -352,7 +352,7 @@ describe('testnet stop execution', () => {
     await db.delete(schema.copyLiveStopOperations); await db.update(schema.copyStrategies).set({ status: 'active', pauseNewRisk: false, reduceOnly: false });
     await db.update(schema.copyLiveMandates).set({ state: 'active' });
     const base = testConfig(), live = { get value() { return { ...base.value, copy: { ...base.value.copy, live: { network: 'testnet' } } }; } } as unknown as typeof base;
-    const system = new CopyLiveSystemStops(db, new UnitOfWork(db), new CopyLiveStopRepository(db, new CopyLiveMandateRepository(db, live)), live);
+    const system = new CopyLiveSystemStops(db, new UnitOfWork(db), new CopyLiveStopRepository(new CopyLiveMandateRepository(db, live)), live);
     system.now = () => clock;
     const liquidation = () => new CopyLiveStopper({ repository: new CopyLiveStopWorkerRepository(db, new UnitOfWork(db), testConfig()), closer, canceller: canceller as unknown as StopCanceller,
       swept: async () => swept, systemStops: { agentExpiryMarginMs: AGENT_EXPIRY_STOP_MARGIN_MS, stopExpiring: margin => system.stopExpiring(margin),

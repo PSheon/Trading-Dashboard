@@ -5,23 +5,15 @@
  *   DATABASE_URL=postgres://… pnpm --filter @trading-dashboard/api history:convert <command> [--batch N]
  *
  * Commands:
- *   copy     Copies rows in batches of `--batch` (default 5000), each batch
- *            in its own short transaction together with the cursor, so it can
- *            be interrupted and run again at any time. The raw table is only
- *            read: the running api and worker (previous release) keep using it.
- *   verify   Reads both tables side by side, a page at a time, and compares
- *            every row: the fill rebuilt from the typed columns must equal
- *            the raw JSON value for value. Prints the counts and the first
- *            differences; exit code 1 unless everything matches.
- *   finish   For the moment of the switch, with the previous release stopped:
- *            blocks writes to the raw table, copies what was written since
- *            `copy` went by, verifies every row, then renames the raw table to
- *            `analysis_history_fills_retired`. Nothing is renamed unless the
- *            verification is exact. The new release reads `history_fills` only
- *            and refuses to while the raw table exists.
- *   drop     Drops the retired table and the conversion cursor (frees the
- *            old copy's disk). Separate on purpose: run it when you no longer
- *            want the raw rows as a fallback.
+ *   copy     Batches of `--batch` (default 5000), each committed with the
+ *            cursor, so it is resumable. The raw table is only read.
+ *   verify   Compares every row (typed fill must equal the raw JSON); exit 1
+ *            unless everything matches.
+ *   finish   With the previous release stopped: blocks raw writes, copies the
+ *            late rows, verifies, and renames the raw table to
+ *            `analysis_history_fills_retired` only if exact.
+ *   drop     Drops the retired table and the cursor (separate on purpose:
+ *            the raw rows are the fallback until then).
  *   status   Prints the cursor and both tables' row counts.
  *
  * `all` = copy, then finish; does nothing (exit 0) when there is no raw
@@ -41,7 +33,7 @@ import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { HlUserFill } from "../hyperliquid/types.js";
 import { HistoryFillStore, LEGACY_FILLS_TABLE, type FillOrigin, type FillSource } from "./history-fill.store.js";
 
-export const RETIRED_FILLS_TABLE = "analysis_history_fills_retired";
+const RETIRED_FILLS_TABLE = "analysis_history_fills_retired";
 const STATE_TABLE = "analysis_history_fills_conversion";
 const DEFAULT_BATCH = 5000;
 
@@ -53,7 +45,7 @@ type RawRow = { chain: string; address: string; source: FillSource; tid: string;
 const RAW_COLUMNS = sql.raw(`o.chain, o.address, o.source, o.tid::text AS tid, (extract(epoch FROM o."time") * 1000000)::bigint::text AS time_us, o.raw, o.origin`);
 interface Cursor { address: string; source: string; tid: string }
 export interface Verification { raw: number; typed: number; compared: number; missing: number; extra: number; different: number; examples: string[] }
-export interface ConvertOptions { batch?: number; log?: (line: string) => void }
+interface ConvertOptions { batch?: number; log?: (line: string) => void }
 
 const exists = async (db: DrizzleDb, table: string) =>
   (await db.execute<{ found: boolean }>(sql`SELECT to_regclass(${`public.${table}`}) IS NOT NULL AS found`)).rows[0].found;

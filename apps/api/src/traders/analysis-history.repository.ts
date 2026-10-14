@@ -18,15 +18,13 @@ export type HistoryCaller = "product" | "user" | "anonymous";
  * fills, so the number a few accounts can create is bounded. */
 export const MAX_REQUESTED_JOBS = 200;
 /**
- * Most stored fills one analytics build reads: the newest ones. An address
- * can hold millions (`0xf5d8…` trades 8,000 times an hour: 18 million in a
- * 90-day archive), which no process can hold as objects; 100,000 fills are
- * about 100 MB while a build runs, and cover 90 days of anyone below 46
- * fills an hour. A build cut here says so (`truncated`, `coverage.from`).
+ * Most stored fills (the newest) one analytics build reads: an address can
+ * hold millions; 100,000 is ~100 MB in memory and 90 days below 46 fills/h.
+ * A build cut here says so (`truncated`, `coverage.from`).
  */
 export const HISTORY_BUILD_MAX_FILLS = 100_000;
 /** Fills per page when a build walks an archive span (`archivedFillPages`). */
-export const ARCHIVE_PAGE_FILLS = 20_000;
+const ARCHIVE_PAGE_FILLS = 20_000;
 /** Jobs removed per expiry pass (their fills go in the same transaction). */
 const EXPIRE_BATCH = 50;
 
@@ -58,20 +56,13 @@ export class AnalysisHistoryRepository {
   }
 
   /**
-   * Makes sure the address has a durable history job, if `caller` may have
-   * one; returns whether it has one afterwards. `from`: where a new job
-   * starts reading (default: the start of upstream's history). An existing
-   * job keeps its progress and is only marked as asked for again.
+   * Ensures a durable history job if `caller` may have one; returns whether
+   * one exists afterwards. `from`: where a new job starts reading. An
+   * existing job is only marked as asked for again.
    *
-   * A job is permanent work: a worker turn a minute and every fill stored.
-   * The analytics routes are public, so who may create one is limited:
-   * - the product's own jobs, and anyone asking about an address the
-   *   product already follows (see `known`): always;
-   * - a signed-in person asking about any other address: while fewer than
-   *   `MAX_REQUESTED_JOBS` such jobs are pending;
-   * - an anonymous visitor asking about any other address: never. Their
-   *   answer is still computed from Hyperliquid; it just isn't kept and
-   *   continued in the background.
+   * Jobs are permanent work and the routes are public, so creation is
+   * limited: product or `known` address always; signed-in user while under
+   * `MAX_REQUESTED_JOBS` pending; anonymous never.
    */
   async ensure(address: string, now = Date.now(), from = 0, caller: HistoryCaller = "product"): Promise<boolean> {
     const touched = await this.db.update(analysisHistoryJobs).set({ requestedAt: new Date(now) }).where(mine(address)).returning({ address: analysisHistoryJobs.address });
@@ -169,11 +160,9 @@ export class AnalysisHistoryRepository {
       const [job] = await tx.select().from(analysisHistoryJobs).where(and(
         eq(analysisHistoryJobs.chain, CHAIN_DEFAULT), ne(analysisHistoryJobs.status, "blocked"),
         or(isNull(analysisHistoryJobs.attemptedAt), lt(analysisHistoryJobs.attemptedAt, new Date(now - 60_000))),
-      // Never-attempted jobs first: plain ASC sorts NULL last, which let the
-      // few caught-up jobs (re-eligible every minute) take every turn. But
-      // never-attempted first on every turn lets a stream of new jobs
-      // starve the ones in progress, so the caller gives every other turn
-      // to an attempted job.
+      // Never-attempted first, else caught-up jobs take every turn; the
+      // caller alternates `preferAttempted` so new jobs can't starve
+      // in-progress ones.
       )).orderBy(preferAttempted ? sql`${analysisHistoryJobs.attemptedAt} ASC NULLS LAST` : sql`${analysisHistoryJobs.attemptedAt} ASC NULLS FIRST`).limit(1).for("update", { skipLocked: true });
       if (!job) return undefined;
       return (await tx.update(analysisHistoryJobs).set({ attemptedAt: new Date(now) }).where(mine(job.address)).returning())[0];

@@ -9,45 +9,28 @@ import type {
 } from "@trading-dashboard/shared/contracts";
 
 /**
- * Summary metrics and classification over round trips, reproducing
- * CopyDog's (its public API: `/traders/:a/summary`, `/trades`,
- * `/performance`; its bundle for labels). Details and the validation in
- * docs/trade-analytics.md.
+ * Summary metrics and classification over round trips, reproducing CopyDog's
+ * (validation in docs/trade-analytics.md).
  *
- * - Trade count: closed trades. Win: net PnL (gross − fees, funding aside)
- *   > 0; win rate = wins ÷ closed trades, liquidations included. Checked
- *   against CopyDog's snapshot (`metricsUpdatedAt`) on 19 traders; its
- *   tile can lag ours by a day. Windows count trades by exit time. Average and
- *   median hold over closed trades (partial ones from their first held fill).
- * - Best / worst: the 10 closed trades with the highest / lowest net PnL,
- *   whatever the sign (CopyDog's 表現 tab lists them so); the rail keeps
- *   the winners / losers among them and shows 3. Coins (`byAsset`): trades, wins, losses, volume = Σ size × entry
- *   price, net PnL; ordered by net PnL, the rail's "most traded" by volume,
- *   the 表現 tab's by trade count.
- * - Trading style, on the median hold: CopyDog computes it server-side and
- *   only publishes descriptions ("seconds to minutes", "hours, same day",
- *   "days to weeks", "weeks or longer"). The cut-offs were fitted to its
- *   labels on 48 traders (12 per style): their medians fall in 0–8.4 min
- *   (scalp), 28 min–23.6 h (intraday), 25 h–9.9 days (swing) and
- *   14.3–54 days (position); 15 min, 24 h and 14 days separate all 48.
- * - PnL tier, on all-time perp PnL (CopyDog's declared definition and the
- *   cohorts'; its `totalPnl` is Hyperliquid's leaderboard PnL, which
- *   includes spot, and is not used): bundle labels "+$1M+", "+$100K to
- *   +$1M", "$0 to +$100K", "$0 to −$100K", "−$100K to −$1M", "−$1M+"; break
- *   even is exactly $0 (its label has no range).
- * - Size tier, on the whole account's value (perp + spot + staked, the
- *   trader page's 帳戶價值). CopyDog tiers on perp equity, which calls a
- *   unified account holding its funds in spot "small" or "medium"; Orbie
- *   does not copy that. Bundle labels $5M+, $1M–5M, $100K–1M, $10K–100K,
- *   $0–10K.
+ * - Trades: closed, counted by exit time. Win: net PnL (gross − fees,
+ *   funding aside) > 0; win rate over closed trades, liquidations included
+ *   (checked on 19 traders).
+ * - Best / worst: 10 closed trades by net PnL, whatever the sign. Coins:
+ *   volume = Σ size × entry price; ordered by net PnL.
+ * - Trading style on median hold: cut-offs 15 min / 24 h / 14 days fitted to
+ *   CopyDog's labels on 48 traders.
+ * - PnL tier on all-time perp PnL (not leaderboard PnL, which includes
+ *   spot); break even is exactly $0.
+ * - Size tier on the whole account's value (帳戶價值), not perp equity as
+ *   CopyDog does (that misclassifies unified accounts).
  */
-export const STYLE_MAX_SECONDS = {
+const STYLE_MAX_SECONDS = {
   scalp: 15 * 60,
   intraday: 24 * 3600,
   swing: 14 * 86400,
 } as const;
 
-export const SIZE_TIER_MIN: ReadonlyArray<[SizeTier, number]> = [
+const SIZE_TIER_MIN: ReadonlyArray<[SizeTier, number]> = [
   ["apex", 5_000_000],
   ["whale", 1_000_000],
   ["large", 100_000],
@@ -87,7 +70,7 @@ export const WINDOW_MS: Record<TradeWindow, number | null> = {
   "1d": 86_400_000,
 };
 
-export const LIST_SIZE = 10;
+const LIST_SIZE = 10;
 
 export function median(values: number[]): number | null {
   if (values.length === 0) return null;
@@ -99,7 +82,7 @@ export function median(values: number[]): number | null {
 const exitMs = (t: RoundTrip) => (t.exitTime === null ? null : new Date(t.exitTime).getTime());
 
 /** Closed trades that exited within the window through the observation time. */
-export function closedInWindow(trades: RoundTrip[], window: TradeWindow, now: number): RoundTrip[] {
+function closedInWindow(trades: RoundTrip[], window: TradeWindow, now: number): RoundTrip[] {
   const span = WINDOW_MS[window];
   return trades.filter((t) => {
     const exit = exitMs(t);

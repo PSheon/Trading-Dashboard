@@ -12,7 +12,7 @@ import { HOUR_MS } from '../config/constants/time.js';
 export type ArchiveState = typeof archiveIngestState.$inferSelect;
 export type IngestDirection = "live" | "backfill";
 
-export interface ObjectCommit {
+interface ObjectCommit {
   direction: IngestDirection;
   /** Start of the hour the object holds (epoch ms). */
   hour: number;
@@ -34,13 +34,9 @@ export interface ObjectCommit {
 
 const mine = eq(archiveIngestState.chain, CHAIN_DEFAULT);
 
-/**
- * The one statement that defines the tracked set: every address whose
- * history the product shows or acts on — the discovery pool, the KOL
- * registry, user favorites, insight cohort members, watched leaders and
- * the leaders of copy strategies that are not stopped.
- */
-export const TRACKED_SET_SQL = sql`
+/** The one definition of the tracked set: every address whose history the
+ * product shows or acts on. */
+const TRACKED_SET_SQL = sql`
   SELECT address FROM discovery_traders WHERE chain = ${CHAIN_DEFAULT} AND in_pool
   UNION SELECT address FROM kol_traders WHERE chain = ${CHAIN_DEFAULT}
   UNION SELECT address FROM user_favorites WHERE chain = ${CHAIN_DEFAULT}
@@ -49,12 +45,8 @@ export const TRACKED_SET_SQL = sql`
   UNION SELECT leader_address FROM copy_strategies WHERE chain = ${CHAIN_DEFAULT} AND status <> 'stopped'
 `;
 
-/**
- * Cursors and coverage of the archive ingest. Fill rows go to
- * `history_fills` under the REST path's own key
- * `(chain, address, source, tid)`, so a fill read from both origins is
- * stored once; `origin` records which one arrived first.
- */
+/** Cursors and coverage of the archive ingest. Fills share the REST path's
+ * `history_fills` key, so one read from both origins is stored once. */
 @Injectable()
 export class ArchiveIngestRepository {
   private readonly fills: HistoryFillStore;

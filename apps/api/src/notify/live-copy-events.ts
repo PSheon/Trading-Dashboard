@@ -26,7 +26,7 @@ export type LiveCopySource = {
 
 /** What a fill of `size` on `side` did to a position of `startPosition`
  * (signed, before the fill); null when unknown or a flip (said as a plain fill). */
-export function liveFillAction(side: unknown, size: unknown, startPosition: unknown): "open" | "increase" | "decrease" | "close" | null {
+function liveFillAction(side: unknown, size: unknown, startPosition: unknown): "open" | "increase" | "decrease" | "close" | null {
   const start = Dec.parse(startPosition), sz = Dec.parse(size);
   if (!start || !sz || (side !== "B" && side !== "A")) return null;
   if (start.eq(0)) return "open";

@@ -10,7 +10,7 @@ import { useCopyFunding, useReserveCopyFunding, useConfirmCopyFunding, useCancel
 import { copyFundingInputSchema, type CopyExecutionAccount } from "@trading-dashboard/shared/contracts";
 import { CopyIconButton } from "@/components/wallet/bits";
 
-/** Funding is explicit, testnet-only, and independent of paper collateral. */
+/** Funding is explicit and independent of paper collateral. */
 export function CopyFundingSettings({ accounts }: { accounts: CopyExecutionAccount[] }) {
   const { t, format } = useI18n(), { wallet, identity, mode } = useAuth();
   return <FundingForm key={`${mode}:${identity}:${sessionKey()}`} accounts={accounts} walletAddress={wallet?.address?.toLowerCase()} t={t} format={format} />;

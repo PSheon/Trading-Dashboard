@@ -143,7 +143,7 @@ describe("verified fill coverage — real Postgres, fake Hyperliquid", () => {
     upstreamTwap = [{ twapId: 7, fill: fill("SOL", 0, 4, cursor + 5 * HOUR) }];
 
     const restarted = service();
-    const watcher = new WatcherService(testConfig(), {} as TradeFeedService, restarted,
+    const watcher = new WatcherService({} as TradeFeedService, restarted,
       {} as AccountStateService, {} as FeedActionsService, new WatcherRepository(db, testConfig()));
     const result = await watcher.sweep();
     expect(result).toMatchObject({ addresses: 1, failed: 0, inserted: upstream.length + 1 });

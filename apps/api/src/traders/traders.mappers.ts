@@ -70,7 +70,7 @@ export function activePerpDexes(list: HlPerpDexsResponse): string[] {
 }
 
 /** The perp side of an account, summed over dexes. */
-export interface AccountSummary {
+interface AccountSummary {
   /** Sum of every dex's `marginSummary.accountValue`; not the account's
    * total (that adds spot and staking, see `totalAccountValue`). */
   perpEquity: number;
@@ -129,7 +129,7 @@ export function summarizeAccount(states: Iterable<HlClearinghouseStateResponse>)
   return out;
 }
 
-export interface TraderAnalytics {
+interface TraderAnalytics {
   winRate30d: number | null;
   roundTrips30d: number;
   realizedPnl30d: number;
@@ -191,10 +191,8 @@ export function toPortfolioResponse(
   market: "all" | "perp",
 ): PortfolioResponse {
   const series = portfolioSeries(raw, window, market);
-  // Sharpe and max drawdown are always the whole account's (perp + spot), as
-  // CopyDog's are, whichever market the chart shows; ROI and the % curve are
-  // the market's own. Falls back to the market's series when Hyperliquid
-  // didn't send the whole-account one.
+  // Risk is always the whole account's (as CopyDog's); ROI and the % curve
+  // are the market's. Falls back to the market's series if "all" is missing.
   const whole = market === "all" ? series : portfolioSeries(raw, window, "all");
   const { roi, cumulativeReturn, capital } = returnMetrics(series);
   const risk = riskMetrics(whole.pnl.length > 0 ? whole : series);
@@ -213,7 +211,7 @@ export function toPortfolioResponse(
 }
 
 /** A window's PnL and account value, as Hyperliquid samples them. */
-export interface CapitalSeries {
+interface CapitalSeries {
   accountValue: Point[];
   pnl: Point[];
 }
@@ -226,23 +224,14 @@ export const MIN_ROI_CAPITAL = 100;
 export const MAX_ROI = 100;
 
 /**
- * CopyDog's ROI (verified against its public API on 18 traders and every
- * window, 2026-09-30): the window's PnL ÷ its peak net deposits, the most
- * capital that was ever in the account over the window: C = max over the
- * window's points of (account value − cumulative PnL). Deposits and
- * withdrawals move account value and C, never PnL, so they don't count as
- * return. `cumulativeReturn` is PnL ÷ C at every point, so the chart's %
- * mode ends at the ROI.
+ * CopyDog's ROI (verified on 18 traders, 2026-09-30): window PnL ÷ peak net
+ * deposits C = max over points of (account value − cumulative PnL).
+ * `cumulativeReturn` is PnL ÷ C at every point, ending at the ROI.
  *
- * The denominator must be capital that was actually in the account: only
- * points whose account value is above 0 count. Hyperliquid reports a perp
- * account value of 0 at every point of a unified account's perp series
- * (its collateral is spot), and `0 − PnL` is then not a deposit but the
- * loss itself, so a −$66 month read as −100 % (seen live on
- * 0x1aa7…29ed, 0xeecc…4c09, 0x8bf3…9060, 2026-10-02). As CopyDog's calendar
- * does, no return is given below `MIN_ROI_CAPITAL` of capital or above
- * `MAX_ROI`, and a loss is capped at −100 %; the ROI is then null (shown
- * as "—") and the % curve stays flat at 0. Null without data.
+ * Only points with account value > 0 count: a unified account's perp series
+ * reports 0 (collateral is spot), and `0 − PnL` would be the loss itself
+ * (2026-10-02). Below `MIN_ROI_CAPITAL` or above `MAX_ROI` the ROI is null
+ * and the curve flat at 0; a loss is capped at −100 %.
  */
 export function returnMetrics({ accountValue, pnl }: CapitalSeries): {
   roi: number | null;
@@ -265,24 +254,15 @@ export function returnMetrics({ accountValue, pnl }: CapitalSeries): {
 }
 
 /**
- * CopyDog's Sharpe, volatility and max drawdown (verified against its
- * public API on 18 traders, 2026-09-30; see docs/trade-analytics.md), all on
- * the whole account's series of the window, with Hyperliquid's latest point
- * (the live value) included:
+ * CopyDog's Sharpe, volatility and max drawdown (verified on 18 traders,
+ * 2026-09-30; docs/trade-analytics.md), on the window's series:
  *
- * - interval returns rᵢ = ΔPnLᵢ ÷ the window's peak account value; an
- *   interval that starts from an empty account (value ≤ 0) is skipped;
- * - `sharpe` = mean(r) ÷ sample stdev(r) × √(365 ÷ the median spacing of
- *   the returns' time index, in days): Hyperliquid samples a window at
- *   uneven spacing (hours for a day, 9 h to a week for all time), and
- *   CopyDog annualises by the typical one. Null with fewer than 2 returns
- *   or no variance;
- * - `maxDrawdownPct`: the largest fall of the equity line 1 + Σr from its
- *   running peak (which starts at 1), ÷ that peak, capped at 1. Coarse
- *   all-time sampling and a larger peak account value can make it smaller
- *   than a shorter window's, on CopyDog too;
- * - `maxDrawdownUsd`: separately, the largest fall of cumulative PnL from a
- *   running peak (USD, ≥ 0).
+ * - rᵢ = ΔPnLᵢ ÷ peak account value; intervals from value ≤ 0 are skipped;
+ * - `sharpe` = mean(r) ÷ sample stdev(r) × √(365 ÷ median spacing in days)
+ *   (Hyperliquid's sampling is uneven); null with < 2 returns or no variance;
+ * - `maxDrawdownPct`: largest fall of 1 + Σr from its running peak, ÷ peak,
+ *   capped at 1 (can be smaller all-time than a shorter window, as on CopyDog);
+ * - `maxDrawdownUsd`: largest fall of cumulative PnL from its running peak.
  */
 export function riskMetrics({ accountValue, pnl }: CapitalSeries): {
   sharpe: number | null;
@@ -313,9 +293,8 @@ export function riskMetrics({ accountValue, pnl }: CapitalSeries): {
     returns.push((pnl[i][1] - pnl[i - 1][1]) / peakAccountValue);
     times.push(pnl[i][0]);
   }
-  // The spacing of the returns' own time index (so n − 1 gaps). Hyperliquid's
-  // spacing is often bimodal (daily, then ~9 h), and this median, not the
-  // intervals', is the one that reproduces CopyDog's figures.
+  // Median of the returns' own time index gaps (not the intervals'): the one
+  // that reproduces CopyDog's figures.
   const gaps = times.slice(1).map((t, i) => (t - times[i]) / DAY_MS);
   const basis = { peakAccountValue: peakAccountValue > 0 ? peakAccountValue : null, returns: returns.length, skippedIntervals, periodsPerYear: null as number | null };
   if (!(peakAccountValue > 0) || returns.length === 0) {
@@ -393,11 +372,7 @@ export interface FillSample {
   lastTradeAt: number | null;
 }
 
-export function sampleFromUserFills(raw: HlUserFill[], since: number): FillSample {
-  return sampleFromLists([raw], since);
-}
-
-/** The same over several capped lists (`userFills` and the latest TWAP
+/** A `FillSample` over several capped lists (`userFills` and the latest TWAP
  * slices, which it doesn't include): counts every perp fill once, and is
  * `capped` if any one list is. */
 export function sampleFromLists(lists: HlUserFill[][], since: number): FillSample {

@@ -29,7 +29,7 @@ export class TelegramApiError extends Error {
 }
 
 /** What `getUpdates` returns that the bot reads. */
-export interface TelegramUser {
+interface TelegramUser {
   id: number;
   is_bot?: boolean;
   username?: string;
@@ -37,7 +37,7 @@ export interface TelegramUser {
   language_code?: string;
 }
 
-export interface TelegramChat {
+interface TelegramChat {
   id: number;
   type: "private" | "group" | "supergroup" | "channel";
   username?: string;
@@ -51,7 +51,7 @@ export interface TelegramMessage {
   date: number;
 }
 
-export interface TelegramChatMemberUpdated {
+interface TelegramChatMemberUpdated {
   chat: TelegramChat;
   from: TelegramUser;
   new_chat_member: { status: string };
@@ -73,7 +73,7 @@ export interface TelegramUpdate {
 }
 
 /** One row of inline keyboard buttons (`callback_data` ≤ 64 bytes). */
-export type InlineKeyboard = { text: string; callback_data: string }[][];
+type InlineKeyboard = { text: string; callback_data: string }[][];
 
 interface BotApiResponse<T> {
   ok: boolean;
@@ -84,9 +84,7 @@ interface BotApiResponse<T> {
 }
 
 /**
- * Telegram Bot API over plain `fetch` (no SDK: the bot needs four methods).
- * The token is read per call and never logged. An injectable class so
- * tests can substitute it; tests of the class itself stub `globalThis.fetch`.
+ * Telegram Bot API over plain `fetch`. The token is read per call and never logged.
  */
 @Injectable()
 export class TelegramHttpClient {
@@ -98,22 +96,16 @@ export class TelegramHttpClient {
 
   constructor(private readonly config: AppConfig, @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs()) {}
 
-  /**
-   * Waits for this message's turn: the next free slot of the global rate,
-   * and a full interval after the last message to the same chat. Slots are
-   * handed out in call order, so concurrent senders are spread out instead
-   * of bursting. Rejects when the process is stopping.
-   */
+  /** Waits for this message's turn (global slot in call order, and a full
+   * interval after the chat's last message). Rejects when stopping. */
   private async pace(chatId: string): Promise<void> {
     const now = Date.now();
     // A slot of the global rate, in call order…
     const slot = Math.max(now, this.nextSendAt);
     this.nextSendAt = slot + 1000 / this.pacing.perSecond;
     // …or later, when this chat had a message less than its interval ago.
-    // That wait is the chat's own: it does not push back the global slots,
-    // so one chat with several messages never holds the others up. (Such a
-    // message then shares its second with the slots already handed out; a
-    // chat adds at most one a second, well inside the margin to 30.)
+    // That wait does not push back the global slots, so one busy chat never
+    // holds the others up (it adds at most one a second, inside the margin).
     const at = Math.max(slot, this.chatNextAt.get(chatId) ?? 0);
     this.chatNextAt.set(chatId, at + this.pacing.chatIntervalMs);
     if (this.chatNextAt.size > 10_000) for (const [chat, next] of this.chatNextAt) if (next <= now) this.chatNextAt.delete(chat);

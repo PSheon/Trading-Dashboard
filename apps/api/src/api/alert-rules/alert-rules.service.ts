@@ -6,9 +6,8 @@ import { UnitOfWork } from "../../db/unit-of-work.js";
 import { AlertRulesRepository } from "./alert-rules.repository.js";
 
 /** D5 rule editor for the DEFAULT rules (`user_id IS NULL`), which
- * RulesService evaluates for admins on imported leaders. Rows with an
- * owner are no longer created (migration 0006 removed the old per-user
- * copies) and are never listed or edited here. */
+ * RulesService evaluates for admins on imported leaders. Owned rows are
+ * never listed or edited here. */
 @Injectable()
 export class AlertRulesService {
   constructor(private readonly repository: AlertRulesRepository, private readonly unitOfWork: UnitOfWork) {}

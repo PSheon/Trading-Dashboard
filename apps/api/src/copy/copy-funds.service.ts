@@ -8,13 +8,8 @@ import { wire } from "./copy.mappers.js";
 const date = (v: unknown) => new Date(v as string | Date);
 const num = (v: unknown) => (v === null || v === undefined ? null : wire(String(v)));
 
-/**
- * One money-flow history (B13/B14): what Orbie itself records about the
- * owner's money, from the database only. The hub wallet's own deposits,
- * withdrawals and transfers are Hyperliquid's ledger (GET /me/wallet/history)
- * and the page merges the two, linking a hub transfer to the copy funding
- * that made it.
- */
+/** Money-flow history Orbie records (B13/B14), DB only; the page merges it with the hub wallet's
+ * Hyperliquid ledger (GET /me/wallet/history). */
 @Injectable()
 export class CopyFundsService {
   constructor(private readonly repository: CopyFundsRepository) {}

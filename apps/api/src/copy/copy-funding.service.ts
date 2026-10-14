@@ -3,7 +3,6 @@ import { BadGatewayException, BadRequestException, ConflictException, Inject, In
 import { Dec } from "../common/decimal/dec.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
 import { WALLET_NETWORK_HL, type WalletNetworkHyperliquid } from "../hyperliquid/wallet-network-hyperliquid.js";
-import { createHash } from "node:crypto";
 import { verifyTypedData } from "viem";
 import { adminResolveCopyFundingSchema, copyFundingInputSchema, usdSendTypedData, WALLET_NETWORKS, type AdminResolvedCopyFunding, type CopyFunding } from "@trading-dashboard/shared/contracts";
 import { AppConfig } from "../config/app-config.js";
@@ -24,8 +23,8 @@ import { privyIdentityFresh } from "./live/privy-identity-freshness.js";
 import { fundingBackoffMs, fundingScanSchema, fundingDetailBatch, type FundingScan } from './copy-funding-scan.js';
 import { FUNDING_NONCE_EXPIRY_MS, FUNDING_NONCE_SKEW_MS } from '../config/constants/timings.js';
 import { BUSY_RETRY_AFTER_MS } from '../config/constants/http.js';
+import { jsonDigest as digest } from "../common/crypto/digest.js";
 
-const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 /** An operator's ledger read: a full page reads on (oldest first), at most
  * this many pages, as the withdrawal resolution. */
 const RESOLVE_LEDGER_PAGE = 500, RESOLVE_LEDGER_MAX_PAGES = 20;
@@ -38,8 +37,8 @@ export const wire = (row: FundingRow): CopyFunding => ({ id: row.id, accountId: 
   transactionHash: row.transactionHash, creditedAmount: row.creditedAmount, fee: row.fee, direction: row.direction, stopId: row.stopId,
   createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() });
 
-/** Testnet setup funds never become paper collateral. Mainnet stays disabled
- * until the complete live trading lifecycle is connected and verified. */
+/** Strategy funding for live copies (COPY_TRADING_MODE testnet or live); setup
+ * funds never become paper collateral. Off while copy trading is disabled. */
 @Injectable()
 export class CopyFundingService {
   private readonly logger = new Logger(CopyFundingService.name);
@@ -49,7 +48,7 @@ export class CopyFundingService {
     /** The wallet network's own budget and egress (testnet's), not mainnet's. */
     @Optional() @Inject(WALLET_NETWORK_HL) private readonly walletNetwork: WalletNetworkHyperliquid | null = null) {}
   private get available() { return this.config.value.copy.mode !== "disabled"; }
-  private assertAvailable() { if (!this.available) throw new ServiceUnavailableException("Strategy funding is available on testnet only"); }
+  private assertAvailable() { if (!this.available) throw new ServiceUnavailableException("Strategy funding is not available right now"); }
   async overview(userId: number) {
     const wallets = await this.wallets.overview(userId); // enabled owner check; no provider mutations
     return { available: this.available && wallets.available, network: this.config.value.hyperliquid.wallet.network, operations: (await this.repository.list(userId)).map(wire) };
@@ -72,9 +71,8 @@ export class CopyFundingService {
     await this.verified(userId, accountId);
     return wire(await this.repository.reserve(userId, accountId, this.config.value.hyperliquid.wallet.network, parsed.data, this.liveGuard(parsed.data.amount), internal?.liveSetupId));
   }
-  /** A deposit or top-up into an actual copy on a deployment with caps: a
-   * listed owner only, and the account's deposits stay within the stricter of
-   * COPY_LIVE_MAX_ALLOCATION_USD and the policy (security review). */
+  /** Live deposits: listed owners only, total within the stricter of COPY_LIVE_MAX_ALLOCATION_USD
+   * and the policy (security review). */
   private liveGuard(amount: string) {
     const live = this.config.value.copy.live;
     if (!live) return undefined;
@@ -163,18 +161,10 @@ export class CopyFundingService {
     return operations.length;
   }
   /**
-   * Admin (users.manage): gives a transfer stuck `unknown` (or `accepted`,
-   * never credited) its terminal state, so the address can move money again.
-   * Only after the nonce window (the signed action can no longer execute),
-   * and only to the state the operator's chosen evidence proves from a
-   * complete ledger read made now, with the explorer's details:
-   * - ledger_receipt (transactionHash): that transfer is this one's receipt
-   *   (fundingCreditEvidence) → credited;
-   * - ledger_absent_after_nonce_expiry: every transfer between the two
-   *   accounts is provably another operation (another nonce) → rejected; only
-   *   an `unknown` one (an `accepted` one was taken by the exchange).
-   * Anything unproven is refused (409), never guessed. Audited
-   * (copy.funding.resolve) with the reason, in the same transaction.
+   * Admin: terminal state for a transfer stuck `unknown`/`accepted`, only after its nonce window
+   * and only what a complete ledger read now proves: ledger_receipt → credited;
+   * ledger_absent_after_nonce_expiry (only `unknown`) → rejected when every transfer between the
+   * accounts is provably another nonce. Unproven → 409, never guessed. Audited in the same tx.
    */
   async resolveByOperator(id: string, input: unknown, actor: RequestUser): Promise<AdminResolvedCopyFunding> {
     const body = parseOr400(adminResolveCopyFundingSchema, input);
@@ -189,10 +179,8 @@ export class CopyFundingService {
     const detailsOf = new Map<string, unknown>();
     let candidates: string[];
     try {
-      // Oldest first; a full page reads on from its last time, and that
-      // time's rows are taken from the next page only (it has all of them),
-      // so nothing is dropped or doubled. A page that cannot advance, or does
-      // not come oldest first, is not a complete read.
+      // Oldest first; a full page continues from its last time, whose rows come from the next page
+      // only (no drop, no double). A page that doesn't advance or isn't ordered is incomplete.
       for (let page = 0, start = from; ; page++) {
         if (page === RESOLVE_LEDGER_MAX_PAGES) throw resolveConflict("funding_ledger_incomplete", "Too many ledger updates to read completely");
         const batch = await info.userNonFundingLedgerUpdates(operation.destination, start, now, "background", PAGE_RANK.fills, url);
@@ -234,9 +222,8 @@ export class CopyFundingService {
     this.logger.warn(`transfer ${id} resolved by operator: ${resolved.status} (${body.evidence})`);
     return { id, status: resolved.status === "credited" ? "credited" : "rejected", evidence: body.evidence };
   }
-  /** `background` (the monitor's pass) skips a row still backing off
-   * (scan_state.backoff): a restart or another replica honours the wait
-   * another pass recorded. An owner's own lookup is not held back. */
+  /** `background` skips a row still backing off (scan_state.backoff, honoured across restarts and
+   * replicas); an owner's own lookup is not held back. */
   private async confirm(operation: FundingRow, background = false) {
     const { userId, id } = operation;
     if (!["unknown", "accepted"].includes(operation.status) || !operation.attemptedAt) return wire(operation);
@@ -254,9 +241,7 @@ export class CopyFundingService {
         const cycleEnd = Math.max(start, Date.now());
         const scan: FundingScan = parsed.success ? parsed.data : { version: 1, windows: [{ start, end: cycleEnd }], receipts: [], cycleEnd };
         let current = operation;
-        // A provider read that fails records the row's backoff on the scan as
-        // it stands (the one saved at `current`'s revision: each read runs
-        // before this pass changes anything after its last checkpoint).
+        // A failed provider read records backoff on the scan as saved at `current`'s revision.
         const read = async <T>(work: () => Promise<T>): Promise<T> => {
           try { return await work(); } catch (error) { await this.backoff(current, scan, error); throw error; }
         };
@@ -266,8 +251,7 @@ export class CopyFundingService {
         }
         if (!scan.pendingDetails?.length) {
           const window = scan.windows[0]!, url = WALLET_NETWORKS[operation.network].infoUrl;
-          // A copy account's ledger is on the wallet network: its own budget, so
-          // a testnet 429 never halves the mainnet budget.
+          // Wallet-network budget, so a testnet 429 never halves the mainnet budget.
           const info = operation.network === this.config.value.hyperliquid.wallet.network ? this.walletNetwork?.info ?? this.info : this.info;
           const rows = await read(() => info.userNonFundingLedgerUpdates(operation.destination, window.start, window.end, "live", PAGE_RANK.fills, url));
           // A read answered: whatever this pass saves next ends the backoff.
@@ -282,11 +266,8 @@ export class CopyFundingService {
             return wire(await this.repository.find(userId, id));
           }
           const candidates = [...new Set(rows.filter((row) => row.delta.type === "internalTransfer" && typeof row.delta.user === "string" && row.delta.user.toLowerCase() === operation.address && typeof row.delta.destination === "string" && row.delta.destination.toLowerCase() === operation.destination && /^0x[0-9a-f]{64}$/.test(row.hash)).map((row) => row.hash))].sort().filter((hash) => !window.afterHash || hash > window.afterHash);
-          // Counted before any proof: a matching transfer whose details could
-          // not be proven still rules out "never executed" (until its details
-          // prove it is another operation, below). Each batch counts only its
-          // own hashes: the rest are counted when their batch is read, and the
-          // window stays open (no "never executed") until then.
+          // Counted before proof: an unproven matching transfer rules out "never executed" until its
+          // details prove another operation. Each batch counts only its own hashes.
           const hashes = candidates.slice(0, 5);
           scan.seen = (scan.seen ?? 0) + hashes.length;
           scan.pendingDetails = fundingDetailBatch(hashes, rows);
@@ -312,14 +293,9 @@ export class CopyFundingService {
           if (!checkpoint) return wire(await this.repository.find(userId, id));
           current = checkpoint;
         }
-        // A transfer still unknown whose nonce expired before this cycle's
-        // read ended, and whose complete read (every window answered, none
-        // capped; a failed read throws above) shows no transfer at all from
-        // this source to this destination, can never execute: its terminal
-        // state is rejected (not executed), with that evidence. Only as a
-        // compare-and-set on the scan revision this cycle started from, so a
-        // concurrent turn that saved anything (a candidate, a receipt, a
-        // credit) wins.
+        // Unknown, nonce expired before this cycle's read ended, and a complete read shows no transfer
+        // source → destination: it can never execute → not executed. CAS on the cycle's scan
+        // revision, so a concurrent save (candidate, receipt, credit) wins.
         if (!scan.windows.length && !scan.receipts.length && !scan.seen && operation.status === "unknown" && scan.cycleEnd !== undefined && scan.cycleEnd >= operation.nonce + FUNDING_NONCE_EXPIRY_MS) {
           const evidence = digest({ source: "ledger_absent_after_nonce_expiry", destination: operation.destination, nonce: operation.nonce, ledgerFrom: start, ledgerTo: scan.cycleEnd });
           return wire(await this.repository.notExecuted(current, evidence) ?? await this.repository.find(userId, id));
@@ -333,10 +309,8 @@ export class CopyFundingService {
       throw new BadGatewayException("Funding confirmation unavailable");
     }
   }
-  /** A failed read's backoff (fundingBackoffMs), kept on the row without a
-   * new scan revision: one more failure, the next background pass due after
-   * it, and since when the explorer has been unreachable (an outage's first
-   * failure). Bookkeeping only, so its own failure never hides the read's. */
+  /** Records a failed read's backoff (and explorer outage start) without a new scan revision.
+   * Bookkeeping only: its own failure never hides the read's. */
   private async backoff(current: FundingRow, scan: FundingScan, error: unknown) {
     const now = Date.now(), failures = (scan.backoff?.failures ?? 0) + 1, nextAt = now + fundingBackoffMs(failures);
     const explorerFailingSince = classify(error).code === "funding_explorer_unreachable" ? scan.explorerFailingSince ?? now : scan.explorerFailingSince;

@@ -25,7 +25,7 @@ function fixture(capacity=6, answer:()=>Promise<Response>=async()=>Response.json
   const info=new HyperliquidInfoClient(testConfig(),budget as never,signal ? {signal} as never : undefined,q.transport);
   vi.spyOn(info,'perpDexs').mockResolvedValue([null,{name:'xyz'},{name:'vntl'}] as never);
   const repository={saveFailure:vi.fn(),saveSnapshot:vi.fn()};
-  const service=new CohortService(testConfig(),repository as never,info,{} as never);
+  const service=new CohortService(testConfig(),repository as never,info);
   const member: CohortMemberRow={chain:'hyperliquid',address,tier:'profitable',source:'pool',rank:1,pnlAll:'1',roiAll:'1',dexes:['xyz','vntl'],positions:[],perpEquity:'100',fetchedAt:null,sweptAt:new Date(),attemptedAt:null,lastError:null};
   return {fetcher,q,budget,info,repository,service,member};
 }

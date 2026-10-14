@@ -571,6 +571,8 @@ describe('unregistered concrete testnet execution runtime', () => {
     expect(scan).toHaveBeenCalledOnce();expect(claimLive).toHaveBeenCalledOnce();
     // Its need: the scan's two list reads (2 × 120) and the evidence it prepays.
     expect(claimLive.mock.calls[0]![0]).toBeGreaterThan(240);
+    // It waits for that room at most SETTLEMENT_CLAIM_WAIT_MS (15 s), not a whole charge lifetime: one starved order never holds up the rest of the pass.
+    expect(claimLive.mock.calls[0]![1]).toBe(clock+15_000);
     const [quota]=await db.select().from(schema.hyperliquidEgressQuota);
     const ids=(quota!.events as {id:string}[]).map(e=>e.id),demands=ids.map(id=>/^live-demand:(\d+):([0-9a-f]{16}):/.exec(id)).filter(m=>m!==null);
     // The order's own demand came first; the settlement's is the last.

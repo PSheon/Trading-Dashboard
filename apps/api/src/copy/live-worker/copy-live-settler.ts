@@ -22,8 +22,7 @@ import { LiveBoundaryError } from '../live/wallet-authorization.js';
 import { LiveSharedReads } from '../live/live-shared-reads.js';
 import type { LiveSourceNetwork } from '../live/copy-live-source-evidence.js';
 import { liveReadCache } from '../live/live-read-cache.js';
-import { LIVE_EVIDENCE_MAX_AGE_MS, LIVE_FILL_SCAN_MARGIN_MS, NEVER_PLACED_GRACE_MS, PROVIDER_CLOCK_SKEW_MS } from '../../config/constants/timings.js';
-import { REST_CHARGE_LIFETIME_MS } from '../../config/constants/hyperliquid.js';
+import { LIVE_EVIDENCE_MAX_AGE_MS, LIVE_FILL_SCAN_MARGIN_MS, NEVER_PLACED_GRACE_MS, PROVIDER_CLOCK_SKEW_MS, SETTLEMENT_CLAIM_WAIT_MS } from '../../config/constants/timings.js';
 import { sharedRestRetryAfterMs } from '../../hyperliquid/hyperliquid-capacity-error.js';
 import { RESPONSE_WEIGHT } from '../live/follower-receipt-reader.js';
 import { errorCode } from '../../runtime/safe-error-text.js';
@@ -181,7 +180,7 @@ export class CopyLiveSettler {
    * meter records no demand (the settlement runs as before). A wait longer
    * than that is the meter's capacity error (the loop retries). */
   private async claimLive(weight: number): Promise<string | undefined> {
-    try { return await this.global.claimLive(weight, this.now() + REST_CHARGE_LIFETIME_MS); }
+    try { return await this.global.claimLive(weight, this.now() + SETTLEMENT_CLAIM_WAIT_MS); }
     catch (error) {
       if (sharedRestRetryAfterMs(error) !== undefined) throw error;
       new Logger('CopyLiveSettler').warn(`settlement live demand not claimed: ${errorCode(error, 'unknown')}`);

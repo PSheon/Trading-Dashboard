@@ -367,3 +367,8 @@ export const TESTNET_SOURCE_RETRY_MS = 5_000;
  * (SettlementPendingLog): at most once per order in this long.
  */
 export const SETTLEMENT_PENDING_LOG_INTERVAL_MS = 30_000;
+
+/** basis: guessed — the api settlement loop runs every 3 s, so a settlement waits at most this long for its live-demand room and the next pass retries (review of fdbaa269: 65 s let one starved order hold up the rest of the pass); verify: gate 11 settlement claim waits
+ * Was the 65 s charge lifetime.
+ */
+export const SETTLEMENT_CLAIM_WAIT_MS = 15_000;

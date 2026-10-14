@@ -159,8 +159,8 @@ export class HyperliquidGlobalTransport {
   try{const snapshot=await this.quota.meterSnapshot(egressKey);use=kind==='rest'?restWindowUse(snapshot):wsWindowUse(snapshot);}catch{use=undefined;}
   return this.foreignUsage.note(egressKey,kind==='rest'?'429':'ws_rate_limit',use);
  }
- /** A WebSocket `error` channel message on this egress: a rate limit is noted (noteRateLimited). */
- noteWsError(data:unknown):void{if(isWsRateLimit(data))void this.noteRateLimited('ws').catch(()=>{});}
+ /** A WebSocket `error` channel message on this egress: a rate limit is noted (noteRateLimited); any other text is logged, sanitised and rate-limited, as `hl_ws_error_unmatched` (to calibrate isWsRateLimit). */
+ noteWsError(data:unknown):void{if(isWsRateLimit(data))void this.noteRateLimited('ws').catch(()=>{});else this.foreignUsage.noteUnmatchedWsError(data);}
  /** Looks at what a dispatched REST send answered (a Response, a list of
   * them, or a promise of either) for a 429, without changing it. */
  #watch<T>(result:T):T{

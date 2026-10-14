@@ -4,7 +4,7 @@ import { AdminSystemService } from '../src/admin/admin-system.service.js';
 import { WorkerFleetService } from '../src/api/health/worker-fleet.service.js';
 import { UnitOfWork } from '../src/db/unit-of-work.js';
 import type { DrizzleDb } from '../src/db/drizzle.provider.js';
-import { FOREIGN_USAGE_SHARE, ForeignUsageCounter, foreignUsage, isWsRateLimit } from '../src/hyperliquid/foreign-usage.js';
+import { FOREIGN_USAGE_SHARE, ForeignUsageCounter, WS_ERROR_TEXT_MAX, WS_ERROR_UNMATCHED_EVERY_MS, foreignUsage, isWsRateLimit, sanitizeWsErrorText } from '../src/hyperliquid/foreign-usage.js';
 import { HyperliquidGlobalTransport } from '../src/hyperliquid/hyperliquid-global-transport.js';
 import type { HyperliquidMeterComposition } from '../src/hyperliquid/hyperliquid-global-quota.js';
 import { PostgresHyperliquidQuota, type HyperliquidMeterSnapshot } from '../src/hyperliquid/postgres-hyperliquid-quota.js';
@@ -23,13 +23,12 @@ const composition = (sent: { background?: number; live?: number; page?: number; 
 });
 const snapshot = (rest: HyperliquidMeterComposition, wsMessages = 0): HyperliquidMeterSnapshot => ({ rest, wsConnect: 0, wsMessages, leases: 0 });
 
-function fixture(answer: number, meter: () => HyperliquidMeterSnapshot) {
+function fixture(answer: number, meter: () => HyperliquidMeterSnapshot, counter = new ForeignUsageCounter({ warn: vi.fn() })) {
   const quota = new PostgresHyperliquidQuota(new UnitOfWork({} as DrizzleDb));
   const fetcher = vi.fn<typeof fetch>(async () => new Response('{}', { status: answer }));
   const acquire = vi.fn(async () => ({ assertFresh: () => {}, dispatch: <T>(work: () => T): T => work() }));
   vi.spyOn(quota, 'bindUnscoped').mockReturnValue({ acquireRest: acquire, reserveSocket: vi.fn() } as never);
   const read = vi.spyOn(quota, 'meterSnapshot').mockImplementation(async () => meter());
-  const counter = new ForeignUsageCounter({ warn: vi.fn() });
   const transport = new HyperliquidGlobalTransport(quota, { egressKey: 'stage-A:testnet', ownerId: 'worker-a' }, fetcher, Date.now, async () => {}, counter);
   return { transport, counter, read, fetcher };
 }
@@ -86,6 +85,43 @@ describe('foreign usage is counted only below 80 % of our own window', () => {
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(f.counter.status().rateLimited).toBe(1);
     expect(isWsRateLimit({ error: 'rate limited' })).toBe(true);
+  });
+});
+
+describe('a WebSocket error the rate-limit pattern does not match is logged, sanitised and rate-limited', () => {
+  it('hl_ws_error_unmatched {text}: addresses, hashes and tokens stripped, 200 chars, once per distinct text per 10 min', async () => {
+    const clock = { now: 1_792_000_000_000 }, warn = vi.fn();
+    const f = fixture(200, () => snapshot(composition({}), 10), new ForeignUsageCounter({ warn }, () => clock.now));
+    const lines = () => warn.mock.calls.map(c => String(c[0])).filter(l => l.startsWith('hl_ws_error_unmatched '));
+    const text = (line: string) => (JSON.parse(line.slice('hl_ws_error_unmatched '.length)) as { text: string }).text;
+    const address = '0x8c5865689ef4d9a5d5f9b1d8a2c7e3f4b6a1c2d3', hash = 'a3f1c9e2b4d6f8a0c2e4f6a8b0d2e4f6a8c0e2f4a6b8d0c2e4f6a8b0d2e4f6a8';
+    const token = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PSR0';
+    f.transport.noteWsError(`Invalid subscription for user ${address} tx ${hash} auth ${token}`);
+    expect(lines()).toHaveLength(1);
+    const logged = text(lines()[0]!);
+    expect(logged).toBe('Invalid subscription for user <hex> tx <hex> auth <token>');
+    expect(logged).not.toMatch(/8c5865|a3f1c9|eyJ/);
+    // The same text (another address) again within 10 minutes: not logged.
+    clock.now += 60_000;
+    f.transport.noteWsError({ error: 'Invalid subscription', user: '0x1111111111111111111111111111111111111111' });
+    f.transport.noteWsError({ error: 'Invalid subscription', user: '0x2222222222222222222222222222222222222222' });
+    expect(lines()).toHaveLength(2);
+    expect(text(lines()[1]!)).toBe('{"error":"Invalid subscription","user":"<hex>"}');
+    f.transport.noteWsError(`Invalid subscription for user ${address.replace('8c', '9d')} tx ${hash} auth ${token}`);
+    expect(lines()).toHaveLength(2);
+    // A long text is cut to 200 characters.
+    f.transport.noteWsError(`Unknown error: ${'word '.repeat(100)}`);
+    expect(lines()).toHaveLength(3);
+    expect(text(lines()[2]!)).toHaveLength(WS_ERROR_TEXT_MAX);
+    // After 10 minutes the first text is logged again.
+    clock.now += WS_ERROR_UNMATCHED_EVERY_MS;
+    f.transport.noteWsError(`Invalid subscription for user ${address} tx ${hash} auth ${token}`);
+    expect(lines()).toHaveLength(4);
+    // A matched rate limit is counted, never logged as unmatched; nothing here is a rate limit.
+    f.transport.noteWsError('Too many messages');
+    await vi.waitFor(() => expect(f.counter.status().rateLimited).toBe(1));
+    expect(lines()).toHaveLength(4);
+    expect(sanitizeWsErrorText('Already subscribed to trades for BTC')).toBe('Already subscribed to trades for BTC');
   });
 });
 

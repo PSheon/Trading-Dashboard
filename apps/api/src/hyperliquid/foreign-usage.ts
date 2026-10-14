@@ -29,16 +29,44 @@ export function restWindowUse(snapshot: Pick<HyperliquidMeterSnapshot, 'rest'>):
 /** What our own messages hold of an egress key's WebSocket message window (0..1). */
 export const wsWindowUse = (snapshot: Pick<HyperliquidMeterSnapshot, 'wsMessages'>) => snapshot.wsMessages / HYPERLIQUID_WS_MESSAGE_CAP;
 
-/** Whether a Hyperliquid WebSocket `error` channel's data names its rate limit. */
+const wsErrorText = (data: unknown): string => typeof data === 'string' ? data : (() => { try { return JSON.stringify(data) ?? ''; } catch { return ''; } })();
+
+/** Whether a Hyperliquid WebSocket `error` channel's data names its rate
+ * limit. The wording is not verified against Hyperliquid yet: every error
+ * this does not match is logged as `hl_ws_error_unmatched` (sanitised) so
+ * the observe week can calibrate it. */
 export function isWsRateLimit(data: unknown): boolean {
-  const text = typeof data === 'string' ? data : (() => { try { return JSON.stringify(data) ?? ''; } catch { return ''; } })();
-  return /rate.?limit|too many/i.test(text);
+  return /rate.?limit|too many/i.test(wsErrorText(data));
+}
+
+/** The longest unmatched WS error text logged. */
+export const WS_ERROR_TEXT_MAX = 200;
+/** The same unmatched WS error text is logged at most once in this long. */
+export const WS_ERROR_UNMATCHED_EVERY_MS = 10 * 60_000;
+/** Distinct texts remembered for that rate limit (the oldest go first). */
+const WS_ERROR_TEXTS_KEPT = 200;
+
+/**
+ * A WebSocket error's text, safe to log: anything that looks like an
+ * address, a hash or a token (0x-hex, a long hex run, a long run of
+ * letters and digits such as base58, base64 or a JWT) is replaced,
+ * whitespace is collapsed, and the result is cut to WS_ERROR_TEXT_MAX
+ * characters.
+ */
+export function sanitizeWsErrorText(data: unknown): string {
+  const text = wsErrorText(data)
+    .replace(/0x[0-9a-f]{6,}/gi, '<hex>')
+    .replace(/\b[0-9a-f]{16,}\b/gi, '<hex>')
+    .replace(/[A-Za-z0-9_+/=.-]{20,}/g, (run) => /\d/.test(run) ? '<token>' : run)
+    .replace(/\s+/g, ' ').trim();
+  return text.length > WS_ERROR_TEXT_MAX ? text.slice(0, WS_ERROR_TEXT_MAX) : text;
 }
 
 export class ForeignUsageCounter {
   #rateLimited = 0;
   #count = 0;
   #last: { at: number; key: string; status: string; ourWindowUse: number } | undefined;
+  readonly #unmatched = new Map<string, number>();
   constructor(private readonly logger: Pick<Logger, 'warn'> = new Logger('HyperliquidEgress'), private readonly now: () => number = Date.now) {}
 
   /**
@@ -55,6 +83,21 @@ export class ForeignUsageCounter {
     this.#count++;
     this.#last = { at: this.now(), key, status, ourWindowUse: use };
     this.logger.warn(`foreign_usage_suspected ${JSON.stringify({ key, ourWindowUse: use, status, count: this.#count })}`);
+    return true;
+  }
+
+  /**
+   * A WebSocket `error` that isWsRateLimit did not match: logged as
+   * `hl_ws_error_unmatched {text}` (sanitizeWsErrorText), each distinct text
+   * at most once every WS_ERROR_UNMATCHED_EVERY_MS. True when logged.
+   */
+  noteUnmatchedWsError(data: unknown): boolean {
+    const text = sanitizeWsErrorText(data), now = this.now(), at = this.#unmatched.get(text);
+    if (at !== undefined && now - at < WS_ERROR_UNMATCHED_EVERY_MS) return false;
+    this.#unmatched.delete(text);
+    this.#unmatched.set(text, now);
+    if (this.#unmatched.size > WS_ERROR_TEXTS_KEPT) { const oldest = this.#unmatched.keys().next().value; if (oldest !== undefined) this.#unmatched.delete(oldest); }
+    this.logger.warn(`hl_ws_error_unmatched ${JSON.stringify({ text })}`);
     return true;
   }
 

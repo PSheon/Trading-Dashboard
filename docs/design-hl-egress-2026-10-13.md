@@ -518,5 +518,6 @@ Then Phase 2 (in-memory scheduler). §1 scoping and Phase 3 (node) come after ma
 **I-15 notes (review):**
 1. The HA gateway has 3 IPs, and a request may leave from any of them. The limiter still caps at a single IP's 1200, so don't assume 3×.
 2. It is unknown whether the static gateway and the default egress share a pool. For the first week after 1b, keep the `foreign_usage_suspected` and 429 counts in the gate record.
+3. Hyperliquid's WebSocket rate-limit wording is not verified: a WS `error` is counted when it matches `/rate.?limit|too many/i`. Every other error text is logged as `hl_ws_error_unmatched {text}` (addresses, hashes and tokens stripped, at most 200 characters, each distinct text at most once per 10 min); calibrate the pattern from those lines during the observe week.
 
 **I-16 (2026-10-15) Phase 2.3 acceptance.** The scheduler is accepted only when every row D1–D12 of `docs/egress-subtraction-inventory-2026-10-15.md` §1.1 is deleted in the same batch (about 735 lines plus about 10 specs). The two must not coexist. The safety items in §1.2 of that inventory stay. Its §2 constants audit (98 constants; 56 of them guesses) is for Paul to decide which to cut.

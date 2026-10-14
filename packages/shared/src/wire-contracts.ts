@@ -92,6 +92,12 @@ export const operationalSwitchesSchema = z.object({
   archiveEnabled: z.boolean(),
   archiveMaxDailyUsd: z.number(),
   maxFavoritesPerUserDefault: z.number().int(),
+  /** WORKER_ROLE (a worker: all, copy or read), API_SETUP_DRIVE and the
+   * terminal settlement loop's switches as this process applies them.
+   * Optional while older processes roll out. */
+  workerRole: z.enum(["all", "copy", "read"]).optional(),
+  setupDrive: z.enum(["local", "worker"]).optional(),
+  terminalSettlement: z.boolean().optional(),
 });
 export type OperationalSwitches = z.infer<typeof operationalSwitchesSchema>;
 export const workerMonitorSchema = z.object({

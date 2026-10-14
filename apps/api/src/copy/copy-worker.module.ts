@@ -18,6 +18,7 @@ import { CopyLiveStopWorkerRepository } from "./live-worker/copy-live-stop-worke
 import { CopyLiveWorkerService } from "./live-worker/copy-live-worker.service.js";
 import { liveEngineProvider } from "./live-worker/copy-live-engine.provider.js";
 import { WatcherRuntimeModule } from "../watcher/watcher-runtime.module.js";
+import { CopyReadModule } from "./copy-read.module.js";
 
 export function followerSnapshotReader({ budget, transport, network }: Pick<WalletNetworkHyperliquid, 'budget' | 'transport' | 'network'>) {
   // Reporting waits before its evidence clock, under the existing background
@@ -82,17 +83,27 @@ export function followerSnapshotReader({ budget, transport, network }: Pick<Wall
   };
 }
 
-/** The copy loops: the paper copy worker, testnet copy execution (only with
- * COPY_TRADING_MODE=testnet), strategy funding confirmations, the
- * follower receipt monitor and the follower snapshot collector. Imported by
- * the worker process only (AppModule.worker()); the api never constructs them. */
+/** The `read` worker's copy loops: the paper copy worker, the follower
+ * receipt monitor and the follower snapshot collector. They sign and send
+ * nothing (CopyReadModule): paper copy fills are simulated and its
+ * repository only ever touches `mode = 'paper'` strategies. */
 @Module({
-  // WatcherRuntimeModule: the running trade feed (the fast copy source polls while it is down).
-  imports: [CopyModule, HyperliquidModule, WatcherRuntimeModule],
-  providers: [CopyWorkerService, CopyFundingMonitor, CopyFollowerMonitor, CopyFollowerSnapshotCollector,
-    CopyLiveSourceRepository, CopyLiveWorkerRepository, CopyLiveStopWorkerRepository, liveEngineProvider, CopyLiveWorkerService,
+  imports: [CopyReadModule, HyperliquidModule],
+  providers: [CopyWorkerService, CopyFollowerMonitor, CopyFollowerSnapshotCollector,
     // Copy-account reads use the wallet network's own budget (copy.module.ts), not
     // the worker's mainnet budget, which the pool and archive loops keep busy.
     { provide: FOLLOWER_SNAPSHOT_READER, inject: [WALLET_NETWORK_HL], useFactory: followerSnapshotReader }],
 })
-export class CopyWorkerModule {}
+export class CopyReportingWorkerModule {}
+
+/** The `copy` worker's loops: copy execution on the deployment's network
+ * (with COPY_TRADING_MODE testnet or live: the engine, stops, closes,
+ * settlement, the setup driver and aborts, the fast source), strategy
+ * funding confirmations, the setup wake-ups and, when it runs here, the
+ * terminal settlement loop (CopyModule's CopyLiveApiSettlementService). */
+@Module({
+  // WatcherRuntimeModule: the running trade feed (the fast copy source polls while it is down).
+  imports: [CopyModule, HyperliquidModule, WatcherRuntimeModule],
+  providers: [CopyFundingMonitor, CopyLiveSourceRepository, CopyLiveWorkerRepository, CopyLiveStopWorkerRepository, liveEngineProvider, CopyLiveWorkerService],
+})
+export class CopyLiveWorkerModule {}

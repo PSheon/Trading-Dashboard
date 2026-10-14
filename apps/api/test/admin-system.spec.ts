@@ -45,7 +45,8 @@ it("does not present an old worker sample as current", async () => {
   expect((await service.overview()).worker.state).toBe("stale");
 });
 it("shows the switches the api and the worker were started with, and nothing secret (review finding 19)", async () => {
-  const switches = { isWorker: true, copyTradingMode: "paper", hyperliquidNetwork: "mainnet", telegramDryRun: false, archiveEnabled: true, archiveMaxDailyUsd: 5, maxFavoritesPerUserDefault: 100 };
+  const switches = { isWorker: true, copyTradingMode: "paper", hyperliquidNetwork: "mainnet", telegramDryRun: false, archiveEnabled: true, archiveMaxDailyUsd: 5, maxFavoritesPerUserDefault: 100,
+    workerRole: "copy", terminalSettlement: true };
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ state: "standby", instanceId: "worker-3", sampledAt: new Date().toISOString(), uptimeSeconds: 3, budget: null, heartbeat: null, switches }) }));
   vi.stubEnv("TELEGRAM_DRY_RUN", "true");
   vi.stubEnv("COPY_TRADING_MODE", "disabled");
@@ -55,7 +56,8 @@ it("shows the switches the api and the worker were started with, and nothing sec
     const { service } = setup();
     const result = adminSystemSchema.parse(await service.overview());
     // The api's own environment…
-    expect(result.api.switches).toEqual({ isWorker: false, copyTradingMode: "disabled", hyperliquidNetwork: "testnet", telegramDryRun: true, archiveEnabled: false, archiveMaxDailyUsd: 2, maxFavoritesPerUserDefault: 40 });
+    expect(result.api.switches).toEqual({ isWorker: false, copyTradingMode: "disabled", hyperliquidNetwork: "testnet", telegramDryRun: true, archiveEnabled: false, archiveMaxDailyUsd: 2, maxFavoritesPerUserDefault: 40,
+      setupDrive: "local", terminalSettlement: true });
     // …and the worker's, which is a separate process and may differ.
     expect(result.worker.sample?.switches).toEqual(switches);
     expect(JSON.stringify(result)).not.toContain("must-not-leak");

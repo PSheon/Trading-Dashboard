@@ -9,6 +9,22 @@ export async function acquireWorkerLease(client: Pick<PoolClient, "query">): Pro
 }
 
 /**
+ * The role's leases (runtime/worker-role.ts: copy (73106, 1), read
+ * (73106, 2), `all` both), all or none: a process that got only some gives
+ * them back at once, so an `all` worker never sits on one lease while it
+ * waits for the other (that would hold a `copy` or `read` worker off it).
+ */
+export async function acquireWorkerLeases(client: Pick<PoolClient, "query">, leases: readonly number[]): Promise<boolean> {
+  if (leases.length === 1 && leases[0] === 1) return acquireWorkerLease(client);
+  const result = await client.query<{ key: number; acquired: boolean }>(
+    "SELECT key, pg_try_advisory_lock(73106, key) AS acquired FROM unnest($1::int[]) WITH ORDINALITY AS l(key, n) ORDER BY n", [[...leases]]);
+  const held = result.rows.filter(row => row.acquired).map(row => row.key);
+  if (held.length === leases.length) return true;
+  for (const key of held) await client.query("SELECT pg_advisory_unlock(73106, $1)", [key]);
+  return false;
+}
+
+/**
  * Server-side limits for the lease connection, so a worker cut off by a
  * network partition releases the lease within about half a minute instead
  * of the kernel's TCP timeout (hours): Postgres ends a session idle for 30 s

@@ -62,6 +62,29 @@ describe('each process learns its public IPv4 set from a stubbed echo', () => {
     expect(m.ips()).toEqual([GATEWAY[2]]);
   });
 
+  it('the default echoes are three independent providers: the third answers when the first two fail; all three down still fails closed', async () => {
+    const { echoUrls } = validateEnvironment({ NODE_ENV: 'test', DATABASE_URL: DB, IS_WORKER: 'true', WORKER_ROLE: 'copy', HL_EGRESS_IDENTITY: 'enforce', HL_EGRESS_PEERS: 'http://api.internal:3000' }).egressIdentity;
+    expect(new Set(echoUrls.map(url => new URL(url).hostname.split('.').slice(-2).join('.'))).size).toBeGreaterThanOrEqual(3);
+    const configured = (fetcher: unknown) => new EgressIdentityMonitor(fetcher as typeof fetch, () => T0).configure({ role: 'copy', egressKey: 'stage-copy', logger: quiet,
+      config: { mode: 'enforce', echoUrls, timeoutMs: 3000, intervalMs: 300_000 } });
+    // ipify times out, Amazon answers 503: the third answers.
+    const fallback = vi.fn(async (input: string | URL) => {
+      const host = new URL(String(input)).hostname;
+      if (host === 'api.ipify.org') throw new Error('timeout');
+      if (host === 'checkip.amazonaws.com') return new Response('', { status: 503 });
+      return new Response(`${GATEWAY[1]}\n`, { status: 200 });
+    });
+    const m = configured(fallback);
+    expect(await m.observe()).toBe(GATEWAY[1]);
+    expect(fallback).toHaveBeenCalledTimes(3);
+    expect(m.snapshot()).toMatchObject({ publicIps: [GATEWAY[1]], lastError: null });
+    // Every echo down: unknown, and the lease verdict refuses (fail closed).
+    const down = configured(vi.fn(async () => { throw new Error('ECONNREFUSED'); }));
+    expect(await down.observe()).toBeNull();
+    expect(down.snapshot().lastError?.split('; ')).toHaveLength(3);
+    expect(egressLeaseVerdict(down.ips(), [])).toMatchObject({ allowed: false, reason: expect.stringMatching(/unknown/) });
+  });
+
   it('no echo answers: null and lastError, never a throw; a non-IPv4 answer does not count', async () => {
     const m = monitor(vi.fn(async () => new Response('<html>blocked</html>', { status: 200 })) as unknown as typeof fetch);
     expect(await m.observe()).toBeNull();
@@ -96,7 +119,7 @@ describe('each process learns its public IPv4 set from a stubbed echo', () => {
 
   it('HL_EGRESS_IDENTITY defaults to off; enforce is a worker-only value; the expected IPs must be IPv4', () => {
     const base = { NODE_ENV: 'test', DATABASE_URL: DB };
-    expect(validateEnvironment(base).egressIdentity).toMatchObject({ mode: 'off', timeoutMs: 3000, echoUrls: ['https://api.ipify.org', 'https://checkip.amazonaws.com'], peers: [], expectedIps: [] });
+    expect(validateEnvironment(base).egressIdentity).toMatchObject({ mode: 'off', timeoutMs: 3000, echoUrls: ['https://api.ipify.org', 'https://checkip.amazonaws.com', 'https://ipv4.icanhazip.com'], peers: [], expectedIps: [] });
     expect(() => validateEnvironment({ ...base, HL_EGRESS_IDENTITY: 'enforce' })).toThrow(/worker only/);
     const worker = validateEnvironment({ ...base, IS_WORKER: 'true', WORKER_ROLE: 'copy', HL_EGRESS_IDENTITY: 'enforce', HL_EGRESS_PEERS: 'http://api.railway.internal:3000, http://worker-read.railway.internal:3000',
       HL_EGRESS_EXPECTED_IPS: GATEWAY.join(',') }).egressIdentity;

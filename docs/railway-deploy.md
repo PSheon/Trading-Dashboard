@@ -85,6 +85,12 @@ Until the egress split (1b), every service keeps the same `HYPERLIQUID_EGRESS_KE
 3. Unset `WORKER_ROLE` on `worker` (back to `all`, both leases).
 4. Unset `WORKER_READ_URL` on the api.
 
+**Egress identity (`HL_EGRESS_IDENTITY`)**
+
+Design §8 I-15. `off` (default), `observe` (every process learns and reports its public IPv4; nothing is gated) or `enforce` (worker-copy only: it takes no lease while its IP is unknown, outside `HL_EGRESS_EXPECTED_IPS`, or shared with a peer). `enforce` needs `HL_EGRESS_PEERS` (the api's and worker-read's internal base URLs); without one the worker refuses to start. The IP comes from `HL_EGRESS_ECHO_URLS`, by default three independent echoes tried in order (api.ipify.org, checkip.amazonaws.com, ipv4.icanhazip.com); one answering is enough, and none answering fails closed (worker-copy stays on standby with `ALERT egress_identity_lease_refused`, reason "own public IP unknown").
+
+- Runbook: if every echo is down while deploying worker-copy under `enforce` (its log shows `egress_identity_unknown` for all three and the lease is refused), set `HL_EGRESS_IDENTITY=observe` on worker-copy. That removes the lease gate at once (the redeploy takes the lease as usual); the api's `egress_identity_shared` alert still compares the sets. Set `enforce` again once the echoes answer.
+
 ## Variables
 
 Secrets are set in Railway per service and per environment; nothing here belongs in git. "ref" means a Railway reference variable.

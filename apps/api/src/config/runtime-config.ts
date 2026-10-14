@@ -529,6 +529,12 @@ export function validateEnvironment(source: Environment = process.env) {
     egressIdentity: egressIdentityConfig(source, isWorker) };
 }
 
+/** The default IP echoes, in order: three independent providers, each an
+ * IPv4-only https host answering the address as plain text (ipify;
+ * Amazon; Cloudflare's icanhazip, its ipv4 host so a dual-stack egress
+ * never answers IPv6). */
+export const DEFAULT_EGRESS_ECHO_URLS: readonly string[] = ["https://api.ipify.org", "https://checkip.amazonaws.com", "https://ipv4.icanhazip.com"];
+
 /**
  * The egress identity guard (runtime/egress-identity.ts; design §8 I-15).
  * - HL_EGRESS_IDENTITY: `off` (default) learns nothing; `observe` learns
@@ -539,9 +545,10 @@ export function validateEnvironment(source: Environment = process.env) {
  *   lease while its IP is unknown, outside HL_EGRESS_EXPECTED_IPS, or one
  *   the api or the read worker reports (HL_EGRESS_PEERS).
  * - HL_EGRESS_ECHO_URLS: the echoes tried in order (an https URL answering
- *   the caller's IPv4 as plain text); default api.ipify.org, then
- *   checkip.amazonaws.com. Each call is bounded by HL_EGRESS_ECHO_TIMEOUT_MS
- *   (default 3000).
+ *   the caller's IPv4 as plain text); default DEFAULT_EGRESS_ECHO_URLS, three
+ *   independent providers, so one or two being down never keeps a new copy
+ *   worker on standby under enforce (all three down still fails closed).
+ *   Each call is bounded by HL_EGRESS_ECHO_TIMEOUT_MS (default 3000).
  * - HL_EGRESS_PEERS (copy worker): base URLs of the api and the read
  *   worker, whose GET /health/egress (the worker monitor key) says their IPs.
  *   Required under enforce (at least one): without a peer every lease would
@@ -564,7 +571,7 @@ function egressIdentityConfig(source: Environment, isWorker: boolean) {
     mode,
     intervalMs: integerValue("HL_EGRESS_IDENTITY_INTERVAL_MINUTES", source.HL_EGRESS_IDENTITY_INTERVAL_MINUTES, 5, 1, 1440) * 60_000,
     timeoutMs: integerValue("HL_EGRESS_ECHO_TIMEOUT_MS", source.HL_EGRESS_ECHO_TIMEOUT_MS, 3000, 500, 10_000),
-    echoUrls: echoUrls.length ? echoUrls.map((url) => urlValue("HL_EGRESS_ECHO_URLS", url, "", ["https:"])) : ["https://api.ipify.org", "https://checkip.amazonaws.com"],
+    echoUrls: echoUrls.length ? echoUrls.map((url) => urlValue("HL_EGRESS_ECHO_URLS", url, "", ["https:"])) : [...DEFAULT_EGRESS_ECHO_URLS],
     peers: peers.map((url) => urlValue("HL_EGRESS_PEERS", url, "", ["http:", "https:"])),
     expectedIps,
   };

@@ -619,3 +619,18 @@ These rows reflect the plan in §6.2.
 - apps/api/src/hyperliquid/hyperliquid-global-quota.ts (D1–D7 `:44-349`; the planner reduced to a plain window `:420-677`)
 - apps/api/src/copy/copy-live-setup-steps.ts and apps/api/src/copy/live/live-execution-runtime.ts (`withCapacity` `:157-218`; `claimLive`/prepay `:133-142,204-263`)
 - apps/api/src/copy/live/error-class.ts (`BUDGET_CODES` `:54-67`, `classify` `:166-187`, `decideRetry` `:264-281`) with apps/api/src/hyperliquid/hyperliquid-budget-wait.ts and apps/api/src/hyperliquid/wallet-network-hyperliquid.ts
+
+---
+
+## 10. Review revisions (2026-10-15). These override §1–§9 where they differ.
+
+1. **Deploy overlap for processes without lease 1.** During a Railway deploy the old and new api run side by side for about a minute: two processes on one key, each with its own memory scheduler, invisible to each other. worker-read has lease 2; the api has no lease. For the first 65 s after start, a process without lease 1 merges the same key's send log into its window once a second (one indexed query). If the log can't be read in that window, it runs at a 0.5 cap instead. This replaces the one-time seed for those processes.
+2. **The abort saga shares the setup FIFO.** The setup-abort saga runs in the `setup` class, in the same FIFO ordered by `since`. That way a new setup can never starve the return of an owner's money (it uses the setup lane today). The rest of §2 is unchanged.
+3. **Send log retention is 24 h**, not 10 min (§9.2 #8). That is about 100k rows a day.
+4. **Simulator.** CI runs 1,000 seeds. The 10,000 seeds × 600 s run is a manually triggered job, run once for the §7.5 item 1 acceptance.
+5. **The §6.2 `rg` acceptance list also covers** `SETUP_LOCAL_BUDGET|SETUP_REST_CAPACITY|setupHoldKey|claimSetupRest|releaseSetupRest|claimLiveRest|standbyLiveRest|setupDemandTicket|liveDemandTicket|liveStandbyTicket`. After J-6, the `HYPERLIQUID_*` constants, `LIVE_STANDBY_RENEW_MS` and the rest live in `config/constants/`. C10 and C11 delete them there too and update the `tuning-constants.spec` allow-list in the same commit.
+6. **Heartbeat fields.** A web commit between C5 and C10 makes the web read `egress` whenever it is present. Only after that does C10 remove the old heartbeat lane fields. Add this to §8's order.
+7. **Risk #1.** The api alert for "two holders of one key in the send log within 2 min" ships in **C4**, not C13.
+8. **Risk #6.** While a setup waits inside the scheduler, the driver's wait is capped at **5 s** instead of `reserveWaitMs` 15 s; it comes back with its ghost. The engine pass is blocked for exactly that long, and that time is order latency. "Setup leaves the engine pass" is the first item after Phase 2.
+9. **C3 asserts zero quota SQL inside an original session** (bindOriginal). It is the design's largest latency gain.
+10. **Risk #11** (the feed's standing subscriptions) is testnet-only. Measure it once on mainnet.

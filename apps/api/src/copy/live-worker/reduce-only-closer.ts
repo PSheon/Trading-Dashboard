@@ -26,8 +26,7 @@ import { address, LiveBoundaryError, WalletAuthorizationService } from '../live/
 import { liveReadCache } from '../live/live-read-cache.js';
 import { LIVE_EVIDENCE_MAX_AGE_MS, SNAPSHOT_MAX_AGE_MS } from '../../config/constants/timings.js';
 
-/** A close must reduce the observed position: opposite side, no larger
- * than it (never open, enlarge or flip). */
+/** A close must reduce the observed position: opposite side, no larger (never open, enlarge or flip). */
 export function assertCloseWithinPosition(intent: Pick<LiveOrderIntent, 'side' | 'size'>, position: { size: string } | undefined): void {
   const size = Dec.from(position?.size ?? '0');
   if (size.isZero || (size.isPositive ? intent.side !== 'A' : intent.side !== 'B') || Dec.from(intent.size).gt(size.abs()))
@@ -42,41 +41,33 @@ export interface CloseAccount {
 export interface CloseRequest {
   readonly account: CloseAccount;
   readonly coin: string;
-  /** Stable identity of this close attempt (e.g. `stop:<id>:<coin>:<n>`); its
-   * hash is the order's cloid, so a retry never makes a second order. */
+  /** Stable attempt identity (e.g. `stop:<id>:<coin>:<n>`) hashed into the cloid: a retry never makes a second order. */
   readonly seed: string;
-  /** Rechecked at both boundaries: the stop/close request is still current. */
+  /** Rechecked at both boundaries: the request is still current. */
   readonly stillWanted: () => Promise<boolean>;
-  /** The attempt's number (0 first): each retry's limit price is wider (closeSlippageBps). */
+  /** 0-based attempt; each retry's limit is wider (closeSlippageBps). */
   readonly attempt?: number;
 }
 /** A close journaled but never sent (see ReduceOnlyCloser.neverSent). */
 export const CLOSE_NEVER_SENT = 'close_never_sent';
 export const closeCloid = (seed: string): `0x${string}` => `0x${createHash('sha256').update(JSON.stringify(['live-close-v1', seed])).digest('hex').slice(0, 32)}`;
-/** The widest a retried close's limit may stray from the mid (5 %), unless
- * the configured close slippage is already wider. */
+/** Widest retried close limit from the mid (5 %), unless the configured slippage is wider. */
 const MAX_CLOSE_SLIPPAGE_BPS = 500;
-/** A close's slippage for attempt n: the configured one, half of it wider at
- * each retry (an IOC that found no liquidity at its price), up to the bound. */
+/** Attempt n's slippage: base × (1 + n/2), capped at MAX_CLOSE_SLIPPAGE_BPS. */
 export function closeSlippageBps(baseBps: number, attempt = 0): number {
   const n = Number.isSafeInteger(attempt) && attempt > 0 ? attempt : 0;
   return Math.max(baseBps, Math.min(MAX_CLOSE_SLIPPAGE_BPS, Math.round(baseBps * (1 + n / 2))));
 }
-/** How long attempt n of a close waits after the previous one ended: none
- * for the first retry, then 5 s doubling to 5 min (a stop never runs out of
- * retries; it backs off). */
+/** Back-off before attempt n: none for the first retry, then 5 s doubling to 5 min. */
 export function closeRetryDelayMs(attempt: number): number {
   return attempt <= 1 ? 0 : Math.min(300_000, 5000 * 2 ** Math.min(attempt - 2, 10));
 }
 
 /**
- * Reduce-only IOC closes on a dedicated copy account of the deployment's
- * network (`network`), for a stop and a
- * single-position close. Signed by the owner-approved agent (grant scope
- * copy:reduce) through Codex's executor, journal, Privy signer and exchange
- * transport. The gate admits only a reduce-only IOC no larger than the
- * position a fresh account observation shows, while the request is wanted.
- * It can never open, enlarge or flip a position, and never transfers funds.
+ * Reduce-only IOC closes on a copy account (stops and single-position closes),
+ * signed by the owner-approved agent (scope copy:reduce). The gate admits only a
+ * reduce-only IOC within a fresh observed position while the request is wanted:
+ * it can never open, enlarge or flip a position, nor transfer funds.
  */
 export class ReduceOnlyCloser {
   private snapshot: { at: number; value: LiveAccountSnapshot } | null = null;
@@ -85,8 +76,7 @@ export class ReduceOnlyCloser {
     private readonly now = Date.now) {}
   private acquire = (weight: number) => reserveLive(this.budget, weight, { maxWaitMs: 5000 });
 
-  /** Reserve before evidence clocks start. Credits belong to this operation;
-   * only unsent local weights are refunded, never durable egress charges. */
+  /** Reserve before evidence clocks start; only unspent local credit is refunded. */
   private async prepaid<T>(weight: number, work: (acquire: (weight: number) => Promise<void>) => Promise<T>): Promise<T> {
     await reserveLive(this.budget, weight, { maxWaitMs: Math.min(180_000, this.budget.refillMs()) });
     let credit = weight;
@@ -150,9 +140,7 @@ export class ReduceOnlyCloser {
     return this.executor(account, async () => false).executor.reconcile(key);
   }
 
-  /** Drives a close order of this account that its own closer no longer
-   * will (a single-position close a stop took over): a prepared one ends
-   * unsent, one in flight is reconciled from the exchange (read only). */
+  /** Finishes a close a stop took over: prepared ends unsent, in flight is reconciled (read only). */
   async settle(account: CloseAccount, key: string): Promise<LiveExecutionRecord | null> {
     const { executor, journal } = this.executor(account, async () => false, 'stop');
     const record = await journal.get(key);
@@ -160,31 +148,24 @@ export class ReduceOnlyCloser {
     return record && ['submitting', 'unknown', 'resting'].includes(record.state) ? executor.reconcile(key) : record;
   }
 
-  /** Places (or reconciles) the one reduce-only IOC for `request.coin`.
-   * Null when the account holds no position in it. */
+  /** Places (or reconciles) the reduce-only IOC for `request.coin`; null when there is no position. */
   async close(request: CloseRequest): Promise<LiveExecutionRecord | null> {
     const { account } = request, cloid = closeCloid(request.seed), key = `${this.network}:${address(account.accountAddress)}:${cloid}`;
-    // A stop's close (seed stop:…) may use a grant whose revocation was
-    // requested; a single-position close may not.
+    // Only a stop's close may use a grant whose revocation was requested.
     const purpose = request.seed.startsWith('stop:') ? 'stop' : undefined;
     const { executor, journal } = this.executor(account, request.stillWanted, purpose);
     const existing = await journal.get(key);
     if (existing) {
-      // Left prepared by a failed pass (Privy 5xx or timeout, a stale wallet
-      // identity, a budget wait, close_exceeds_position while signing):
-      // never sent, so it ends here and the caller's next attempt is a
-      // fresh close. Returned unchanged it would wedge the stop for ever.
+      // Left prepared by a failed pass: never sent, so end it here (else it
+      // wedges the stop); the next attempt is a fresh close.
       if (existing.state === 'prepared') return this.neverSent(journal, key);
       return ['submitting', 'unknown', 'resting'].includes(existing.state) ? executor.reconcile(key) : existing;
     }
-    // One account observation, four market identity reads (40 each for a
-    // named venue), four agent approval reads, mids and one exchange POST.
-    // This upper bound grants no authority; every existing boundary still
-    // reads and validates its own fresh evidence after the wait.
+    // Upper bound: observation, 4 market reads (40 for a named venue), 4 approval
+    // reads, mids, one POST. Grants no authority; boundaries still validate.
     return this.prepaid(observerRestWeight(account.accountAddress, liveReadCache(this.network)) + 4 * 40 + 4 * 20 + 3, async acquire => {
       const { executor, resolver } = this.executor(account, request.stillWanted, purpose, acquire);
-      // Reuse the caller's observation only while it remains fresh after
-      // the quota wait; otherwise collect a complete new observation.
+      // Reuse the caller's observation only if still fresh after the quota wait.
       const held = this.snapshot && this.now() - this.snapshot.at <= SNAPSHOT_MAX_AGE_MS && this.snapshot.value.accountAddress === address(account.accountAddress) ? this.snapshot.value : null;
       const snapshot = held ?? await this.readObservation(account.accountAddress, acquire);
       const position = snapshot.positions.find(p => p.coin === request.coin);
@@ -200,8 +181,7 @@ export class ReduceOnlyCloser {
         limitPrice: limit.toString(), sizeDecimals: market.sizeDecimals, timeInForce: 'Ioc', reduceOnly: true, market };
       try { return await executor.execute(intent); }
       catch (error) {
-        // A failure that left the order prepared ends it now (best effort; the
-        // next pass does it otherwise), so the error is what the stop shows.
+        // End a still-prepared order now (best effort), so the stop shows this error.
         await this.neverSent(journal, key).catch(() => undefined);
         throw error;
       }
@@ -209,12 +189,9 @@ export class ReduceOnlyCloser {
   }
 
   /**
-   * A close still `prepared` was provably never sent: the executor records
-   * `submitting` before its POST, and under the order lock nobody is signing
-   * it (a pass holds that lock from preparing to the answer). It becomes a
-   * terminal rejection (CLOSE_NEVER_SENT), so the next attempt, with its
-   * own cloid, is built from a fresh observation and price. Any other state
-   * is returned as it is.
+   * Under the order lock a `prepared` close was provably never sent (`submitting`
+   * is recorded before the POST): it becomes a terminal CLOSE_NEVER_SENT
+   * rejection. Any other state is returned unchanged.
    */
   private async neverSent(journal: PostgresLiveExecutionJournal, key: string): Promise<LiveExecutionRecord | null> {
     return journal.withOrderLock(key, async lease => {

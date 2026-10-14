@@ -69,8 +69,7 @@ export class CopyLiveApiSettlementRepository {
       const [current] = await tx.select().from(copyLiveDispatches).where(eq(copyLiveDispatches.id, read.id)).for('update');
       if (!current || current.state !== 'submitted' || current.executionKey !== read.executionKey || current.attempts !== read.attempts || current.reason !== read.reason) return;
       const patch = outcome.kind === 'released' ? { state: 'settled' as const, settledAt: new Date(), reason: null }
-        // Released as never sent: left submitted for the worker, which plans
-        // the leg's next attempt or refuses it (CopyLiveEngine.afterUnsent).
+        // Left submitted for the worker's next attempt or refusal (CopyLiveEngine.afterUnsent).
         : outcome.kind === 'unplaced' && outcome.unsent ? { reason: UNSENT_RELEASED }
         : outcome.kind === 'unplaced' ? { state: 'refused' as const, reason: 'exchange_order_never_placed' }
         : outcome.kind === 'quarantine' || outcome.kind === 'unsent' ? { state: 'refused' as const, reason: outcome.reason.slice(0, 80) }

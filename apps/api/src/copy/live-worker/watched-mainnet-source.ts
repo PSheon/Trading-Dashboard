@@ -14,15 +14,11 @@ const MILLISECOND_ROWS = 2000;
 const ZERO_HASH = /^0x0{64}$/;
 
 /**
- * Mainnet leader fills for testnet copies, without another Hyperliquid read:
- * the market watcher already confirms every watched leader's fills over REST
- * (`fills`, raw payloads) and records the span it proved complete
- * (`fill_coverage.verified_from … verified_through`). A window is reported
- * complete only inside that proven span, so an unconfirmed fill is never
- * treated as absent; the stream simply waits for the watcher.
+ * Mainnet leader fills from the watcher's REST-confirmed `fills` table, with no
+ * extra Hyperliquid read. A window is complete only inside the watcher's proven
+ * span (`fill_coverage.verified_*`), so an unconfirmed fill is never treated as absent.
  *
- * TWAP slices that carry no TWAP id (zero hash) are left out: without the
- * id they cannot be told apart, so they are not copied.
+ * Zero-hash fills without a TWAP id are skipped (indistinguishable, not copied).
  */
 export class WatchedMainnetSource {
   constructor(private readonly db: DbExecutor, private readonly now = Date.now, private readonly log?: (message: string) => void) {}
@@ -45,9 +41,8 @@ export class WatchedMainnetSource {
         through = at - 1;
         rows = rows.filter(row => row.ts.getTime() <= through);
       } else {
-        // A full window all in its first millisecond: stopping before it
-        // would end every later read before `from` too, forever. That
-        // millisecond is read whole instead, as a window of its own.
+        // A full window all at `from`: read that millisecond whole as its own
+        // window, or the stream could never pass it.
         through = from;
         rows = await span(from, MILLISECOND_ROWS);
         if (rows.length >= MILLISECOND_ROWS) return this.unreadable(leaderAddress, from, observedAt, rows);
@@ -70,9 +65,7 @@ export class WatchedMainnetSource {
     return { ...result, sourceDigest: liveSourceDigest(result) };
   }
 
-  /** The millisecond at `from` holds more rows than one window may: an
-   * incomplete read (it certifies nothing) that puts the stream into gap,
-   * so the stall is seen. */
+  /** `from`'s millisecond exceeds one window: an incomplete read that puts the stream in gap. */
   private unreadable(leaderAddress: string, from: number, observedAt: number, rows: { raw: unknown }[]): LiveSourceReadResult {
     this.log?.(`ALERT watched source: ${leaderAddress} has ${rows.length}+ fills at ${new Date(from).toISOString()}, more than one window holds; ` +
       'that millisecond cannot be certified, stream set to gap (incomplete_coverage)');

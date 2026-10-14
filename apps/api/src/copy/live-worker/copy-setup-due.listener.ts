@@ -12,16 +12,11 @@ import { CopyLiveSetupService } from '../copy-live-setup.service.js';
 const SETUP_ID = /^[A-Za-z0-9-]{1,64}$/;
 
 /**
- * The copy worker's ear for API_SETUP_DRIVE=worker (design §2.3): the api
- * records a confirm or an advance, marks the setup due and sends
- * `NOTIFY copy_setup_due, <id>`; this drives that setup at once
- * (CopyLiveSetupService.driveDue). The same LISTEN pattern as
- * runtime/action-relay.ts: a dedicated connection, reconnected with backoff.
- * A notification is a hint only: the row is due in the database, so a
- * wake-up lost while disconnected is picked up by the engine's setup pass.
- * One drive per setup at a time here; the setup's lease fences the pass.
- * Only with live copy (COPY_TRADING_MODE testnet or live), and not under
- * NODE_ENV=test, where tests call start().
+ * API_SETUP_DRIVE=worker: on `NOTIFY copy_setup_due, <id>` drive that setup at
+ * once (CopyLiveSetupService.driveDue). LISTEN on a dedicated connection with
+ * backoff (as runtime/action-relay.ts). A hint only: a lost wake-up is picked
+ * up by the engine's setup pass; the setup's lease fences concurrent drives.
+ * Live copy only; not under NODE_ENV=test.
  */
 @Injectable()
 export class CopySetupDueListener implements OnApplicationBootstrap, OnModuleDestroy {

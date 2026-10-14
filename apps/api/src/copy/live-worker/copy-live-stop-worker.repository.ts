@@ -23,9 +23,8 @@ import { jsonDigest as digest } from '../../common/crypto/digest.js';
 export type StopRow = typeof copyLiveStopOperations.$inferSelect;
 type StopState = StopRow['state'];
 
-/** SQL for the stop executor; every state change is a compare-and-set on the
- * stop's revision, so a stale pass changes nothing. Only the deployment's
- * network: another network's stops, closes and grants are never worked here. */
+/** SQL for the stop executor: every state change CASes the stop's revision;
+ * only the deployment's network is worked. */
 @Injectable()
 export class CopyLiveStopWorkerRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb, private readonly uow: UnitOfWork, private readonly config: AppConfig) {}
@@ -67,16 +66,10 @@ export class CopyLiveStopWorkerRepository {
     const [row] = await this.db.select().from(copyLiveManualCloses).where(eq(copyLiveManualCloses.id, id));
     return row ?? null;
   }
-  /** For a close requested after the leader went flat (`reconcile:<leg>`):
-   * whether the copy already journaled or sent an open of that coin for a
-   * later leader fill (exchange time, then tid) that is still in flight or
-   * filled (its journal prepared, submitting, unknown, resting, filled or
-   * partial): only such an open can be in what the follower holds. A refused
-   * one, or one that ended without a fill (unattempted_expired, never placed,
-   * unheld rejected, cancelled unfilled), does not count, even with an
-   * execution key. One not journaled yet does not count either, whichever
-   * side it opens: it waits for this close (closeRequested), so the old
-   * side's remainder is closed first and the open then sizes from flat. */
+  /** For a leader-flat close (`reconcile:<leg>`): whether a later leader fill's
+   * open of the coin has a journal in flight or filled, i.e. may be in the
+   * follower's position. Refused, unfilled or unjournaled opens don't count
+   * (an unjournaled one waits for this close via closeRequested). */
   async leaderReopened(idempotencyKey: string): Promise<boolean> {
     if (!idempotencyKey.startsWith('reconcile:')) return false;
     const found = await this.db.execute<{ reopened: boolean }>(sql`select exists (
@@ -94,8 +87,7 @@ export class CopyLiveStopWorkerRepository {
     const [row] = await this.db.select({ status: copyStrategies.status }).from(copyStrategies).where(eq(copyStrategies.id, id));
     return row?.status ?? null;
   }
-  /** Records the next attempt's order key before the order exists, so the
-   * position projection always knows the close's orders. */
+  /** Records the next attempt's key before the order exists, so the position projection knows it. */
   async appendManualKey(id: string, expected: number, key: string): Promise<boolean> {
     const rows = await this.db.update(copyLiveManualCloses).set({ executionKeys: sql`${copyLiveManualCloses.executionKeys} || ${JSON.stringify([key])}::jsonb`, updatedAt: new Date() })
       .where(and(eq(copyLiveManualCloses.id, id), eq(copyLiveManualCloses.state, 'requested'), sql`jsonb_array_length(${copyLiveManualCloses.executionKeys}) = ${expected}`)).returning({ id: copyLiveManualCloses.id });
@@ -116,7 +108,7 @@ export class CopyLiveStopWorkerRepository {
     const [row] = await this.db.select({ state: copyLiveExecutions.state }).from(copyLiveExecutions).where(eq(copyLiveExecutions.key, key));
     return row?.state ?? null;
   }
-  /** The state and last change of each of `keys` that exists (one query). */
+  /** State and updatedAt of each existing key (one query). */
   async journalStates(keys: string[]): Promise<Map<string, { state: string; updatedAt: number }>> {
     if (!keys.length) return new Map();
     const rows = await this.db.select({ key: copyLiveExecutions.key, state: copyLiveExecutions.state, updatedAt: copyLiveExecutions.updatedAt }).from(copyLiveExecutions)
@@ -133,8 +125,7 @@ export class CopyLiveStopWorkerRepository {
     await this.db.update(copyLiveStopOperations).set({ issue, updatedAt: new Date(Math.max(Date.now(), stop.updatedAt.getTime())) })
       .where(and(eq(copyLiveStopOperations.id, stop.id), eq(copyLiveStopOperations.revision, stop.revision)));
   }
-  /** Flat and swept: the stop, every stopping generation and the strategy end;
-   * the leader is unwatched when nobody else follows it. */
+  /** Flat and swept: end the stop, its stopping generations and the strategy; unwatch an unused leader. */
   async finish(stop: StopRow, now: number): Promise<boolean> {
     return this.uow.run(async tx => {
       await tx.execute(sql`select pg_advisory_xact_lock_shared(7403, 0)`);
@@ -149,8 +140,7 @@ export class CopyLiveStopWorkerRepository {
       const [strategy] = await tx.update(copyStrategies).set({ status: 'stopped', stoppedAt: at, pauseNewRisk: true })
         .where(and(eq(copyStrategies.id, stop.strategyId), eq(copyStrategies.mode, ACTUAL_STRATEGY_MODE))).returning();
       if (strategy) await unwatchLeaderIfUnused(tx, strategy.leaderAddress);
-      // A grant an admin revoked while this copy was still trading is revoked
-      // now that the copy is flat and ended (it was kept for this stop only).
+      // A grant whose admin revoke waited for this stop is revoked now.
       const pending = await tx.select({ id: copyWalletAuthorizations.id, version: copyWalletAuthorizations.version }).from(copyWalletAuthorizations)
         .where(and(sql`${copyWalletAuthorizations.revokeRequestedAt} is not null`, sql`${copyWalletAuthorizations.revokedAt} is null`,
           inArray(copyWalletAuthorizations.id, tx.select({ id: copyLiveMandates.authorizationId }).from(copyLiveMandates).where(eq(copyLiveMandates.accountId, stop.accountId)))))
@@ -164,13 +154,9 @@ export class CopyLiveStopWorkerRepository {
   }
 
   /**
-   * Revokes every grant whose admin-requested revocation is still pending
-   * when its stop can no longer end it: the account's stop is blocked or no
-   * longer open, or the deadline passed once the stop is flat. A stop still
-   * closing keeps the grant past the deadline (reduce-only, for that stop
-   * alone): revoking it then would drop the positions it is closing.
-   * Audited as copy.grant.revoke by the system, with the reason and whether
-   * positions may remain.
+   * Forces pending admin revokes when the stop can't end them: stop blocked or
+   * not open, or flat past the deadline. A still-closing stop keeps the grant
+   * (revoking would strand its positions). Audited as copy.grant.revoke.
    */
   async expirePendingRevokes(now: number, deadlineMs: number): Promise<Array<{ id: string; reason: string }>> {
     return this.uow.run(async tx => {
@@ -203,12 +189,8 @@ export class CopyLiveStopWorkerRepository {
     const [row] = await this.db.select().from(copyLiveStopConsents).where(eq(copyLiveStopConsents.stopId, stopId));
     return row ?? null;
   }
-  /**
-   * The setup consent of the generation that placed this order (plan §2
-   * "Stop cancellation"): the order is a copy leg of a setup-consented
-   * generation of this account, and its cloid derives from that generation.
-   * Cancelling can't move funds, so that consent covers it with no per-stop one.
-   */
+  /** The setup consent of the generation that placed this order (its cloid
+   * derives from it). Cancelling can't move funds, so it needs no per-stop consent. */
   async setupConsent(stop: StopRow, executionKey: string) {
     const [row] = await this.db.select({ dispatch: copyLiveDispatches, mandate: copyLiveMandates }).from(copyLiveDispatches)
       .innerJoin(copyLiveMandates, eq(copyLiveMandates.id, copyLiveDispatches.mandateId))

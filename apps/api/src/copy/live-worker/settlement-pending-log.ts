@@ -1,13 +1,8 @@
 import { SETTLEMENT_PENDING_LOG_INTERVAL_MS } from '../../config/constants/timings.js';
 import type { LiveSettleOutcome } from './copy-live-settler.js';
 
-/**
- * A settlement attempt that came back `pending` (rather than throwing) says
- * why it could not settle yet; this logs that reason, at most once per order
- * per SETTLEMENT_PENDING_LOG_INTERVAL_MS:
- * `settlement <key> pending: <reason> {detail}` (detail: any other fields
- * of the outcome). Other outcomes log nothing.
- */
+/** Logs a `pending` settlement's reason (plus any other outcome fields), at most
+ * once per order per SETTLEMENT_PENDING_LOG_INTERVAL_MS. Other outcomes log nothing. */
 export class SettlementPendingLog {
   private readonly last = new Map<string, number>();
   constructor(private readonly log: (message: string) => void, private readonly now: () => number = Date.now) {}

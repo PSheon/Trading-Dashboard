@@ -12,20 +12,15 @@ interface ApiSettlementWork {
   settle(request: LiveSettleRequest): Promise<LiveSettleOutcome>;
   saveSettlement(key: string): Promise<boolean>;
 }
-/** Whether the deployment has a terminal settlement loop at all: a testnet
- * copy deployment (testnet live copy on the testnet wallet network). */
+/** A terminal settlement loop exists only on a testnet copy deployment. */
 export function terminalSettlementApplies(config: AppConfig): boolean {
   const c = config.value;
   return c.copy.live?.network === 'testnet' && c.hyperliquid.wallet.network === 'testnet';
 }
 /**
- * Whether this process runs the terminal settlement loop: only for a
- * testnet copy deployment, and then on the api unless
- * API_TERMINAL_SETTLEMENT=off, on a worker that runs copy work when
- * WORKER_TERMINAL_SETTLEMENT is on (a `copy` worker's default; `all` keeps
- * today's off). Claims are fenced in the database
- * (CopyLiveSettlementClaims), so the api and the copy worker may both run
- * it during the cutover (design §2.3, Phase 1a-4).
+ * Whether this process runs the loop: the api unless API_TERMINAL_SETTLEMENT=off,
+ * a worker when WORKER_TERMINAL_SETTLEMENT is on. Claims are fenced in the
+ * database (CopyLiveSettlementClaims), so both may run it at once.
  */
 export function terminalSettlementRuns(config: AppConfig): boolean {
   const c = config.value;
@@ -33,9 +28,8 @@ export function terminalSettlementRuns(config: AppConfig): boolean {
   return c.app.isWorker ? c.app.terminalSettlement?.worker === true : c.app.terminalSettlement?.api !== false;
 }
 
-/** The API's only copy background exception: terminal testnet settlement,
- * which the copy worker can run instead (terminalSettlementRuns).
- * No execution/signing/funding/source ingestion capability is injected. */
+/** Terminal testnet settlement loop (api or copy worker: terminalSettlementRuns).
+ * No execution, signing, funding or source-ingestion capability is injected. */
 export class CopyLiveApiSettlementService implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger('CopyLiveApiSettlement');
   private running = false;
@@ -65,8 +59,7 @@ export class CopyLiveApiSettlementService implements OnApplicationBootstrap, OnM
             const loaded = await w.repository.load(key); claim.assertFresh();
             if (!loaded) return;
             const outcome = await w.settle(loaded.request); this.pending.note(key, outcome); claim.assertFresh();
-            // Persist reporting before marking dispatch complete: a crash retains
-            // submitted work and the original committed proof's replay path.
+            // Save reporting before finishing the dispatch, so a crash leaves it submitted (replayable).
             if (outcome.kind === 'released' && !await w.saveSettlement(key)) return;
             claim.assertFresh();
             await w.repository.finish(loaded.row, outcome); claim.assertFresh();

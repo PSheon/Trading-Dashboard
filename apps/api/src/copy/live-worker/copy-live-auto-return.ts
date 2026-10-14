@@ -8,24 +8,19 @@ import type { WorkerMasterSigner } from '../live/privy-policy-master-signer.js';
 import type { StopRow } from './copy-live-stop-worker.repository.js';
 import { jsonDigest as digest } from '../../common/crypto/digest.js';
 
-/** What the automatic return did on this pass. `legacy`: the account has no
- * master signer (the owner returns the funds); `waiting`: another wallet
- * operation goes first; `sent`: the exchange accepted the sweep (the funding
- * monitor confirms the credit, then the stop ends); `unknown`: it was sent
- * but its answer was lost, so it is confirmed from the main wallet's ledger
- * and never resent; `failed`: refused by the exchange, or never sent on its
- * last attempt (SYSTEM_SWEEP_ATTEMPTS): the owner's return remains. An
- * attempt never sent (not signed, refused before the POST) with attempts
- * left is `waiting`: the next one is reserved after its back-off. */
+/** `legacy`: no master signer (owner returns funds). `waiting`: nothing to send
+ * yet, another operation first, or an unsent attempt with attempts left.
+ * `sent`: accepted (funding monitor confirms). `unknown`: answer lost; confirmed
+ * from the ledger, never resent. `failed`: refused, or unsent on the last
+ * attempt (SYSTEM_SWEEP_ATTEMPTS); the owner returns funds. */
 type AutoReturnOutcome = 'legacy' | 'waiting' | 'sent' | 'unknown' | 'failed';
 export interface AutoReturn { sweep(stop: StopRow, withdrawable: string): Promise<AutoReturnOutcome> }
 
 /**
- * The automatic return after a flat stop (one-click plan §3c): a UsdSend of
- * everything withdrawable (floored to 6 decimals) from the copy account to
- * the owner's main wallet, signed by the worker quorum under the owner's
- * Privy policy, once per stop (`sweep:<stop id>`), never resent; reserved
- * again (new nonce) only after an attempt that provably never left.
+ * Automatic return after a flat stop: UsdSend of all withdrawable (floored to 6
+ * dp) to the owner's main wallet, signed by the worker quorum under the owner's
+ * Privy policy. Once per stop, never resent; a new nonce only after an attempt
+ * that provably never left.
  */
 export class CopyLiveAutoReturn implements AutoReturn {
   private readonly logger = new Logger('CopyLiveAutoReturn');
@@ -37,11 +32,9 @@ export class CopyLiveAutoReturn implements AutoReturn {
     const { owner, account } = await this.returns.contextRead(stop.userId, stop.accountId, true);
     // A signer taken off again (account deletion) returns by hand, like a legacy account.
     if (!account.masterPolicyId || !account.masterSignerQuorumId || account.signerDetachedAt || !account.sweepDestination) return 'legacy';
-    // An account of another network (a database that moved networks) is
-    // history: nothing on it is signed or sent from this deployment.
+    // Another network's account is history: nothing is signed or sent.
     if (account.network !== this.network) return 'failed';
-    // The policy allows only the main wallet it was made for: a changed main
-    // wallet fails closed, and the owner returns the funds by hand.
+    // The policy allows only its original main wallet: a changed one fails closed.
     if (!this.signer.available || account.sweepDestination !== owner.embeddedWalletAddress) return 'failed';
     const free = Dec.from(withdrawable).floor(6);
     if (!free.isPositive) return 'waiting';
@@ -63,9 +56,8 @@ export class CopyLiveAutoReturn implements AutoReturn {
       this.logger.warn(`sweep ${row.id} not signed: ${safeErrorText(error)}`);
       return sweepRetrying(await this.returns.finish(stop.userId, row.id, 'rejected', sweepNotSentEvidence('worker_signature_unavailable', row.id))) ? 'waiting' : 'failed';
     }
-    // Dispatched only once every check passed (this proof, then the quota
-    // permit rechecked after it), right before the POST: from then on the
-    // sweep may have reached the exchange. A refusal before it was not sent.
+    // `dispatched` flips right before the POST: from then on the sweep may have
+    // reached the exchange; a refusal before it was not sent.
     let dispatched = false;
     const fresh = () => { const at = this.now(); if (!Number.isSafeInteger(at) || at - checkedAt > 30_000) throw new Error('stale'); };
     let reply: unknown;

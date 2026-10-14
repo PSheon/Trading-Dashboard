@@ -5,7 +5,7 @@ import { settlementFencedPool } from './copy-live-settlement-fenced-pool.js';
 import { Pool } from 'pg';
 import { WALLET_NETWORKS, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { drizzle } from 'drizzle-orm/node-postgres';
-import { copyLiveExecutions, copyLiveRiskReservations, copyLiveExecutionEvidence, copyFollowerReceipts } from '@trading-dashboard/shared/database';
+import { copyLiveExecutions, copyLiveRiskReservations, copyLiveExecutionEvidence, copyFollowerReceipts, copyFollowerScans } from '@trading-dashboard/shared/database';
 import { HyperliquidGlobalTransport } from '../../hyperliquid/hyperliquid-global-transport.js';
 import { RequestBudgeterService } from '../../hyperliquid/request-budgeter.service.js';
 import { reserveLive } from '../../hyperliquid/hyperliquid-budget-wait.js';
@@ -22,7 +22,7 @@ import { LiveBoundaryError } from '../live/wallet-authorization.js';
 import { LiveSharedReads } from '../live/live-shared-reads.js';
 import type { LiveSourceNetwork } from '../live/copy-live-source-evidence.js';
 import { liveReadCache } from '../live/live-read-cache.js';
-import { LIVE_EVIDENCE_MAX_AGE_MS, NEVER_PLACED_GRACE_MS } from '../../config/constants/timings.js';
+import { LIVE_EVIDENCE_MAX_AGE_MS, LIVE_FILL_SCAN_MARGIN_MS, NEVER_PLACED_GRACE_MS, PROVIDER_CLOCK_SKEW_MS } from '../../config/constants/timings.js';
 import { REST_CHARGE_LIFETIME_MS } from '../../config/constants/hyperliquid.js';
 import { sharedRestRetryAfterMs } from '../../hyperliquid/hyperliquid-capacity-error.js';
 import { RESPONSE_WEIGHT } from '../live/follower-receipt-reader.js';
@@ -111,7 +111,11 @@ export class CopyLiveSettler {
         });
       }
     }
-    const scan = !!record.outcome?.filledSize && record.outcome.filledSize !== '0';
+    // A retry never repeats a scan whose work is already durable: once the
+    // account's fill-scan cursor is past this order (scanCovered), every fill
+    // of it is booked, and the settlement DAL reads those receipts and that
+    // cursor itself, in its own session, exactly as after a fresh scan.
+    const scan = !!record.outcome?.filledSize && record.outcome.filledSize !== '0' && !await this.scanCovered(request.accountId, record, claim);
     // Routing/journal data only estimates the cost, never grants settlement
     // authority. Pay for market identity, orderStatus and the complete account
     // observation BEFORE taking the original locks. That scope revalidates the
@@ -183,6 +187,24 @@ export class CopyLiveSettler {
       new Logger('CopyLiveSettler').warn(`settlement live demand not claimed: ${errorCode(error, 'unknown')}`);
       return undefined;
     }
+  }
+
+  /**
+   * Whether the account's fill-scan cursor (copy_follower_scans.through:
+   * advanced only by a scan that booked every fill to it; not while the scan
+   * carries an issue, as the settlement DAL reads it) is already past this
+   * order: its terminal journal write (our clock, after the exchange's
+   * terminal stamp, which may run PROVIDER_CLOCK_SKEW_MS ahead of ours) plus
+   * LIVE_FILL_SCAN_MARGIN_MS, the margin the DAL itself requires past the
+   * cancel. A scan now would book nothing more of this order. Path choice
+   * only: the DAL still proves the receipts' total and the cursor.
+   */
+  private async scanCovered(accountId: string, record: LiveExecutionRecord, claim?: SettlementClaim): Promise<boolean> {
+    const [row] = await drizzle(claim ? settlementFencedPool(this.pool, claim) : this.pool).select({ through: copyFollowerScans.through, issue: copyFollowerScans.issue })
+      .from(copyFollowerScans).where(eq(copyFollowerScans.accountId, accountId));
+    if (claim) await claim.assertHeld();
+    return !!row && row.issue === null && row.through !== null && Number.isSafeInteger(record.updatedAt) &&
+      row.through >= record.updatedAt + PROVIDER_CLOCK_SKEW_MS + LIVE_FILL_SCAN_MARGIN_MS;
   }
 
   private async record(key: string, claim?: SettlementClaim): Promise<LiveExecutionRecord | null> {

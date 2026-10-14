@@ -39,6 +39,7 @@ import { registerLiveDeployment } from '../src/copy/live-deployment.js';
 import { LiveBoundaryError, WalletAuthorizationService } from '../src/copy/live/wallet-authorization.js';
 import { HyperliquidBudgetWait } from '../src/hyperliquid/hyperliquid-budget-wait.js';
 import { CopyLiveSettler } from '../src/copy/live-worker/copy-live-settler.js';
+import { LIVE_FILL_SCAN_MARGIN_MS, PROVIDER_CLOCK_SKEW_MS } from '../src/config/constants/timings.js';
 import { PostgresLiveSettlement } from '../src/copy/live/postgres-live-settlement.js';
 import { PostgresLivePreparation } from '../src/copy/live/postgres-live-preparation.js';
 import { LiveLeverageUpdateRequired } from '../src/copy/live/live-leverage-update.js';
@@ -577,6 +578,24 @@ describe('unregistered concrete testnet execution runtime', () => {
     expect(Number(demand![1])).toBe(claimLive.mock.calls[0]![0]);
     // The scan's charge is the live lane's and carries the demand's token.
     expect(ids.some(id=>id.startsWith(`live:${demand![2]}:`))).toBe(true);
+  });
+  it.each([
+    ['past the order by the margin', 0, false],
+    ['one ms short of it', -1, true],
+    ['past it but carrying an issue', 0, true],
+  ] as const)('a retry repeats the fill scan only when its cursor is not yet past the order (%s)', async (name, offset, scans) => {
+    await actualClockFixture();const record=await runtime(config,{...options,slippageBps:'0'}).execute(request());
+    expect(record.outcome?.filledSize).not.toBe('0');
+    // A scan that booked every fill to its cursor (as CopyFollowerReconciler saves it).
+    await db.insert(schema.copyFollowerScans).values({accountId:'account',through:record.updatedAt+PROVIDER_CLOCK_SKEW_MS+LIVE_FILL_SCAN_MARGIN_MS+offset,
+      issue:name.includes('issue')?'follower_scan_unavailable':null}).onConflictDoUpdate({target:schema.copyFollowerScans.accountId,
+      set:{through:record.updatedAt+PROVIDER_CLOCK_SKEW_MS+LIVE_FILL_SCAN_MARGIN_MS+offset,issue:name.includes('issue')?'follower_scan_unavailable':null}});
+    const scan=vi.fn(async()=>{throw Error('scan reached');});
+    vi.spyOn(budget,'refillMs').mockImplementation(()=>{throw Error('evidence stage reached');});
+    const settler=new CopyLiveSettler('testnet',pool,global,budget,{runFor:scan},()=>clock);
+    await expect(settler.settle({userId:1,accountId:'account',accountAddress:record.authorization.accountAddress,sourceNetwork:'testnet',
+      leaderAddress:seed.consent.leaderAddress,key:record.key})).rejects.toThrow(scans?'scan reached':'evidence stage reached');
+    expect(scan).toHaveBeenCalledTimes(scans?1:0);
   });
   it('reconciles an unknown original key after revocation and strategy stop without another signature or nonce', async () => {
     await actualClockFixture();

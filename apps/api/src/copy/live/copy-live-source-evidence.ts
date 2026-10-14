@@ -8,7 +8,7 @@ import type { copyLiveSourceFills } from '@trading-dashboard/shared/database';
 /** Leader fills come from a fixed public network (the consent's source
  * network), which may differ from the network the copy executes on. */
 export type LiveSourceNetwork = 'testnet' | 'mainnet';
-export interface LiveSourceFillContext {
+interface LiveSourceFillContext {
   network: LiveSourceNetwork; leaderAddress: string; from: number; to: number; receivedAt: number; kind: 'fills' | 'twap';
 }
 export interface NormalizedLiveSourceFill {
@@ -37,7 +37,7 @@ const normalizedSchema = z.object({ version: z.literal(1), kind: z.enum(['fills'
 }).strict();
 /** Which check refused source evidence, with the values it compared:
  * numbers, booleans and short identifiers only, never provider text. */
-export type LiveSourceEvidenceDetail = { check: string } & Record<string, string | number | boolean | null>;
+type LiveSourceEvidenceDetail = { check: string } & Record<string, string | number | boolean | null>;
 const SAFE_TEXT = /^[A-Za-z0-9_.:-]{0,80}$/;
 /** invalid_live_source_evidence, saying which check failed (gate run 9,
  * 2026-10-14: a bare code cost a poll and a trade with nothing to go on). */

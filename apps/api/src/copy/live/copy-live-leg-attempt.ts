@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 import { MAX_LIVE_LEG_ATTEMPTS } from '../../config/constants/limits.js';
 
-
 /** Stable economic identity of one attempt of one leader leg, independent of
  * a worker, quote or retry time. Attempt 0 is the original derivation
  * (unchanged); attempt k > 0 adds k to it. */
@@ -17,9 +16,4 @@ export function liveSourceExecutionAttempt(mandateId: string, sourceFillId: stri
   for (let attempt = 0; attempt < MAX_LIVE_LEG_ATTEMPTS; attempt++)
     if (liveSourceExecutionCloid(mandateId, sourceFillId, leg, attempt) === cloid) return attempt;
   return null;
-}
-
-/** The cloid of an execution key `<network>:<account>:<cloid>`. */
-export function executionKeyCloid(key: string): string {
-  return key.slice(key.lastIndexOf(':') + 1);
 }

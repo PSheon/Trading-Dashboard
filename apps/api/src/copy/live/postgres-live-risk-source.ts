@@ -26,8 +26,8 @@ import {LiveProviderReadEpoch} from './live-provider-read-epoch.js';
 import { beginLiveExecutionTiming, type LiveExecutionTimingHook, type LiveTimingStage } from './live-execution-diagnostics.js';
 import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
 export type CollectedAuthority=LiveRiskAuthority&{generation:LiveGenerationManifestV1;members?:LiveSourceFillEvidence[];settlementProofs?:LiveSettlementProofs};
-export interface BoundPostgresLiveRiskSource { readonly proofSource:LiveAccountRiskProofSource; forHold():Promise<LiveAccountRiskInput>; }
-export interface LiveRiskSourceBinding { readonly accountId:string; readonly key:string; }
+interface BoundPostgresLiveRiskSource { readonly proofSource:LiveAccountRiskProofSource; forHold():Promise<LiveAccountRiskInput>; }
+interface LiveRiskSourceBinding { readonly accountId:string; readonly key:string; }
 const same=(a:unknown,b:unknown)=>isDeepStrictEqual(JSON.parse(JSON.stringify(a)),JSON.parse(JSON.stringify(b)));
 /**
  * The digest of one read of the SQL authority (riskSourceDigest), each

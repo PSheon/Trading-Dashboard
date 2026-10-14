@@ -11,7 +11,7 @@ import {Dec} from '../../common/decimal/dec.js';
 import {followerSign} from '../copy-math.js';
 import {LiveBoundaryError,address} from './wallet-authorization.js';
 export type LiveUnattemptedCarry=LiveGenerationSqlRow<typeof copyLiveReductionCarry.$inferSelect>;
-export interface LiveUnattemptedReleaseInput {
+interface LiveUnattemptedReleaseInput {
  readonly checkedAt:number;
  readonly original:Readonly<LiveGenerationJournalV1 & {identity:LiveGenerationProjectionIdentity;carry:LiveUnattemptedCarry}>;
 }

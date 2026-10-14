@@ -9,7 +9,7 @@ import { freezeLiveReservation } from './live-risk-reservation.js';
 import { address, LiveBoundaryError } from './wallet-authorization.js';
 import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
 
-export interface LiveOrderEvidenceIdentity {
+interface LiveOrderEvidenceIdentity {
   readonly network: HyperliquidNetwork; readonly accountAddress: string; readonly key: string; readonly fingerprint: string; readonly nonce: number;
   readonly userId: number; readonly strategyId: number; readonly walletId: string; readonly authorizationId: string;
   readonly authorizationVersion: number; readonly market: LiveMarketIdentity; readonly action: HyperliquidOrderAction;
@@ -18,7 +18,7 @@ interface EvidenceSource {
   readonly identity: LiveOrderEvidenceIdentity; readonly checkedAt: number; readonly completedAt: number;
   readonly sourceDigest: string; readonly raw: Readonly<Record<string, unknown>>;
 }
-export interface LiveFoundOrderEvidence extends EvidenceSource {
+interface LiveFoundOrderEvidence extends EvidenceSource {
   readonly kind: 'order'; readonly classification: 'open'|'filled'|'cancelled'|'rejected'|'unproven';
   readonly oid: string; readonly cloid: string; readonly coin: string; readonly dex: string; readonly asset: number;
   readonly side: 'B'|'A'; readonly reduceOnly: boolean; readonly tif: 'Ioc'|'Gtc'|'Alo';

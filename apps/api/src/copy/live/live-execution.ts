@@ -21,7 +21,7 @@ export const UNHELD_REJECTED = "live_unheld_rejected";
  * LiveOrderExecutor.unsent() writes it, and a journal accepts it only on the
  * submitting -> rejected transition (assertLiveUnsentTransition). */
 export const LIVE_REQUEST_NEVER_BEGAN = "request_never_began";
-export type LiveExecutionState = "prepared" | "submitting" | "unknown" | "resting" | "filled" | "partial" | "cancelled" | "rejected";
+type LiveExecutionState = "prepared" | "submitting" | "unknown" | "resting" | "filled" | "partial" | "cancelled" | "rejected";
 export interface ExchangeOutcome {
   state: Exclude<LiveExecutionState, "prepared" | "submitting" | "unknown">;
   exchangeOrderId?: string;

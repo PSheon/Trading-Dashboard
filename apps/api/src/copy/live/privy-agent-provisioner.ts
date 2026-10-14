@@ -5,18 +5,18 @@ import { z } from "zod";
 import type { HyperliquidNetwork } from "@trading-dashboard/shared/contracts";
 import { allInOrder } from "./privy-identity-freshness.js";
 
-export interface AgentProviderConfig {
+interface AgentProviderConfig {
   appId?: string; appSecret?: string; workerQuorumId?: string; authorizationPublicKey?: string;
   /** The deployment's network: the phantom agent's `source` ("a" on mainnet,
    * "b" on testnet) and the policy's name. */
   network: HyperliquidNetwork;
 }
-export interface AgentPolicyInput { userId: string; expiresAt: number }
-export interface AgentPolicyCreateInput extends AgentPolicyInput { attemptId: string; requestExpiry: number }
-export interface AgentPolicyVerificationInput extends AgentPolicyInput { policyId: string }
-export interface AgentWalletInput extends AgentPolicyVerificationInput { externalId: string }
-export interface VerifiedAgentPolicy { id: string; ownerQuorumId: string; fingerprint: string }
-export interface ProvisionedUserAgentWallet {
+interface AgentPolicyInput { userId: string; expiresAt: number }
+interface AgentPolicyCreateInput extends AgentPolicyInput { attemptId: string; requestExpiry: number }
+interface AgentPolicyVerificationInput extends AgentPolicyInput { policyId: string }
+interface AgentWalletInput extends AgentPolicyVerificationInput { externalId: string }
+interface VerifiedAgentPolicy { id: string; ownerQuorumId: string; fingerprint: string }
+interface ProvisionedUserAgentWallet {
   id: string; address: string; externalId: string; ownerQuorumId: string; policyId: string; workerQuorumId: string;
 }
 export interface UserAgentProvisioner {

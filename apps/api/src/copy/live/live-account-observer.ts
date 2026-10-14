@@ -15,7 +15,7 @@ import { LiveReadCache } from './live-read-cache.js';
 import { liveSpan } from './live-execution-diagnostics.js';
 import { LIVE_EVIDENCE_MAX_AGE_MS, RESERVE_BOUND_MS } from '../../config/constants/timings.js';
 
-export interface LiveObservedPosition {
+interface LiveObservedPosition {
   readonly coin: string; readonly dex: string; readonly asset: number; readonly sizeDecimals: number;
   readonly size: string; readonly entryPrice: string; readonly positionValue: string;
   readonly unrealizedPnl: string; readonly marginUsed: string; readonly leverage: number;
@@ -28,7 +28,7 @@ export interface LiveObservedRestingOrder {
   readonly originalSize: string; readonly notionalUsd: string; readonly reduceOnly: boolean;
   readonly timestamp: number; readonly cloid: string | null;
 }
-export interface LiveObservedDex {
+interface LiveObservedDex {
   readonly dex: string; readonly perpDexIndex: number; readonly supported: boolean;
   readonly collateralToken: number; readonly collateralCoin: string; readonly providerTime: number;
   readonly equity: string; readonly rawUsd: string; readonly marginUsed: string; readonly withdrawable: string;
@@ -49,7 +49,7 @@ export interface LiveAccountSnapshot {
     readonly listedDexes: readonly string[]; readonly observedOrderDexes: readonly string[];
     readonly unobservedOrderDexes: readonly string[]; readonly earliestProviderTime: number };
 }
-export interface LiveAccountObservationOptions {
+interface LiveAccountObservationOptions {
   supportedDexes?: readonly string[];
   /** The order epoch's shared reads: its caller paid their weight, its clock
    * is this observation's, and it checks the account modes once at the end. */
@@ -121,12 +121,12 @@ const spotSchema = z.object({ portfolioMarginEnabled: z.boolean().optional(), ba
 })).max(10_000) });
 function fail(code: string): never { throw new LiveBoundaryError(code); }
 /** The freshness checks of one observation, by where they run. */
-export type LiveEvidenceCheck = 'start' | 'read' | 'read_done' | 'state_start' | 'state_read' | 'state_observed' | 'state_done' |
+type LiveEvidenceCheck = 'start' | 'read' | 'read_done' | 'state_start' | 'state_read' | 'state_observed' | 'state_done' |
   'orders_read' | 'orders_observed' | 'orders_completed' | 'orders_event_observed' | 'orders_event_received' |
   'provider_state_time' | 'final' | 'final_provider_time';
 /** `live_account_evidence_expired`, naming the check that refused: names and
  * milliseconds only, never an account or a value. */
-export class LiveEvidenceExpiredError extends LiveBoundaryError {
+class LiveEvidenceExpiredError extends LiveBoundaryError {
   constructor(readonly check: LiveEvidenceCheck, readonly reason: 'invalid' | 'ahead_of_clock' | 'older_than_bound',
     readonly ageMs: number | null, readonly maxAgeMs: number) {
     super('live_account_evidence_expired');

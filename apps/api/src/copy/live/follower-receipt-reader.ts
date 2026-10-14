@@ -9,26 +9,26 @@ import { address, LiveBoundaryError } from './wallet-authorization.js';
 import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
 import { GENERAL_TIME_RANGE_CAP } from '../../config/constants/hyperliquid.js';
 
-export type FollowerReceiptKind = 'fills' | 'funding';
+type FollowerReceiptKind = 'fills' | 'funding';
 export interface FollowerReceiptWindow {
   readonly kind: FollowerReceiptKind; readonly from: number; readonly to: number; readonly depth: number;
 }
-export type FollowerWindowReason = 'same_ms_cap' | 'depth_limit' | 'request_budget' | 'receipt_budget' |
+type FollowerWindowReason = 'same_ms_cap' | 'depth_limit' | 'request_budget' | 'receipt_budget' |
   'evidence_expired' | 'read_timeout' | 'read_unavailable';
-export interface UnresolvedFollowerWindow extends FollowerReceiptWindow { readonly reason: FollowerWindowReason; }
+interface UnresolvedFollowerWindow extends FollowerReceiptWindow { readonly reason: FollowerWindowReason; }
 export interface FollowerWindowObservation extends FollowerReceiptWindow {
   readonly observedAt: number; readonly completedAt: number; readonly count: number;
   readonly minReceiptTime: number | null; readonly maxReceiptTime: number | null;
   readonly saturated: boolean; readonly saturationReasons: readonly ('response_cap' | 'general_time_range_cap')[];
   readonly retained: boolean; readonly responseDigest: string;
 }
-export interface FollowerFillEvidence { readonly parsed: Readonly<ParsedFollowerFill>; readonly raw: Readonly<Record<string, unknown>>; }
-export interface FollowerFundingEvidence { readonly parsed: Readonly<ParsedFollowerFunding>; readonly raw: Readonly<Record<string, unknown>>; }
-export interface FollowerReceiptReadInput {
+interface FollowerFillEvidence { readonly parsed: Readonly<ParsedFollowerFill>; readonly raw: Readonly<Record<string, unknown>>; }
+interface FollowerFundingEvidence { readonly parsed: Readonly<ParsedFollowerFunding>; readonly raw: Readonly<Record<string, unknown>>; }
+interface FollowerReceiptReadInput {
   readonly accountAddress: string; readonly from: number; readonly to: number; readonly maxRequests: number;
   readonly maxDepth?: number; readonly maxReceipts?: number; readonly resumeWindows?: readonly FollowerReceiptWindow[];
 }
-export interface FollowerReceiptReadResult {
+interface FollowerReceiptReadResult {
   readonly network: HyperliquidNetwork; readonly accountAddress: string; readonly from: number; readonly to: number;
   readonly observedAt: number; readonly completedAt: number; readonly fresh: boolean;
   readonly requestsUsed: number; readonly requestedWindows: readonly FollowerReceiptWindow[];

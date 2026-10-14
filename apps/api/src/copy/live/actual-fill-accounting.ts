@@ -3,7 +3,7 @@ import { Dec } from '../../common/decimal/dec.js';
 import { address, LiveBoundaryError, type LiveNetwork } from './wallet-authorization.js';
 import { LIVE_PERP_COIN } from './live-market-resolver.js';
 
-export interface FollowerReceiptContext {
+interface FollowerReceiptContext {
   network: LiveNetwork;
   accountAddress: string;
   coin?: string;

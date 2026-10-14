@@ -5,7 +5,7 @@ import { address, LiveBoundaryError } from './wallet-authorization.js';
 import { providerTimeNotAfter } from './clock-skew.js';
 import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
 
-export interface FollowerViewIdentity { accountId: string; strategyId: number; network: HyperliquidNetwork; accountAddress: string }
+interface FollowerViewIdentity { accountId: string; strategyId: number; network: HyperliquidNetwork; accountAddress: string }
 function freeze<T>(value: T): T { if (value && typeof value === 'object') { Object.values(value).forEach(freeze); Object.freeze(value); } return value; }
 function sameSet(a: readonly string[], b: readonly string[]): boolean { return a.length === new Set(a).size && b.length === new Set(b).size && a.length === b.length && a.every(v => b.includes(v)); }
 

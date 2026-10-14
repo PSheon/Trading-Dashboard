@@ -7,7 +7,7 @@ import { LiveBoundaryError, address } from './wallet-authorization.js';
  * network than the copy (today: a mainnet leader of a testnet copy): the coin's
  * mainnet mid (the deviation check) and the leader's whole-account value
  * (ratio sizing's denominator, the same figure paper copies use). */
-export interface LiveSourceReference {
+interface LiveSourceReference {
   readonly midPrice: string;
   readonly midObservedAt: number;
   readonly leaderEquity: string | null;

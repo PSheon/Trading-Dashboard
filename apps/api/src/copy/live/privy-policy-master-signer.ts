@@ -9,7 +9,7 @@ import { LiveBoundaryError } from './wallet-authorization.js';
 const domainFields = [{ name: 'name', type: 'string' }, { name: 'version', type: 'string' }, { name: 'chainId', type: 'uint256' }, { name: 'verifyingContract', type: 'address' }];
 /** A copy account with the automatic return: the worker quorum is its
  * additional signer under the owner's policy. */
-export interface PolicyMasterAccount extends MasterAccount { readonly workerQuorumId: string; readonly policyId: string }
+interface PolicyMasterAccount extends MasterAccount { readonly workerQuorumId: string; readonly policyId: string }
 export interface WorkerMasterSigner {
   readonly available: boolean;
   sign(account: PolicyMasterAccount, data: MasterTypedData, bound: MasterActionBound, deadline: number): Promise<string>;

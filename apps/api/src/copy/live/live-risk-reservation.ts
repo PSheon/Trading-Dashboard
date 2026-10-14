@@ -19,7 +19,7 @@ export interface LiveReservationPayload extends Omit<LiveRiskReservation, 'state
   readonly userId: number; readonly strategyId: number; readonly network: HyperliquidNetwork; readonly accountAddress: string;
   readonly walletId: string; readonly authorizationId: string; readonly createdAt: number; readonly sourceDigest: string;
 }
-export type LiveReservationState = 'held' | 'unknown' | 'resting' | 'released' | 'quarantined';
+type LiveReservationState = 'held' | 'unknown' | 'resting' | 'released' | 'quarantined';
 export interface LiveReservationStored {
   readonly payload: LiveReservationPayload; readonly state: LiveReservationState; readonly revision: number;
   readonly exchangeOrderId: string | null; readonly attemptedAt: number | null;

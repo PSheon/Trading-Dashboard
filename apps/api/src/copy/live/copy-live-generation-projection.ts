@@ -26,7 +26,7 @@ export interface LiveGenerationProjectionIdentity {
   readonly authorizationId: string; readonly settingsDigest: string; readonly leaderAddress: string;
   readonly direction: 'same' | 'reverse';
 }
-export interface LiveGenerationProjection {
+interface LiveGenerationProjection {
   readonly mandateId: string; readonly baselineDigest: string; readonly receiptManifestDigest: string;
   readonly positionsDigest: string; readonly positions: Readonly<Record<string, string>>; readonly checkedAt: number;
 }

@@ -1,6 +1,6 @@
 import { Dec } from '../../common/decimal/dec.js';
 
-export type LiveRiskDecimalFactor = Dec | string | number;
+type LiveRiskDecimalFactor = Dec | string | number;
 function rational(value: LiveRiskDecimalFactor): { units: bigint; scale: bigint } {
   if (!(value instanceof Dec) && typeof value !== 'string' && typeof value !== 'number') throw new RangeError('live_risk_rounding_invalid');
   if (typeof value === 'number' && !Number.isSafeInteger(value)) throw new RangeError('live_risk_rounding_invalid');

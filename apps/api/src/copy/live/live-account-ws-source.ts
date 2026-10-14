@@ -15,7 +15,7 @@ import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
 export interface LiveAllDexsStateEvidence {
   readonly network: HyperliquidNetwork; readonly accountAddress: string; readonly observedAt: number; readonly data: unknown;
 }
-export interface LiveOrderVenueEvidence {
+interface LiveOrderVenueEvidence {
   readonly dex: string; readonly user: string; readonly observedAt: number; readonly receivedAt: number; readonly orders: readonly unknown[];
 }
 export interface LiveAllDexsOrderEvidence {

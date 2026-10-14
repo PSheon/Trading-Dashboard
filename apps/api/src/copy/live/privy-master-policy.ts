@@ -32,7 +32,7 @@ const ZERO = `0x${'00'.repeat(20)}`;
 const DOMAIN = [{ name: 'name', type: 'string' }, { name: 'version', type: 'string' }, { name: 'chainId', type: 'uint256' }, { name: 'verifyingContract', type: 'address' }];
 type Primary = CopyMasterPrimaryType;
 const address = z.string().regex(/^0x[0-9a-f]{40}$/);
-export interface MasterPolicyBinding {
+interface MasterPolicyBinding {
   /** The network the account lives on (the deployment's): the domain's
    * chainId and every rule's `hyperliquidChain`. */
   readonly network: HyperliquidNetwork;
@@ -98,7 +98,7 @@ const quorumSchema = z.object({ id: z.string(), authorization_threshold: z.numbe
 const walletSchema = z.object({ id: z.string(), address: z.string(), owner_id: z.string().nullable(), policy_ids: z.array(z.string()).optional().default([]),
   additional_signers: z.array(z.object({ signer_id: z.string(), override_policy_ids: z.array(z.string()).optional().default([]) })) });
 
-export interface VerifiedMasterPolicy { readonly id: string; readonly ownerQuorumId: string; readonly fingerprint: string }
+interface VerifiedMasterPolicy { readonly id: string; readonly ownerQuorumId: string; readonly fingerprint: string }
 
 export const MASTER_POLICY = Symbol('MASTER_POLICY');
 export interface MasterPolicyPort {

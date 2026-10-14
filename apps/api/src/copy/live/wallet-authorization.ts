@@ -2,8 +2,8 @@ import { isHyperliquidNetwork, type HyperliquidNetwork } from "@trading-dashboar
 import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
 
 export type LiveNetwork = HyperliquidNetwork;
-export type WalletScope = "copy:trade" | "copy:reduce";
-export type EthereumAddress = `0x${string}`;
+type WalletScope = "copy:trade" | "copy:reduce";
+type EthereumAddress = `0x${string}`;
 
 export interface WalletAuthorization {
   id: string;

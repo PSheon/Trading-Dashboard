@@ -25,8 +25,8 @@ export interface LiveBuilderApprovalProof {
   network: LiveNetwork; accountAddress: string; builderAddress: string;
   feeTenthsBps: number; approvedMaxFeeTenthsBps: number; checkedAt: number;
 }
-export interface LiveSigningBoundaryProof { market?: LiveMarketIdentity; builder?: LiveBuilderApprovalProof; }
-export type LiveSigningBoundaryVerifier = (record: LiveExecutionRecord, intent: LiveOrderIntent) => Promise<LiveSigningBoundaryProof>;
+interface LiveSigningBoundaryProof { market?: LiveMarketIdentity; builder?: LiveBuilderApprovalProof; }
+type LiveSigningBoundaryVerifier = (record: LiveExecutionRecord, intent: LiveOrderIntent) => Promise<LiveSigningBoundaryProof>;
 
 /** Pure proof checks after the final lease; no await may follow before sign/POST. */
 export function assertLiveSigningBoundaryProof(proof: LiveSigningBoundaryProof, record: LiveExecutionRecord,

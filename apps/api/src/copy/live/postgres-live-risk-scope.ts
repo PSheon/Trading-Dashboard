@@ -47,13 +47,13 @@ export function assertOriginalLiveRiskSession(session: LiveRiskDatabaseSession):
 function fail(code: string): never { throw new LiveBoundaryError(code); }
 
 /** What a scope is held for, so a refused one can say who held it. */
-export interface LiveRiskHolder { readonly kind: string; readonly id?: string }
+interface LiveRiskHolder { readonly kind: string; readonly id?: string }
 /** live_risk_busy, saying which lock was taken and by whom (gate run 9,
  * 2026-10-14: an order waited 12 s for a lock nobody could name). `holders`
  * are this process's scopes on that lock (kind, id, how long held);
  * `sessions` the other database sessions pg_locks shows holding it
  * (another process, or a transaction-scoped writer such as source ingestion). */
-export interface LiveRiskBusyDetail {
+interface LiveRiskBusyDetail {
   readonly lock: 'policy' | 'platform' | 'user' | 'account' | 'source';
   readonly holders: readonly { kind: string; id: string | null; heldMs: number }[];
   /** `heldMs`: the session's open transaction's age (else since its last

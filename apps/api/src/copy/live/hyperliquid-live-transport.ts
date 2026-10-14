@@ -16,7 +16,7 @@ import { observeLiveExecutionFailure, type LiveExecutionDiagnosticHook, type Liv
 import { liveInfoWeight } from './live-shared-reads.js';
 import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
 
-export interface LiveTransportDependencies {
+interface LiveTransportDependencies {
   marketResolver: LiveMarketResolver;
   acquire: (weight: number) => Promise<unknown>;
   globalTransport?: HyperliquidGlobalTransport;

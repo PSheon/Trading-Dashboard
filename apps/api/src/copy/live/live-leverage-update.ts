@@ -65,12 +65,12 @@ export function leverageReductionMarginFits(snapshot: Pick<LiveAccountSnapshot, 
   return true;
 }
 
-export interface LiveLeverageTarget {
+interface LiveLeverageTarget {
   readonly accountId: string; readonly userId: number; readonly strategyId: number; readonly walletId: string;
   readonly authorizationId: string; readonly accountAddress: string;
   readonly coin: string; readonly asset: number; readonly from: number; readonly leverage: number;
 }
-export type LiveLeverageUpdateState = 'accepted' | 'rejected' | 'unknown';
+type LiveLeverageUpdateState = 'accepted' | 'rejected' | 'unknown';
 /** Exactly the exchange's answer to an accepted updateLeverage. */
 const ACCEPTED = { status: 'ok', response: { type: 'default' } };
 const domain = { name: 'Exchange', version: '1', chainId: 1337, verifyingContract: `0x${'00'.repeat(20)}` as `0x${string}` };
@@ -78,7 +78,7 @@ const agentFields = [{ name: 'source', type: 'string' }, { name: 'connectionId',
 const domainFields = [{ name: 'name', type: 'string' }, { name: 'version', type: 'string' }, { name: 'chainId', type: 'uint256' }, { name: 'verifyingContract', type: 'address' }];
 
 /** The exchange action that sets one coin's cross leverage, in canonical key order. */
-export function liveLeverageAction(asset: number, leverage: number) {
+function liveLeverageAction(asset: number, leverage: number) {
   if (!Number.isSafeInteger(asset) || asset < 0 || !Number.isSafeInteger(leverage) || leverage < 1) throw new LiveBoundaryError('live_leverage_invalid');
   return canonicalize(UpdateLeverageRequest.entries.action, { type: 'updateLeverage', asset, isCross: true, leverage });
 }

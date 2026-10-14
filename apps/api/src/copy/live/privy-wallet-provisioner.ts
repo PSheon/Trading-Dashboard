@@ -18,7 +18,7 @@ export interface UserWalletProvisioner {
    * additional signer is the worker quorum under its master policy. */
   findOwned(userId: string, externalId: string, expected?: ExpectedMasterSigner | null): Promise<ProvisionedUserWallet | null>;
 }
-export interface ExpectedMasterSigner { readonly workerQuorumId: string; readonly policyId: string }
+interface ExpectedMasterSigner { readonly workerQuorumId: string; readonly policyId: string }
 export const USER_WALLET_PROVISIONER = Symbol("USER_WALLET_PROVISIONER");
 export class ProvisioningWalletConflict extends Error {}
 export class ProvisioningVerificationPending extends Error {}

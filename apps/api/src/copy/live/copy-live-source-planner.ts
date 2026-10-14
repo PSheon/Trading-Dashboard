@@ -284,4 +284,3 @@ export function planLiveSourceOrder(raw: LiveSourcePlanInput): PlannedLiveSource
     throw new LiveBoundaryError('live_source_sizing_unproven');
   }
 }
-export const recomputeLiveSourceSizing = planLiveSourceOrder;

@@ -15,7 +15,7 @@ import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
 
 /** Shared provider reads for an epoch (on the readers' network): the budget the epoch pays
  * its reads from, the info fetch, and the batch transport for each wave. */
-export interface LiveEpochSharing {
+interface LiveEpochSharing {
   /** The order bucket (reserveLive): bounds its own wait, and refuses at once
    * a weight it can never hold. */
   readonly acquire: (weight: number, options?: LiveReserveOptions) => Promise<unknown>;
@@ -25,7 +25,7 @@ export interface LiveEpochSharing {
   readonly cache?: LiveReadCache;
 }
 
-export interface LiveProviderEpochBinding {
+interface LiveProviderEpochBinding {
   readonly accountId: string;
   readonly mandateId: string;
   readonly key: string;
@@ -37,7 +37,7 @@ export interface LiveProviderEpochBinding {
    * A preview never supplies authority for an order. */
   readonly checkLeverage?: boolean;
 }
-export interface LiveProviderEpochFrames {
+interface LiveProviderEpochFrames {
   readonly market: LiveMarketIdentity;
   /** Same immutable account order as the current SQL authority. */
   readonly snapshots: readonly LiveAccountSnapshot[];
@@ -116,7 +116,7 @@ export class LiveProviderReadEpoch {
       return frames;
     }
     const shared = this.sharing ? new LiveSharedReads(this.resolver.network, this.sharing.fetcher, this.sharing.batch, this.now, 5000, this.sharing.acquire, this.sharing.cache) : undefined;
-    const frames = this.sharing ? this.collectShared(session, binding, authority, authorityDigest, started, this.sharing, shared!, mark) : (async (): Promise<LiveProviderEpochFrames> => {
+    const frames = this.sharing ? this.collectShared(session, binding, authority, authorityDigest, started, shared!, mark) : (async (): Promise<LiveProviderEpochFrames> => {
       const snapshots: LiveAccountSnapshot[] = [];
       const accountsWork = (async () => {
         // The concrete all-venue observer owns an exclusive subscription.
@@ -184,7 +184,7 @@ export class LiveProviderReadEpoch {
    * the clock starts (the other coins' once they are known), exactly.
    */
   private async collectShared(session: LiveRiskDatabaseSession, binding: LiveProviderEpochBinding, authority: Awaited<ReturnType<typeof loadLivePreparationAuthority>>,
-    authorityDigest: string, started: number, sharing: LiveEpochSharing, shared: LiveSharedReads,
+    authorityDigest: string, started: number, shared: LiveSharedReads,
     mark: (stage: LiveTimingStage) => void): Promise<LiveProviderEpochFrames> {
     const target = address(authority.account.address!), users = [...new Set(authority.accounts.map(a => address(a.address!)))],
       leaders = binding.includeLeader ? [address(authority.consent.leaderAddress)] : [];

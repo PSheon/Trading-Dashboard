@@ -12,7 +12,7 @@ import { address } from './wallet-authorization.js';
 import { providerTimeNotAfter } from './clock-skew.js';
 import { LIVE_EVIDENCE_MAX_AGE_MS, LIVE_FILL_SCAN_MARGIN_MS } from '../../config/constants/timings.js';
 
-export interface LiveSettlementLedgerComponent {
+interface LiveSettlementLedgerComponent {
   readonly receiptKey: string; readonly component: string; readonly token: string; readonly amount: string;
 }
 export interface LiveSettlementReceipt {

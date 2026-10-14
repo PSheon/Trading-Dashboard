@@ -35,7 +35,7 @@ import { leverageReductionMarginFits, LiveLeverageUpdateRequired } from './live-
 import { liveDeploymentPolicy } from '../live-deployment.js';
 import { beginLiveExecutionTiming, type LiveExecutionTimingHook } from './live-execution-diagnostics.js';
 
-export interface LivePreparationBinding {
+interface LivePreparationBinding {
   readonly accountId: string; readonly mandateId: string; readonly sourceFillId: string; readonly leg: 'open' | 'close';
   /** Other same-coin leader legs this order also carries (one merged follower
    * adjustment, ratio sizing): their source fill ids, each with this leg. */
@@ -62,8 +62,8 @@ import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
 export class PostgresLivePreparation {
   private readonly options: Readonly<LivePreparationOptions>;
   private readonly epoch: LiveProviderReadEpoch;
-  constructor(private readonly observer: HyperliquidLiveAccountObserver, private readonly resolver: HyperliquidLiveMarketResolver,
-    private readonly provider: HyperliquidLiveRiskProvider, options: LivePreparationOptions, private readonly now = Date.now, epoch?: LiveProviderReadEpoch,
+  constructor(private readonly observer: HyperliquidLiveAccountObserver, resolver: HyperliquidLiveMarketResolver,
+    provider: HyperliquidLiveRiskProvider, options: LivePreparationOptions, private readonly now = Date.now, epoch?: LiveProviderReadEpoch,
     private readonly reference?: LiveSourceReferenceReader,
     private readonly beforeProviderRead?: (walletId: string) => void,
     private readonly onTiming?: LiveExecutionTimingHook) {

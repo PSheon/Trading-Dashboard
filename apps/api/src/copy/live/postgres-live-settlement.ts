@@ -23,10 +23,10 @@ import { validateLiveReservationPayload, freezeLiveReservation, type LiveReserva
 import { LiveBoundaryError } from './wallet-authorization.js';
 import { LIVE_EVIDENCE_MAX_AGE_MS, NEVER_PLACED_GRACE_MS } from '../../config/constants/timings.js';
 
-export interface LiveSettlementObservationInput { readonly accountId: string; readonly key: string; readonly evidence: LiveOrderEvidence; readonly acknowledgement?: LiveIocAcknowledgement; }
-export interface LiveSettlementAcknowledgementInput { readonly accountId:string; readonly key:string; readonly acknowledgement:LiveIocAcknowledgement; }
-export interface LiveSettlementReconcileInput { readonly accountId: string; readonly key: string; readonly expectedReservationRevision: number; readonly accountSource: LiveAccountRiskInput['accountSource']; }
-export type LiveSettlementObservationResult = Readonly<{ kind:'recorded'; oid:string|null; revision:number }> | Readonly<{ kind:'pending'|'quarantine'; reason:string }>;
+interface LiveSettlementObservationInput { readonly accountId: string; readonly key: string; readonly evidence: LiveOrderEvidence; readonly acknowledgement?: LiveIocAcknowledgement; }
+interface LiveSettlementAcknowledgementInput { readonly accountId:string; readonly key:string; readonly acknowledgement:LiveIocAcknowledgement; }
+interface LiveSettlementReconcileInput { readonly accountId: string; readonly key: string; readonly expectedReservationRevision: number; readonly accountSource: LiveAccountRiskInput['accountSource']; }
+type LiveSettlementObservationResult = Readonly<{ kind:'recorded'; oid:string|null; revision:number }> | Readonly<{ kind:'pending'|'quarantine'; reason:string }>;
 type ReservationRow = typeof copyLiveRiskReservations.$inferSelect;
 function check(value: unknown, code = 'live_settlement_identity_changed'): asserts value { if (!value) throw new LiveBoundaryError(code); }
 const json = (value: object) => value as unknown as Record<string, unknown>;

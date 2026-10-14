@@ -62,7 +62,7 @@ export interface LiveAccountRiskInput {
     readonly accountAddress: string; readonly checkedAt: number; readonly sourceDigest: string; readonly complete: true;
     readonly own: LiveRiskReservation; readonly others: readonly LiveRiskReservation[] };
 }
-export type LiveAccountRiskAssessment = Readonly<{
+type LiveAccountRiskAssessment = Readonly<{
   ok: true; key: string; fingerprint: string; coin: string; dex: string; notionalUsd: string;
   requiredMarginUsd: string; feeBufferUsd: string; availableCollateralUsd: string;
   projectedStrategyExposureUsd: string; projectedUserExposureUsd: string;

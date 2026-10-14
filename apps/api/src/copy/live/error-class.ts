@@ -20,7 +20,7 @@ import { LIVE_LEG_RETRY_BASE_MS, LIVE_RISK_BUSY_RETRY_MS, PROVIDER_READ_RETRY_MS
  * - `needs_owner`: only the owner can move it on (a signature, a renewed
  *   authorization). Shown to the owner, never exhausted by attempts.
  */
-export type ErrorClass = 'budget' | 'transient' | 'permanent' | 'needs_owner';
+type ErrorClass = 'budget' | 'transient' | 'permanent' | 'needs_owner';
 
 export interface ErrorClassification {
   readonly class: ErrorClass;
@@ -101,7 +101,7 @@ const NEEDS_OWNER_CODES: ReadonlySet<string> = new Set([
  * worker's signer not up yet. Unlisted codes are `transient` already; these
  * are named so no one moves them to a blocking class by accident (a setup
  * abort shows them as waiting, never as needing action). */
-export const TRANSIENT_WAIT_CODES: ReadonlySet<string> = new Set([
+const TRANSIENT_WAIT_CODES: ReadonlySet<string> = new Set([
   'setup_abort_evidence_unavailable', 'setup_abort_proof_stale', 'setup_abort_proof_not_flat', 'setup_abort_lease_changed', 'setup_abort_unavailable',
 ]);
 /**
@@ -228,7 +228,7 @@ export function backoffMs(priorAttempts: number, policy: RetryPolicy): number {
 }
 
 /** What a failed step does next (decideRetry). `delayMs` is from now. */
-export type RetryDecision =
+type RetryDecision =
   /** A wait (`budget`): back when it said, not an attempt. */
   | { readonly kind: 'wait'; readonly delayMs: number; readonly classified: ErrorClassification }
   /** A transient failure, counted: back after its back-off (`attempts`: including this one). */

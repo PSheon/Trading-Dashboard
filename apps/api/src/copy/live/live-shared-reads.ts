@@ -43,7 +43,7 @@ export const leaderBodies = (leader: string) => [{ type: 'spotClearinghouseState
  * portfolio margin. Its balances move with every trade it makes, so the whole
  * answer failed every order of an active leader's copy twice (Stage mainnet
  * 2026-10-12: a SOL open sent 32.7 s late). */
-export const leaderComparison = (leaders: readonly string[]) => {
+const leaderComparison = (leaders: readonly string[]) => {
   const set = new Set(leaders.map(l => l.toLowerCase()));
   return (body: Readonly<Record<string, unknown>>) => body.type === 'spotClearinghouseState' && typeof body.user === 'string' && set.has(body.user.toLowerCase())
     ? (value: unknown) => (value as { portfolioMarginEnabled?: unknown } | null)?.portfolioMarginEnabled === true : undefined;
@@ -54,7 +54,7 @@ export const leaderComparison = (leaders: readonly string[]) => {
  * (funding interest rates, streaming OI caps) move on their own, and the
  * whole answer refused about 1 open in 30 on mainnet (probe 2026-10-14:
  * `mkts` assetToFundingInterestRate changed in 1.5 s). */
-export const perpDexNames = (value: unknown) => Array.isArray(value)
+const perpDexNames = (value: unknown) => Array.isArray(value)
   ? value.map(row => row !== null && typeof row === 'object' ? (row as { name?: unknown }).name : row) : value;
 /** The final check's comparison: the dex names, and a leader's portfolio-margin flag. */
 export const observationComparison = (leaders: readonly string[]) => {
@@ -101,7 +101,7 @@ export function liveEvidenceWarmWeight(users: number): number {
 }
 /** The live accounts one owner's evidence may observe (the risk authority's
  * bound, postgres-live-risk-authority.ts). */
-export const MAX_LIVE_ACCOUNTS_PER_OWNER = 8;
+const MAX_LIVE_ACCOUNTS_PER_OWNER = 8;
 /** The shared per-IP meter keeps this much for unlabelled work (pages, copy
  * orders) however full the background lane is: no single evidence charge
  * is larger, so a full background lane never refuses one on its own. */

@@ -7,7 +7,7 @@ import { LiveBoundaryError, address } from './wallet-authorization.js';
 import { freezeLiveReservation } from './live-risk-reservation.js';
 import { Dec } from '../../common/decimal/dec.js';
 
-export interface LivePositionBaselineIdentity {
+interface LivePositionBaselineIdentity {
   mandateId: string; accountId: string; strategyId: number; firstExecutionKey: string; network: HyperliquidNetwork; accountAddress: string;
 }
 export interface LivePositionBaseline extends LivePositionBaselineIdentity {

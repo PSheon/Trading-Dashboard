@@ -88,7 +88,7 @@ export interface LiveSourceSizingBasisV1 {
   readonly merged?: LiveMergedLegsV1;
 }
 
-export interface LiveMergedLegV1 {
+interface LiveMergedLegV1 {
   readonly sourceFillId: string;
   readonly sourceDigest: string;
   readonly providerTime: number;
@@ -97,7 +97,7 @@ export interface LiveMergedLegV1 {
   readonly px: string;
   readonly fraction: string | null;
 }
-export interface LiveMergedLegsV1 { readonly members: readonly LiveMergedLegV1[] }
+interface LiveMergedLegsV1 { readonly members: readonly LiveMergedLegV1[] }
 
 export interface LiveSourceReferenceV1 {
   /** The source network (the consent's `sourceNetwork`). */

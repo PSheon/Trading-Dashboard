@@ -8,7 +8,7 @@ import { LIVE_PERP_COIN } from './live-market-resolver.js';
 import { ceilDecimalProduct } from './live-risk-rounding.js';
 import { address, LiveBoundaryError } from './wallet-authorization.js';
 
-export interface LiveExternalExposureInput {
+interface LiveExternalExposureInput {
   readonly now: number;
   readonly accountId: string;
   readonly accountAddress: string;

@@ -36,7 +36,7 @@ const domainFields = [
   { name: 'chainId', type: 'uint256' },
   { name: 'verifyingContract', type: 'address' },
 ];
-export function captureCancellationPermit(
+function captureCancellationPermit(
   permit: CancellationPermit,
 ): CancellationPermit {
   const { assertFresh, ...data } = permit;

@@ -16,11 +16,17 @@ export async function acquireWorkerLease(client: Pick<PoolClient, "query">): Pro
  */
 export async function acquireWorkerLeases(client: Pick<PoolClient, "query">, leases: readonly number[]): Promise<boolean> {
   if (leases.length === 1 && leases[0] === 1) return acquireWorkerLease(client);
-  const result = await client.query<{ key: number; acquired: boolean }>(
-    "SELECT key, pg_try_advisory_lock(73106, key) AS acquired FROM unnest($1::int[]) WITH ORDINALITY AS l(key, n) ORDER BY n", [[...leases]]);
-  const held = result.rows.filter(row => row.acquired).map(row => row.key);
+  // Each lease is its own literal call site, registered in db/advisory-lock.ts.
+  const held: number[] = [];
+  for (const key of leases) {
+    const sql = key === 1 ? "SELECT pg_try_advisory_lock(73106, 1) AS acquired" : key === 2 ? "SELECT pg_try_advisory_lock(73106, 2) AS acquired" : null;
+    if (!sql) throw new Error(`unknown worker lease ${key}`);
+    const result = await client.query<{ acquired: boolean }>(sql);
+    if (result.rows[0]?.acquired !== true) break;
+    held.push(key);
+  }
   if (held.length === leases.length) return true;
-  for (const key of held) await client.query("SELECT pg_advisory_unlock(73106, $1)", [key]);
+  for (const key of held) await client.query(key === 1 ? "SELECT pg_advisory_unlock(73106, 1)" : "SELECT pg_advisory_unlock(73106, 2)");
   return false;
 }
 

@@ -134,7 +134,13 @@ export const ADVISORY_LOCKS = {
   WORKER: {
     purpose: "Singleton worker lease (session lock on a dedicated connection).",
     scope: "session", form: "pair", namespace: 73106, key: { kind: "const", value: 1 },
-    sites: [{ file: "src/runtime/worker-lease.ts", args: "73106, 1" }],
+    sites: [{ file: "src/runtime/worker-lease.ts", args: "73106, 1", count: 3 }],
+  },
+  /** The read worker's lease (WORKER_ROLE=read; `all` holds both). */
+  WORKER_READ: {
+    purpose: "Singleton read-worker lease (session lock on a dedicated connection).",
+    scope: "session", form: "pair", namespace: 73106, key: { kind: "const", value: 2 },
+    sites: [{ file: "src/runtime/worker-lease.ts", args: "73106, 2", count: 2 }],
   },
   ANALYTICS: {
     purpose: "Per-address trade analytics refresh.",

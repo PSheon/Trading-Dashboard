@@ -52,7 +52,7 @@ function registeredSites(): Map<string, number> {
 /** Sample caller input per namespace (prefixed keys take the part after the prefix). */
 const samples: Record<AdvisoryLockName, [] | [number] | [string]> = {
   ACTIONS: ["0xabc"], COPY_LEADER: ["0xabc"], RISK: [], COPY_USER: [42], BOOTSTRAP: [], PLATFORM: [], REFERRAL: [],
-  SETTINGS: [], MIGRATE: [], RULES: ["hl|0xabc|BTC"], WORKER: [], ANALYTICS: ["0xabc"], NOTIFY: [],
+  SETTINGS: [], MIGRATE: [], RULES: ["hl|0xabc|BTC"], WORKER: [], WORKER_READ: [], ANALYTICS: ["0xabc"], NOTIFY: [],
   COPY_EVENTS: ["42"], COPY_OPERATION: ["42:paper:virtual:k"], LIVE_ORDER: ["k"], LIVE_NONCE: ["mainnet:0xabc"],
   LIVE_PREPARE: ["k"], RISK_SCOPE_ACCOUNT: ["mainnet:0xabc"], RISK_SCOPE_SOURCE: ["mainnet:0xdef"], SETTLEMENT: ["k"],
   FOLLOWER_SCAN_BUDGET: ["mainnet"], WATCH_CAPACITY: [],
@@ -108,9 +108,11 @@ describe("advisory-lock registry", () => {
   it("lists every advisory lock/unlock call site exactly as the code writes it", () => {
     const { found, srcAcquires } = scanCallSites();
     expect(Object.fromEntries(found)).toEqual(Object.fromEntries(registeredSites()));
-    // Review §E3 #7 counts 37 acquiring calls in src; the migration runner adds one, unlocks add eight.
-    expect(srcAcquires).toBe(37);
-    expect([...found.values()].reduce((a, b) => a + b, 0)).toBe(46);
+    // Review §E3 #7 counted 37 acquiring calls in src; the worker roles add the
+    // read lease's own literal (73106, 2) and a literal per role lease (2 more).
+    // The migration runner adds one; unlocks add ten.
+    expect(srcAcquires).toBe(39);
+    expect([...found.values()].reduce((a, b) => a + b, 0)).toBe(50);
   });
 
   it.each(Object.keys(ADVISORY_LOCKS) as AdvisoryLockName[])("%s: registered derivation renders as its call sites", (name) => {

@@ -45,7 +45,9 @@ function stoppedText(texts: CopyTexts, setup: LiveCopySetup): string {
   return liveSetupError(texts, setup.issue);
 }
 /** Issues of a running setup that are a passing wait, said calmly (not as an error). */
-const BUSY_ISSUES = new Set(["busy", "hyperliquid_busy", "hyperliquid_quota_exhausted"]);
+// privy_identity_unverified: the platform can't prove the wallet's identity in
+// time (Privy slow); an ops alert, nothing for the owner to do but wait.
+const BUSY_ISSUES = new Set(["busy", "hyperliquid_busy", "hyperliquid_quota_exhausted", "privy_identity_unverified"]);
 const QUIET_ISSUES = new Set(["awaiting_credit", "funding_not_submitted"]);
 
 /** The confirm sheet's trader line: the name and the short address, or the

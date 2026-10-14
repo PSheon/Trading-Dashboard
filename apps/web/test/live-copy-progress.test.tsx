@@ -122,6 +122,11 @@ it("a running setup's own wait says so calmly: busy Hyperliquid retries, other w
   state.setup = setup('mode_set', { issue: 'hyperliquid_busy' });
   await open();
   expect(document.querySelector('[data-testid="live-copy-retrying"]')!.textContent).toBe(extra.retrying);
+  // The platform's own identity wait (Privy slow): processing, nothing asked of the owner.
+  state.setup = setup('mode_set', { issue: 'privy_identity_unverified' });
+  await open();
+  expect(document.querySelector('[data-testid="live-copy-retrying"]')!.textContent).toBe(extra.retrying);
+  expect(alert()).toBeNull();
   state.setup = setup('mode_set', { issue: 'agent_verification_pending' });
   await open();
   expect(document.querySelector('[data-testid="live-copy-retrying"]')!.textContent).toBe(extra.stepRetrying);

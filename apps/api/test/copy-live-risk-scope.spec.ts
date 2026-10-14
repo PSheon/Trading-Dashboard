@@ -194,6 +194,27 @@ describe('distributed user and account risk serialization', () => {
       expect(ownSessions(again, writerPid)).toEqual([expect.objectContaining({ state: 'idle in transaction', last: 'copy_live_dispatches' })]);
     } finally { await writer.query('rollback'); writer.release(); }
   });
+  it("names only this database's holders: pg_locks lists every database on the server", async () => {
+    const elsewhere = new URL(process.env.TEST_DATABASE_URL!); elsewhere.pathname = '/postgres';
+    const foreign = new Client({ connectionString: elsewhere.toString() }), writer = await pool.connect();
+    await foreign.connect();
+    try {
+      // The same advisory key held in another database on the same server.
+      await foreign.query('begin');
+      const foreignPid = (await foreign.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0]!.pid;
+      await foreign.query('select pg_advisory_xact_lock(7404, $1::integer)', [identity.userId]);
+      await writer.query('begin');
+      const writerPid = (await writer.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0]!.pid;
+      await writer.query('select pg_advisory_xact_lock(7404, $1::integer)', [identity.userId]);
+      const refused = await scopes.run(identity, async () => 'unsafe').catch((error: unknown) => error) as LiveRiskBusyError;
+      expect(refused.detail).toMatchObject({ lock: 'user' });
+      expect(refused.detail.sessions?.map(s => s.pid)).toEqual([writerPid]);
+      expect(refused.detail.sessions?.map(s => s.pid)).not.toContain(foreignPid);
+    } finally {
+      await writer.query('rollback'); writer.release();
+      await foreign.query('rollback'); await foreign.end();
+    }
+  });
   it('allows independent users/accounts but serializes a user across networks', async () => {
     await scopes.run(identity, async () => {
       expect(await scopes.run({ ...identity, userId: 2, accountAddress: `0x${'cd'.repeat(20)}` }, async () => 'independent')).toBe('independent');

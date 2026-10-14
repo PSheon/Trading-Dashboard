@@ -51,7 +51,7 @@ interface LiveRiskHolder { readonly kind: string; readonly id?: string }
 /** live_risk_busy, saying which lock was taken and by whom (gate run 9,
  * 2026-10-14: an order waited 12 s for a lock nobody could name). `holders`
  * are this process's scopes on that lock (kind, id, how long held);
- * `sessions` the other database sessions pg_locks shows holding it
+ * `sessions` the other sessions of this database pg_locks shows holding it
  * (another process, or a transaction-scoped writer such as source ingestion). */
 interface LiveRiskBusyDetail {
   readonly lock: 'policy' | 'platform' | 'user' | 'account' | 'source';
@@ -158,6 +158,7 @@ export class PostgresLiveRiskScope {
                  (extract(epoch from clock_timestamp() - coalesce(a.xact_start, a.state_change)) * 1000)::bigint as held_ms
                from pg_locks l left join pg_stat_activity a on a.pid = l.pid
                where l.locktype = 'advisory' and l.granted and l.pid <> pg_backend_pid() and ${lock.match}
+                 and l.database = (select oid from pg_database where datname = current_database())
                  ${lock.shared ? "and l.mode = 'ExclusiveLock'" : ''} limit 4`,
               [lock.values[0] ?? 0]),
             new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error()), 1000); }),

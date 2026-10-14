@@ -395,7 +395,17 @@ export class WatcherService implements OnModuleDestroy {
     return { addresses: addresses.length, inserted, failed };
   }
 
+  /**
+   * Has the copy stream audited against a copied leader's verified span
+   * (COPY_LEADER_VERIFIED_EVENT). Its listener, CopyLiveWorkerService, lives
+   * in the process whose watcher runs (the `copy` or `all` worker), so only
+   * a started watcher emits. A `read` worker's sweeps (a watcher never
+   * started) still move `fill_coverage` for copied leaders first, but emit
+   * nothing: no listener exists there, and the copy worker's catchUpCopied
+   * (every COPIED_CATCH_UP_MS) audits every watched copied leader.
+   */
   private verified(address: string): void {
+    if (!this.running) return;
     try {
       this.events?.emit(COPY_LEADER_VERIFIED_EVENT, { address } satisfies CopyLeaderVerifiedEvent);
     } catch (error) {

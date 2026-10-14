@@ -4,9 +4,10 @@ import type { WalletHistoryResponse, WalletResponse } from "@trading-dashboard/s
 import { CurrentUser, requireUserId, type RequestUser } from "../common/auth/current-user.js";
 import { ApiDoc } from "../common/decorators/http.decorator.js";
 import { BusyException, BusyFilter } from "../traders/busy.js";
-import { BUSY_RETRY_AFTER_MS, PAGE_DEADLINE_MS, isBusyError } from "../traders/traders.controller.js";
+import { isBusyError } from '../traders/traders.controller.js';
 import { WalletService } from "./wallet.service.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
+import { BUSY_RETRY_AFTER_MS, PAGE_DEADLINE_MS } from '../config/constants/http.js';
 
 /**
  * The signed-in user's main account (Stage 4 step 2). Not @Public: 401

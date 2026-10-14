@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { acquireWorkerOwnership, WORKER_DB_RETRY_WINDOW_MS, type LeaseClient } from "../src/runtime/worker-lease.js";
+import { acquireWorkerOwnership, type LeaseClient } from '../src/runtime/worker-lease.js';
+import { WORKER_DB_RETRY_WINDOW_MS } from '../src/config/constants/background.js';
 
 /**
  * The worker used to exit 3 s after start when Postgres was down, so a DB

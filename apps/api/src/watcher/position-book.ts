@@ -1,5 +1,6 @@
 import type { HlClearinghouseStateResponse } from "../hyperliquid/types.js";
 import { toScaled } from "./action-classifier.js";
+import { BOOK_BUFFER_MS } from '../config/constants/background.js';
 
 /** Main dex key. */
 export const MAIN_DEX = "";
@@ -10,10 +11,6 @@ export function dexOf(coin: string): string {
   return i === -1 ? MAIN_DEX : coin.slice(0, i);
 }
 
-/** How long an address's feed trades are kept for replaying onto a newly
- * installed state. States are fetched fresh (a request times out after
- * 20 s), so a state is never older than this. */
-export const BOOK_BUFFER_MS = 2 * 60_000;
 
 /** One feed trade from the book owner's side. */
 export interface BookTrade {

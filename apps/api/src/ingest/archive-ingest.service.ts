@@ -8,10 +8,9 @@ import { ArchiveIngestRepository, type ArchiveState, type IngestDirection } from
 import { LocalArchiveStore, S3ArchiveStore, type ArchiveObject, type ArchiveStore } from "./archive-store.js";
 import { decodeLz4Frames, splitLines } from "./lz4-frame.js";
 import { HOUR_MS } from '../config/constants/time.js';
+import { ARCHIVE_TICK_BUDGET_MS } from '../config/constants/background.js';
 
 const GB = 1_000_000_000;
-/** A tick stops starting objects after this long (the cron fires each minute). */
-const TICK_BUDGET_MS = 45_000;
 const INSERT_BATCH = 2_000;
 /** An address above this many fills in one hourly object is named in the
  * log (it is kept all the same): the accounts that fill the table. */
@@ -95,7 +94,7 @@ export class ArchiveIngestService {
       for (;;) {
         const started = Date.now();
         const outcomes = await this.tick();
-        if (this.jobs.stopping || outcomes.at(-1) !== "ingested" || Date.now() - started < TICK_BUDGET_MS) break;
+        if (this.jobs.stopping || outcomes.at(-1) !== "ingested" || Date.now() - started < ARCHIVE_TICK_BUDGET_MS) break;
       }
     })
       .catch(async (error: Error) => {
@@ -118,7 +117,7 @@ export class ArchiveIngestService {
     const outcomes: ObjectOutcome[] = [];
     let bytes = 0;
     let liveDone = false;
-    while (!this.jobs.stopping && bytes < options.maxBytesPerMinute && Date.now() - started < TICK_BUDGET_MS) {
+    while (!this.jobs.stopping && bytes < options.maxBytesPerMinute && Date.now() - started < ARCHIVE_TICK_BUDGET_MS) {
       let state = await this.repository.state();
       if (state.liveNextHour === null) {
         // First run: start with the last hour that has ended.

@@ -2,35 +2,10 @@ import { Logger } from "@nestjs/common";
 import type { ActionKind } from "@trading-dashboard/shared/contracts";
 
 import type { HlUserFill } from "../hyperliquid/types.js";
+import { GROUP_GAP_MS } from '../config/constants/background.js';
 
 const logger = new Logger("ActionClassifier");
 
-/**
- * Fills → `actions` (PRD §4.2 W3).
- *
- * Every Hyperliquid fill carries `startPosition`, the signed position size
- * right before it. That alone decides the action kind exactly — no need to
- * compare polled position snapshots, which went wrong after every restart
- * (empty memory made every add look like an open) and when a round trip
- * fitted between two polls.
- *
- * Grouping: fills of the same coin, same side (B/A) and same liquidation
- * status, each within `GROUP_GAP_MS` of the previous one, form one action.
- * One market order that crosses eight resting orders is eight fills and one
- * action. The group's kind comes from the position before its first fill
- * and after its last fill:
- *
- *   before = 0, after ≠ 0            → open
- *   before ≠ 0, after = 0            → close
- *   signs differ, both ≠ 0           → flip
- *   same sign, |after| > |before|    → add
- *   same sign, |after| < |before|    → reduce
- *   any fill liquidates this address → liquidation
- *
- * Side is the position's side: after the action for open/add/flip, before
- * it for reduce/close/liquidation.
- */
-export const GROUP_GAP_MS = 1000;
 
 /** §11 "只看 perps，不看 spot". Spot coins are "@107" or "PURR/USDC"; perps
  * are "BTC" or, on a HIP-3 dex, "xyz:TSLA". */

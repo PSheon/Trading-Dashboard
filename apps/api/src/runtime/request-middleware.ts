@@ -4,8 +4,8 @@ import type { Request, Response, NextFunction } from "express";
 import { BackgroundJobs } from "./background-jobs.service.js";
 import { clientKey } from "../common/http/client-key.js";
 import { withRequestSignal } from "./request-context.js";
+import { REQUEST_DEADLINE_MS } from '../config/constants/http.js';
 
-export const REQUEST_DEADLINE_MS = 20_000;
 
 /** Per-response hook that cancels the deadline timer (see `releaseRequestDeadline`). */
 const deadlines = new WeakMap<Response, () => void>();

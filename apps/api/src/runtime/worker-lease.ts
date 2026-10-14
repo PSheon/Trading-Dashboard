@@ -1,5 +1,6 @@
 import { setTimeout as delay } from "node:timers/promises";
 import type { PoolClient } from "pg";
+import { WORKER_DB_RETRY_WINDOW_MS, WORKER_LEASE_BACKOFF_MAX_MS, WORKER_LEASE_BACKOFF_MIN_MS, WORKER_LEASE_POLL_MS } from '../config/constants/background.js';
 
 /** Session-scoped, database-local singleton. Keep this dedicated connection open
  * until all worker jobs have drained; never return it to a pool while locked. */
@@ -39,16 +40,6 @@ export async function acquireWorkerLeases(client: Pick<PoolClient, "query">, lea
  */
 export const WORKER_LEASE_SESSION_OPTIONS = "-c idle_session_timeout=30s -c tcp_keepalives_idle=10 -c tcp_keepalives_interval=5 -c tcp_keepalives_count=3";
 
-/** How long the worker keeps retrying while it cannot use Postgres (no
- * connection, or the standby connection dropped) before it exits. A DB
- * outage (2026-10-12: the usage limit stopped Postgres) used to make the
- * worker exit within 3 s of every start and use up Railway's restart
- * retries, leaving it dead once the database was back. */
-export const WORKER_DB_RETRY_WINDOW_MS = 10 * 60_000;
-const BACKOFF_MIN_MS = 1_000;
-const BACKOFF_MAX_MS = 30_000;
-/** Standby: how often a worker whose database is up asks for the lease again. */
-export const WORKER_LEASE_POLL_MS = 1_000;
 
 export interface LeaseClient {
   query: PoolClient["query"];
@@ -105,7 +96,7 @@ export async function acquireWorkerOwnership<C extends LeaseClient>(options: Acq
       failingSince ??= at;
       const left = failingSince + window - at;
       if (left <= 0) throw error;
-      const wait = Math.min(BACKOFF_MAX_MS, BACKOFF_MIN_MS * 2 ** attempt, left);
+      const wait = Math.min(WORKER_LEASE_BACKOFF_MAX_MS, WORKER_LEASE_BACKOFF_MIN_MS * 2 ** attempt, left);
       attempt += 1;
       logger.warn(`Worker database unavailable (attempt ${attempt}, for ${Math.round((at - failingSince) / 1000)} s); retrying in ${Math.round(wait / 1000)} s`);
       await sleep(wait);

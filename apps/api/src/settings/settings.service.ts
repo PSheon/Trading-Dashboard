@@ -20,8 +20,8 @@ import { Optional } from "@nestjs/common";
 import { RequestBudgeterService, type ConsumerCapSource } from "../hyperliquid/request-budgeter.service.js";
 import { AppConfig } from "../config/app-config.js";
 import { tuningConfig, type TuningConfig } from "../config/runtime-config.js";
+import { SETTINGS_CACHE_TTL_MS } from '../config/constants/cache-ttls.js';
 
-const CACHE_TTL_MS = 30_000;
 /** NOTIFY channel a save is announced on; the payload is the saving process's `origin`. */
 export const SETTINGS_CHANNEL = "orbie_settings";
 
@@ -104,7 +104,7 @@ export class SettingsService implements ConsumerCapSource {
       const revision = this.revision;
       const pending = this.load().then((value) => {
         // Not while the relay is down: a save elsewhere would go unnoticed.
-        if (revision === this.revision && this.relayConnected !== false) this.cache = { value, expiresAt: Date.now() + CACHE_TTL_MS };
+        if (revision === this.revision && this.relayConnected !== false) this.cache = { value, expiresAt: Date.now() + SETTINGS_CACHE_TTL_MS };
         return value;
       }).finally(() => {
         if (this.inflight === pending) this.inflight = undefined;

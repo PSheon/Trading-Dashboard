@@ -4,9 +4,10 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
 import { TradeAnalyticsRepository, type AnalyticsRow } from "../src/traders/trade-analytics.repository.js";
 import { ESSENTIAL_RANK, PAGE_RANK, UNRANKED_BASE } from "../src/hyperliquid/request-budgeter.service.js";
-import { TRACKED_BACKOFF_BASE_MS, TRACKED_BACKOFF_MAX_MS, TRACKED_REFRESH_PER_TICK, TradeAnalyticsService } from "../src/traders/trade-analytics.service.js";
+import { TRACKED_REFRESH_PER_TICK, TradeAnalyticsService } from '../src/traders/trade-analytics.service.js';
 import type { TradersService } from "../src/traders/traders.service.js";
 import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
+import { TRACKED_BACKOFF_BASE_MS, TRACKED_BACKOFF_MAX_MS } from '../src/config/constants/background.js';
 
 const MINUTE = 60_000;
 const address = (n: number) => `0x${String(n).padStart(2, "0").repeat(20)}`;

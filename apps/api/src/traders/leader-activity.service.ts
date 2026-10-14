@@ -4,10 +4,8 @@ import { LEADER_ACTIVITY_WINDOW_MS, leaderCopyActivity, measureLeaderActivity, t
 import { HyperliquidInfoClient, MAX_LIST_ITEMS } from '../hyperliquid/hyperliquid-info.client.js';
 import { PAGE_RANK } from '../hyperliquid/request-budgeter.service.js';
 import { TtlCache } from './ttl-cache.js';
+import { COPY_ACTIVITY_TTL_MS } from '../config/constants/cache-ttls.js';
 
-/** A leader's activity changes slowly next to what one read costs (20–120
- * weight), so the trader page and a start share one read per address. */
-export const COPY_ACTIVITY_TTL_MS = 5 * 60_000;
 
 /**
  * Whether a live copy can keep up with a leader (`leader-activity.ts` in

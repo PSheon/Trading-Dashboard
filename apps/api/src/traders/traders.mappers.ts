@@ -16,6 +16,7 @@ import type {
   HlUserFill,
 } from "../hyperliquid/types.js";
 import { DAY_MS } from '../config/constants/time.js';
+import { USER_FILLS_CAP } from '../config/constants/http.js';
 
 type TraderStatsRow = typeof traderStats.$inferSelect;
 type Point = [number, number];
@@ -381,8 +382,6 @@ export function isPerpCoin(coin: string): boolean {
   return !coin.startsWith("@") && !coin.includes("/");
 }
 
-/** `userFills` returns at most this many of the latest fills. */
-export const USER_FILLS_CAP = 2_000;
 
 /** Perp fills since `since` in a `userFills` response. `capped`: the list is
  * full and even its oldest fill is inside the window, so the true count may

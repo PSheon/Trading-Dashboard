@@ -1,9 +1,8 @@
 import { Injectable } from "@nestjs/common";
 
 import { AppConfig } from "../config/app-config.js";
+import { RPC_TIMEOUT_MS } from '../config/constants/http.js';
 
-/** A dead RPC must not hold the wallet read; the balance is then unknown. */
-const RPC_TIMEOUT_MS = 6_000;
 
 interface RpcReply {
   id: number;

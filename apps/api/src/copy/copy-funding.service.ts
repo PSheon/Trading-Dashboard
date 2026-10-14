@@ -10,7 +10,7 @@ import { AppConfig } from "../config/app-config.js";
 import { HyperliquidInfoClient, MAX_LIST_ITEMS } from "../hyperliquid/hyperliquid-info.client.js";
 import { PAGE_RANK } from "../hyperliquid/request-budgeter.service.js";
 import { BusyException } from "../traders/busy.js";
-import { BUSY_RETRY_AFTER_MS, isBusyError } from "../traders/traders.controller.js";
+import { isBusyError } from '../traders/traders.controller.js';
 import type { RequestUser } from "../common/auth/current-user.js";
 import { parseOr400 } from "../common/http/validation.js";
 import type { HlLedgerUpdate } from "../hyperliquid/types.js";
@@ -23,6 +23,7 @@ import { classify } from "./live/error-class.js";
 import { privyIdentityFresh } from "./live/privy-identity-freshness.js";
 import { fundingBackoffMs, fundingScanSchema, fundingDetailBatch, type FundingScan } from './copy-funding-scan.js';
 import { FUNDING_NONCE_EXPIRY_MS, FUNDING_NONCE_SKEW_MS } from '../config/constants/timings.js';
+import { BUSY_RETRY_AFTER_MS } from '../config/constants/http.js';
 
 const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 /** An operator's ledger read: a full page reads on (oldest first), at most

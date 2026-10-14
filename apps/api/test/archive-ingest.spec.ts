@@ -7,7 +7,7 @@ import { eq, sql } from "drizzle-orm";
 import { actions, archiveCoverage, cohortMembers, discoveryTraders, kolTraders, leaders, userFavorites } from "@trading-dashboard/shared/database";
 
 import { auditFills, reconcileFills } from "../src/analytics/fill-integrity.js";
-import { ARCHIVE_BOUNDARY_MARGIN_MS } from "../src/analytics/history-checkpoint.js";
+
 import type { AppConfig } from "../src/config/app-config.js";
 import type { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
 import type { HlUserFill } from "../src/hyperliquid/types.js";
@@ -22,6 +22,7 @@ import { storedFrame } from "./archive-test-utils.js";
 import { testConfig } from "./config-test-utils.js";
 import { closeTestDb, getTestDb, insertUser, storedFills, truncateAll } from "./db-test-utils.js";
 import { HOUR_MS } from '../src/config/constants/time.js';
+import { ARCHIVE_BOUNDARY_MARGIN_MS } from '../src/config/constants/background.js';
 
 const FIXTURES = fileURLToPath(new URL("./fixtures/archive/", import.meta.url));
 const expected = JSON.parse(readFileSync(join(FIXTURES, "expected.json"), "utf8")) as Record<string, HlUserFill[]>;

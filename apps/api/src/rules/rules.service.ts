@@ -4,7 +4,7 @@ import type { AlertRuleKind } from "@trading-dashboard/shared/contracts";
 
 import { UnitOfWork, type DbTransaction } from "../db/unit-of-work.js";
 import { tradeSideOf } from "../notify/message-template.js";
-import { ALERT_MAX_AGE_MS, NotifyService } from "../notify/notify.service.js";
+import { NotifyService } from '../notify/notify.service.js';
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { AccountStateService } from "../watcher/account-state.service.js";
@@ -12,15 +12,13 @@ import { ACTION_CREATED_EVENT, type ActionCreatedEvent } from "../watcher/action
 import { ruleMatches } from "./rule-policy.js";
 import { RulesRepository, type AlertRuleRow, type LeaderRow } from "./rules.repository.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
+import { ALERT_MAX_AGE_MS } from '../config/constants/alerts.js';
+import { FAVORITE_BURST_GUARD_MS } from '../config/constants/background.js';
 
 /** Address-scope rule kinds that are evaluated. R4/R5 are real PRD kinds
  * but not implemented; ruleMatches rejects them. */
 const ADDRESS_SCOPE_KINDS_IN_SCOPE: AlertRuleKind[] = ["R1", "R2", "R3"];
 
-/** A favorite alert fires at most once per (user, trader, coin) in this
- * window. Actions are already 1 s aggregates; this only stops a trader who
- * fires several orders in a row from sending a burst. */
-export const FAVORITE_BURST_GUARD_MS = 10_000;
 
 interface Recipient {
   favorite: boolean;

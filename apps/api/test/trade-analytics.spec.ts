@@ -13,12 +13,15 @@ import { HistoryFillStore } from "../src/traders/history-fill.store.js";
 import { AnalysisHistoryService } from "../src/traders/analysis-history.service.js";
 import { TradeAnalyticsRepository } from "../src/traders/trade-analytics.repository.js";
 import { UNRANKED_BASE } from "../src/hyperliquid/request-budgeter.service.js";
-import { STALE_MS, MAX_CONCURRENT, MAX_WAITING, TRACKED_FALLBACK_MS, TradeAnalyticsService } from "../src/traders/trade-analytics.service.js";
-import { PAGE_DEADLINE_MS } from "../src/traders/traders.controller.js";
+import { MAX_CONCURRENT, MAX_WAITING, TradeAnalyticsService } from '../src/traders/trade-analytics.service.js';
+import { ANALYTICS_STALE_MS } from '../src/config/constants/cache-ttls.js';
+
 import type { TradersService } from "../src/traders/traders.service.js";
 import { toFillRow } from "../src/watcher/fill-row.js";
 import { createAuthedApp, stubPrivy } from "./auth-test-utils.js";
 import { closeTestDb, getTestDb, insertUser, storedFills, truncateAll } from "./db-test-utils.js";
+import { TRACKED_FALLBACK_MS } from '../src/config/constants/cache-ttls.js';
+import { PAGE_DEADLINE_MS } from '../src/config/constants/http.js';
 
 const X = `0x${"7a".repeat(20)}`;
 const TRACKED = `0x${"7b".repeat(20)}`;
@@ -247,7 +250,7 @@ describe("trade analytics for any address", () => {
     info.userFillsByTime.mockClear();
     traders.latestFills.mockClear();
     // Stale: a read serves the stored answer and starts a refresh.
-    await db.update(traderAnalytics).set({ computedAt: new Date(Date.now() - STALE_MS - 1000) });
+    await db.update(traderAnalytics).set({ computedAt: new Date(Date.now() - ANALYTICS_STALE_MS - 1000) });
     const stale = await get(`/traders/${X}/analytics`).expect(200);
     expect(stale.body.data.summary.trades).toBe(2);
     await waitFor(async () => (await db.select().from(traderAnalytics))[0].fillCursor!.getTime() === T(0.5));
@@ -273,7 +276,7 @@ describe("trade analytics for any address", () => {
     history.push(fill("SOL", 5, -5, 12, T(1), { closedPnl: "10" }));
     info.userFillsByTime.mockClear();
     info.clearinghouseState.mockClear();
-    await db.update(traderAnalytics).set({ computedAt: new Date(Date.now() - STALE_MS - 1000) });
+    await db.update(traderAnalytics).set({ computedAt: new Date(Date.now() - ANALYTICS_STALE_MS - 1000) });
     await get(`/traders/${X}/analytics`).expect(200);
     await waitFor(async () => (await db.select().from(traderAnalytics))[0].fillCursor!.getTime() === T(1));
     await service.settled();
@@ -478,7 +481,7 @@ describe("trade analytics for any address", () => {
     // The worker's turn picks it up, and not again while it is fresh.
     expect(await service.refreshTracked()).toEqual([TRACKED]);
     const after = (await db.select().from(traderAnalytics))[0];
-    expect(Date.now() - after.computedAt.getTime()).toBeLessThan(STALE_MS);
+    expect(Date.now() - after.computedAt.getTime()).toBeLessThan(ANALYTICS_STALE_MS);
     expect(await service.refreshTracked()).toEqual([]);
     expect((await service.analytics(TRACKED, "all")).refreshing).toBe(false);
     // New fills after the cursor: the next turn extends the stored trades.
@@ -507,13 +510,13 @@ describe("trade analytics for any address", () => {
       const waiting = await service.analytics(TRACKED, "all");
       await service.settled();
       expect(waiting.refreshing).toBe(true);
-      expect(Date.now() - (await db.select().from(traderAnalytics))[0].computedAt.getTime()).toBeGreaterThan(STALE_MS);
+      expect(Date.now() - (await db.select().from(traderAnalytics))[0].computedAt.getTime()).toBeGreaterThan(ANALYTICS_STALE_MS);
       // The worker is down: 23 hours later the page's read refreshes them.
       await db.execute(sql`update trader_analytics set computed_at = now() - interval '23 hours'`);
       const read = await service.analytics(TRACKED, "all");
       expect(read.refreshing).toBe(true);
       await service.settled();
-      expect(Date.now() - (await db.select().from(traderAnalytics))[0].computedAt.getTime()).toBeLessThan(STALE_MS);
+      expect(Date.now() - (await db.select().from(traderAnalytics))[0].computedAt.getTime()).toBeLessThan(ANALYTICS_STALE_MS);
       const after = await service.analytics(TRACKED, "all");
       expect(after.refreshing).toBe(false);
       expect(after.coverage.source).toBe("tracked");

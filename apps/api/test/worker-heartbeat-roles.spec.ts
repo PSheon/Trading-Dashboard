@@ -7,7 +7,7 @@ import type { INestApplicationContext } from "@nestjs/common";
 
 import { AppConfig } from "../src/config/app-config.js";
 import { validateEnvironment } from "../src/config/runtime-config.js";
-import { WorkerFleetService, SNAPSHOT_STALE_MS } from "../src/api/health/worker-fleet.service.js";
+import { WorkerFleetService } from '../src/api/health/worker-fleet.service.js';
 import { workerHealthReads } from "../src/bootstrap/worker.bootstrap.js";
 import { startWorkerHealthServer } from "../src/bootstrap/worker-health-server.js";
 import { DiscoveryPoolService } from "../src/discovery/discovery-pool.service.js";
@@ -20,6 +20,7 @@ import { SchedulerService } from "../src/scheduler/scheduler.service.js";
 import { AccountStateService, type AccountState } from "../src/watcher/account-state.service.js";
 import { WatcherService } from "../src/watcher/watcher.service.js";
 import { WorkerHeartbeatService } from "../src/worker/worker-heartbeat.service.js";
+import { SNAPSHOT_STALE_MS } from '../src/config/constants/alerts.js';
 
 // Stage, 2026-10-14: the `read` worker logged "Snapshots: 4 written" and
 // wrote the rows, yet its /health showed lastSnapshotAt, ...AttemptAt and

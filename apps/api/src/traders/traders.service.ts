@@ -27,12 +27,12 @@ import { PAGE_RANK } from "../hyperliquid/request-budgeter.service.js";
 import type { HlLedgerUpdate, HlPortfolioResponse, HlUserFill } from "../hyperliquid/types.js";
 import { TraderOrdersReader } from './trader-orders-reader.js';
 import { TraderTwapReader } from './trader-twap-reader.js';
-import { ACCOUNT_READ_DEADLINE_MS, TraderAccountReader } from './trader-account-reader.js';
+import { TraderAccountReader } from './trader-account-reader.js';
 import { LiveBoundaryError } from '../copy/live/wallet-authorization.js';
 import { activeTwaps, mergeOrders, toTraderTransfer } from "./trader-tabs.mappers.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { LeaderboardIngestService } from "./leaderboard-ingest.service.js";
-import { SPOT_PRICE_TTL_MS, SpotPriceService } from "./spot-price.service.js";
+import { SpotPriceService } from './spot-price.service.js';
 import { hypePrice, stakedHype, toAccountMode, totalAccountValue } from "./spot-prices.js";
 import {
   activePerpDexes,
@@ -53,6 +53,8 @@ import { kolAvatarPath } from "../discovery/kol-avatar.js";
 import { KolAvatarRepository } from "../discovery/kol-avatar.repository.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
 import { DAY_MS } from '../config/constants/time.js';
+import { ACCOUNT_MODE_TTL_MS, DEX_LIST_TTL_MS, FILLS_TTL_MS, ORDERS_TTL_MS, POOL_SPARKLINE_MAX_AGE_MS, PORTFOLIO_TTL_MS, PROFILE_TTL_MS, SPARKLINE_TTL_MS, SPOT_PRICE_TTL_MS, STAKING_TTL_MS, TRADER_THIRTY_DAYS_MS, TRANSFERS_TTL_MS, TRANSFERS_WINDOW_MS, TWAP_TTL_MS } from '../config/constants/cache-ttls.js';
+import { ACCOUNT_READ_DEADLINE_MS, SPARKLINE_DEADLINE_MS } from '../config/constants/http.js';
 
 /**
  * Page loads go ahead of backfill and sweeps (lower rank first within the
@@ -62,28 +64,6 @@ import { DAY_MS } from '../config/constants/time.js';
  */
 const LANE = "background" as const;
 
-/** Positions and account value: live data. */
-export const PROFILE_TTL_MS = 60_000;
-export const PORTFOLIO_TTL_MS = 60_000;
-/** Hyperliquid's latest fill and TWAP slice lists, for addresses we don't
- * store fills for (a tracked address's fills tab reads our table). They
- * cost up to 120 weight each, 3–6× a whole profile, so they are kept
- * longer: the fills tab and activity of an untracked trader are up to 5 min
- * old. */
-export const FILLS_TTL_MS = 5 * 60_000;
-export const SPARKLINE_TTL_MS = 10 * 60_000;
-export const DEX_LIST_TTL_MS = 60 * 60_000;
-/** Account mode (unified / portfolio margin / standard) and staked HYPE:
- * both change rarely and cost 20 weight each, so they are kept longer than
- * the profile. Staking is revalued at the current HYPE price every time. */
-export const ACCOUNT_MODE_TTL_MS = 10 * 60_000;
-export const STAKING_TTL_MS = 10 * 60_000;
-/** 訂單 / TWAP / 轉帳 tabs: loaded when opened, kept this long. */
-export const ORDERS_TTL_MS = 30_000;
-export const TWAP_TTL_MS = 60_000;
-export const TRANSFERS_TTL_MS = 5 * 60_000;
-/** The 轉帳 tab reads the last 90 days … */
-export const TRANSFERS_WINDOW_MS = 90 * 24 * 3_600_000;
 /** … at most this many rows, the newest … */
 export const TRANSFERS_MAX_ROWS = 500;
 /** … in at most this many calls. */
@@ -98,12 +78,7 @@ export const HEAVY_CACHE_MAX_ENTRIES = 200;
 export const SPARKLINE_CACHE_MAX_ENTRIES = 500;
 /** These caches also sweep expired entries on a timer, not only on writes. */
 const HEAVY = { sweepTimer: true } as const;
-/** A sparkline batch answers with what is ready by then (see `sparklines`). */
-export const SPARKLINE_DEADLINE_MS = 8_000;
-/** A discovery-pool sparkline older than this is fetched instead. */
-export const POOL_SPARKLINE_MAX_AGE_MS = 24 * 3_600_000;
 type SeriesPoint = [number, number];
-const THIRTY_DAYS_MS = 30 * 24 * 3_600_000;
 
 /** Stored sparkline values as a series ending at `endMs`, spread evenly
  * over `spanMs`, at most `SPARKLINE_MAX_POINTS`. */
@@ -228,7 +203,7 @@ export class TradersService {
    * vault's `portfolio` (20) is the chart's own 60 s copy.
    */
   private async loadProfile(address: string): Promise<SharedProfile> {
-    const since = new Date(Date.now() - THIRTY_DAYS_MS);
+    const since = new Date(Date.now() - TRADER_THIRTY_DAYS_MS);
     const sources: NonNullable<SharedProfile["dataQuality"]>["sources"] = {};
     const read = async <T>(key: string, load: () => Promise<T>, maxAgeMs: number,
       optional = false, observedAt?: () => number | null, deadlineMs = this.profileSourceDeadlineMs): Promise<T | null> => {
@@ -329,7 +304,7 @@ export class TradersService {
   /** Sample size and last trade, from fills (TWAP slices included). Apart
    * from the profile because the fill lists cost far more weight. */
   async activity(address: string): Promise<TraderActivityResponse> {
-    const since = new Date(Date.now() - THIRTY_DAYS_MS);
+    const since = new Date(Date.now() - TRADER_THIRTY_DAYS_MS);
     const [tracked, discovery] = await Promise.all([this.isTracked(address), this.settings.get("discovery")]);
     const sample = tracked ? await this.trackedSample(address, since, discovery.lowSampleThreshold) : await this.untrackedSample(address, since);
     return {

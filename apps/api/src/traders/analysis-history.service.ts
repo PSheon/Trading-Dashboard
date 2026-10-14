@@ -6,12 +6,11 @@ import { UNRANKED_BASE } from "../hyperliquid/request-budgeter.service.js";
 import type { HlUserFill } from "../hyperliquid/types.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { AnalysisHistoryRepository, type HistoryCaller, type HistoryJob } from "./analysis-history.repository.js";
+import { ANALYSIS_JOB_EXPIRE_EVERY_MS } from '../config/constants/background.js';
 
 /** At most two range pages per minute (~240 weight). Uses the existing
  * global budgeter, behind page requests. No detached notification work. */
 export const HISTORY_PAGES_PER_TICK = 2;
-/** Jobs nobody asks for any more are looked for this often. */
-const EXPIRE_EVERY_MS = 3_600_000;
 @Injectable()
 export class AnalysisHistoryService {
   private readonly logger = new Logger(AnalysisHistoryService.name);
@@ -69,7 +68,7 @@ export class AnalysisHistoryService {
   tick(): Promise<string | undefined> {
     if (this.jobs.stopping) return Promise.resolve(undefined);
     this.running ??= this.jobs.run(async () => {
-      if (Date.now() - this.expiredAt > EXPIRE_EVERY_MS) {
+      if (Date.now() - this.expiredAt > ANALYSIS_JOB_EXPIRE_EVERY_MS) {
         this.expiredAt = Date.now();
         const removed = await this.repository.expire().catch(() => 0);
         if (removed > 0) this.logger.log(`History: ${removed} job(s) nobody asked for in 14 days removed, with their fills`);

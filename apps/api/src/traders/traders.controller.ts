@@ -25,16 +25,8 @@ import { sharedRestRetryAfterMs } from "../hyperliquid/hyperliquid-capacity-erro
 import { TradersService } from "./traders.service.js";
 import { LiveBoundaryError } from '../copy/live/wallet-authorization.js';
 import { safeErrorText } from "../runtime/safe-error-text.js";
+import { BUSY_RETRY_AFTER_MS, PAGE_DEADLINE_MS } from '../config/constants/http.js';
 
-export const DEFAULT_FILLS_LIMIT = 50;
-/** CopyDog's 成交 tab reads up to 2,000 fills (one `userFills` page). */
-export const MAX_FILLS_LIMIT = 2000;
-/** A trader-page request answers within this long, well inside the web
- * forwarder's 20 s timeout: past it, 503 busy. */
-export const PAGE_DEADLINE_MS = 12_000;
-/** Retry-After of a busy answer. The work it was waiting on continues, so
- * a retry this much later usually finds it cached. */
-export const BUSY_RETRY_AFTER_MS = 5_000;
 /** Addresses per sparkline request without a session (one explore page);
  * a signed-in caller may ask for 30 (`SparklinesQueryDto`). */
 export const ANONYMOUS_SPARKLINE_MAX = 25;

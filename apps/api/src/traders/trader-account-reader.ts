@@ -4,14 +4,8 @@ import { address, LiveBoundaryError } from '../copy/live/wallet-authorization.js
 import { LIVE_DEX_NAME, MAX_LIVE_PERP_DEXES } from '../copy/live/live-market-resolver.js';
 import { validateInfoResponse } from '../hyperliquid/response-validation.js';
 import type { HlClearinghouseStateResponse } from '../hyperliquid/types.js';
+import { ACCOUNT_READ_TIMEOUT_MS, ACCOUNT_READ_WAIT_MS } from '../config/constants/http.js';
 function fail(): never { throw new LiveBoundaryError('trader_account_coverage_invalid'); }
-/** The source's own bound on one snapshot read. */
-export const ACCOUNT_READ_TIMEOUT_MS = 5_000;
-/** Longest a read waits for its turn on the socket. */
-export const ACCOUNT_READ_WAIT_MS = 4_000;
-/** Longest `read` takes in all, its turn included: what a caller racing it
- * must allow (a shorter race gave up on reads that were about to answer). */
-export const ACCOUNT_READ_DEADLINE_MS = ACCOUNT_READ_WAIT_MS + ACCOUNT_READ_TIMEOUT_MS;
 /** Reads that may wait for their turn at once; beyond this one fails at once. */
 export const ACCOUNT_READ_QUEUE_MAX = 16;
 /** Public reporting only. The official all-venue state snapshot avoids a

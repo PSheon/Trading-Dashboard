@@ -19,9 +19,9 @@ import {
   recordAdminAudit,
   type AuditActor,
 } from '../common/audit/admin-audit.js';
+import { BACKFILL_MAX_ATTEMPTS } from '../config/constants/background.js';
 
 export type ClaimedBackfill = typeof backfillJobs.$inferSelect;
-const MAX_ATTEMPTS = 3;
 const leaseDeadline = sql`now() + interval '90 seconds'`;
 /** Must be awaited inside the transaction admitting the new leader. */
 export async function enqueueBackfills(
@@ -59,7 +59,7 @@ export class BackfillJobsRepository {
           and(
             eq(backfillJobs.status, 'running'),
             lte(backfillJobs.leaseExpiresAt, sql`now()`),
-            gte(backfillJobs.runAttempts, MAX_ATTEMPTS),
+            gte(backfillJobs.runAttempts, BACKFILL_MAX_ATTEMPTS),
           ),
         );
       const [job] = await tx
@@ -67,7 +67,7 @@ export class BackfillJobsRepository {
         .from(backfillJobs)
         .where(
           and(
-            lt(backfillJobs.runAttempts, MAX_ATTEMPTS),
+            lt(backfillJobs.runAttempts, BACKFILL_MAX_ATTEMPTS),
             or(
               and(
                 eq(backfillJobs.status, 'pending'),
@@ -140,7 +140,7 @@ export class BackfillJobsRepository {
     );
   }
   async fail(job: ClaimedBackfill): Promise<boolean> {
-    const terminal = job.runAttempts >= MAX_ATTEMPTS;
+    const terminal = job.runAttempts >= BACKFILL_MAX_ATTEMPTS;
     return (
       (
         await this.db

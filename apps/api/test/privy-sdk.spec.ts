@@ -4,7 +4,7 @@ import { generateKeyPairSync, sign, type KeyObject } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppConfig } from "../src/config/app-config.js";
 import { validateEnvironment } from "../src/config/runtime-config.js";
-import { PRIVY_TIMEOUT_MS, SdkPrivyVerifier } from "../src/common/auth/privy-verifier.js";
+import { SdkPrivyVerifier } from '../src/common/auth/privy-verifier.js';
 
 const keys = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
 const second = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
@@ -61,6 +61,7 @@ import { users } from "@trading-dashboard/shared/database";
 import { RequirePermissions } from "../src/common/auth/permissions.js";
 import { getTestDb, truncateAll, closeTestDb } from "./db-test-utils.js";
 import { createAuthedApp } from "./auth-test-utils.js";
+import { PRIVY_TIMEOUT_MS } from '../src/config/constants/http.js';
 
 it("real signed Privy tokens resolve database RBAC through the HTTP guards", async () => {
   const db = getTestDb();

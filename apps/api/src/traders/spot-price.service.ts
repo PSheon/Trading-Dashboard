@@ -6,9 +6,8 @@ import type { HlAllMidsResponse, HlSpotBalance } from "../hyperliquid/types.js";
 import { buildSpotPriceBook, valueSpotBalances, type SpotPriceBook, type SpotValuation } from "./spot-prices.js";
 import { TtlCache } from "./ttl-cache.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
+import { SPOT_PRICE_TTL_MS } from '../config/constants/cache-ttls.js';
 
-/** One price book for the whole app, refreshed at most every 30 s. */
-export const SPOT_PRICE_TTL_MS = 30_000;
 
 /**
  * Spot prices for valuing balances: `spotMetaAndAssetCtxs` (weight 20) and

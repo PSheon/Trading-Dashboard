@@ -5,9 +5,8 @@ import { NotifyService } from "../notify/notify.service.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
 import { TradeFeedService } from "./trade-feed.service.js";
+import { FEED_DOWN_ALERT_MS } from '../config/constants/alerts.js';
 
-/** §8: feed down this long → Telegram self-alert. */
-const FEED_DOWN_ALERT_MS = 10 * 60_000;
 
 /**
  * The trade feed's own schedules, beside the feed (WatcherRuntimeModule: a

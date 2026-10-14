@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import type { HlClearinghouseStateResponse } from "../src/hyperliquid/types.js";
 import { fromScaled, toScaled } from "../src/watcher/action-classifier.js";
-import { BOOK_BUFFER_MS, PositionBook, type BookTrade } from "../src/watcher/position-book.js";
+import { PositionBook, type BookTrade } from '../src/watcher/position-book.js';
+import { BOOK_BUFFER_MS } from '../src/config/constants/background.js';
 
 const T0 = 1_790_000_000_000;
 

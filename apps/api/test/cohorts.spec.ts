@@ -9,7 +9,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import type { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
 import type { HlClearinghouseStateResponse } from "../src/hyperliquid/types.js";
 import { CohortRepository } from "../src/insights/cohort.repository.js";
-import { CohortService, SWEEP_MS } from "../src/insights/cohort.service.js";
+import { CohortService } from "../src/insights/cohort.service.js";
+import { COHORT_SWEEP_MS } from "../src/config/constants/background.js";
 import { aggregate, candleInterval, cohortEligible, cohortHistoryReady, COHORT_MAX_PERP_EQUITY, downsample, positionsFrom, walletOf } from "../src/insights/cohorts.js";
 import type { DiscoveryService } from "../src/discovery/discovery.service.js";
 import { InsightsController } from "../src/insights/insights.controller.js";
@@ -258,7 +259,7 @@ describe("cohort job and endpoints (real Postgres)", () => {
     expect((await service.refreshOne(row1, Date.now() + 60_000)).weight).toBe(4);
     expect(info.clearinghouseState.mock.calls.map((c) => c[1])).toEqual([undefined, "xyz"]);
     // … and a day later every dex again.
-    expect((await service.refreshOne(row1, Date.now() + SWEEP_MS + 1)).weight).toBe(6);
+    expect((await service.refreshOne(row1, Date.now() + COHORT_SWEEP_MS + 1)).weight).toBe(6);
 
     expect(await service.writeSnapshots(15 * 60_000)).toBe(1); // only the tier with fresh wallets
     expect(await service.writeSnapshots(15 * 60_000)).toBe(0); // not due again yet

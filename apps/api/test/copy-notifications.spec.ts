@@ -3,12 +3,13 @@ import { eq, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
 import { NotifyRepository } from "../src/notify/notify.repository.js";
-import { ALERT_MAX_AGE_MS, NotifyService } from "../src/notify/notify.service.js";
+import { NotifyService } from '../src/notify/notify.service.js';
 import { TelegramApiError, type TelegramHttpClient } from "../src/notify/telegram-http.client.js";
 import { TelegramLinkRepository } from "../src/telegram/telegram-link.repository.js";
 import { testConfig } from "./config-test-utils.js";
 import { closeTestDb, getTestDb, insertUser, truncateAll } from "./db-test-utils.js";
 import { copyStrategies, users } from "@trading-dashboard/shared/database";
+import { ALERT_MAX_AGE_MS } from '../src/config/constants/alerts.js';
 
 describe("confirmed copy notifications with durable delivery", () => {
   const db = getTestDb();

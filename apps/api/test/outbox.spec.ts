@@ -256,7 +256,7 @@ it("a queued alert is due at once: the drain right after the commit sends it, wi
 });
 
 it("a delivery that waited past the age limit is dropped as expired, not sent as if the trade were fresh", async () => {
-  const { ALERT_MAX_AGE_MS } = await import("../src/notify/notify.service.js");
+  const { ALERT_MAX_AGE_MS } = await import("../src/config/constants/alerts.js");
   const action = await create();
   await db.transaction((tx) => notify().notifyAlert({ action, traderName: null, recipient: { userId, telegramChatId: "chat", locale: "en" }, favorite: true, rules: [] }, tx));
   // Just inside the limit it would still go; the worker was down for longer.
@@ -276,7 +276,7 @@ it("a delivery that waited past the age limit is dropped as expired, not sent as
 });
 
 it("a replayed evaluation of an old action is closed without alerting anyone", async () => {
-  const { ALERT_MAX_AGE_MS } = await import("../src/notify/notify.service.js");
+  const { ALERT_MAX_AGE_MS } = await import("../src/config/constants/alerts.js");
   // Queued while it was fresh; the worker then stayed down past the limit.
   const queued = await create();
   await db.update(actions).set({ ts: new Date(Date.now() - ALERT_MAX_AGE_MS - 60_000) });

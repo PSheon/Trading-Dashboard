@@ -1,12 +1,11 @@
 import { AppConfig } from "../config/app-config.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { Injectable, Optional } from "@nestjs/common";
+import { TELEGRAM_CHAT_INTERVAL_MS } from '../config/constants/http.js';
 
 
 /** Messages a second across all chats (Telegram allows about 30). */
 export const TELEGRAM_MESSAGES_PER_SECOND = 25;
-/** Between two messages to one chat (Telegram allows about one a second). */
-export const TELEGRAM_CHAT_INTERVAL_MS = 1_000;
 
 /** A Bot API call that Telegram answered with `ok: false`, or an HTTP
  * error. `status` is the HTTP status (409 = another getUpdates poller or a

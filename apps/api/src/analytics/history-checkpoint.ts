@@ -1,5 +1,6 @@
 import type { HlUserFill } from "../hyperliquid/types.js";
 import { FILL_PAGE } from "./fill-history.js";
+import { ARCHIVE_BOUNDARY_MARGIN_MS } from '../config/constants/background.js';
 
 export type HistorySource = "regular" | "twap";
 export interface SourceCheckpoint {
@@ -21,11 +22,6 @@ export function initialCheckpoint(until: number, from = 0): HistoryCheckpoint {
  * every fill with `from <= time < through` is stored locally. */
 export interface ArchiveSpan { from: number; through: number }
 
-/** Hourly archive files rotate on the node's clock, not on block time, so a
- * fill near an hour boundary may sit in the neighbouring file. A span is
- * therefore certified only this far inside the hours actually ingested;
- * REST re-reads the margins (duplicates collapse on the tid key). */
-export const ARCHIVE_BOUNDARY_MARGIN_MS = 5 * 60_000;
 
 /** The certified span of ingested hours `[coveredFrom, coveredThrough)`;
  * null when it is too short to certify anything. */

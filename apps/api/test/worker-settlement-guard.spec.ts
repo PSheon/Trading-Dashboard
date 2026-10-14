@@ -2,13 +2,14 @@ import { Logger } from '@nestjs/common';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { adminSystemSchema } from '@trading-dashboard/shared/contracts';
 import { AdminSystemService } from '../src/admin/admin-system.service.js';
-import { SETTLEMENT_OWNER_WINDOW_MS, WorkerFleetService } from '../src/api/health/worker-fleet.service.js';
+import { WorkerFleetService } from '../src/api/health/worker-fleet.service.js';
 import { AppConfig } from '../src/config/app-config.js';
 import { RequestBudgeterService } from '../src/hyperliquid/request-budgeter.service.js';
 import type { WorkerRole } from '../src/runtime/worker-role.js';
 import { WorkerHeartbeatService } from '../src/worker/worker-heartbeat.service.js';
 import { testConfig } from './config-test-utils.js';
 import { ALERT_EVERY_MS } from '../src/config/constants/alerts.js';
+import { SETTLEMENT_OWNER_WINDOW_MS } from '../src/config/constants/alerts.js';
 
 // Cross-process settlement guard: with the api's terminal settlement loop
 // off (API_TERMINAL_SETTLEMENT=off) on a testnet copy deployment, a copy

@@ -4,6 +4,7 @@ import type { EgressIdentity } from "@trading-dashboard/shared/contracts";
 
 import type { EgressIdentityConfig } from "../config/runtime-config.js";
 import { hasWorkerMonitorKey } from "./worker-calls.js";
+import { EGRESS_IP_TTL_MS } from '../config/constants/background.js';
 
 /**
  * Which public IPv4 this process's requests leave from (design §8 I-15).
@@ -20,9 +21,6 @@ import { hasWorkerMonitorKey } from "./worker-calls.js";
  */
 export type EgressIdentityMode = EgressIdentity["mode"];
 export type EgressRole = EgressIdentity["role"];
-/** An address not seen again for this long leaves the set (a default
- * egress pool's address may move to another tenant). */
-export const EGRESS_IP_TTL_MS = 24 * 60 * 60_000;
 /** Echo calls at startup: a gateway may answer from a different address each time. */
 export const EGRESS_STARTUP_SAMPLES = 3;
 /** An echo's answer is at most this long (an IPv4 and a newline). */

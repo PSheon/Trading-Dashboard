@@ -21,16 +21,12 @@ import { TtlCache } from "../traders/ttl-cache.js";
 import { boardFreshness, buildBoard, candidateScores, coinBoard, coinIndex, toCandidate, traderCard, type Candidate, type PoolScores } from "./boards.js";
 import { isStockCoin, portfolioNumbers } from "./discovery-figures.js";
 import { DiscoveryRepository } from "./discovery.repository.js";
+import { BOARDS_TTL_MS, SEARCH_TTL_MS } from '../config/constants/cache-ttls.js';
 
-/** Boards read the pool table at most this often (it changes a row at a
- * time, a few times a minute). */
-export const BOARDS_TTL_MS = 30_000;
 /** Addresses per GET /discover/cards. */
 export const CARDS_MAX = 200;
 /** Cards per home row (CopyDog scrolls 7 on desktop, more on swipe). */
 export const HOME_ROW_SIZE = 12;
-/** Header search answers stay this long per query (names change rarely). */
-export const SEARCH_TTL_MS = 30_000;
 /** Matches read per source (KOL registry, leaderboard) before ranking. */
 export const SEARCH_PER_SOURCE = 25;
 

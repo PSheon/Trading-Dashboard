@@ -8,6 +8,7 @@
  * test/tuning-constants.spec.ts keeps every tuning constant here, unique,
  * with its basis.
  */
+import { MINUTE_MS } from './time.js';
 
 /** basis: guessed — three orders per leader leg (the cloid suffix holds one digit); gate 9 records p50/p99 of attempts used
  * Most orders one leader leg may be planned as. Attempt 0 is the leg's
@@ -43,3 +44,20 @@ export const MAX_SIGNAL_ATTEMPTS = 8;
  * sweepRetryDelayMs(n) after attempt n ended.
  */
 export const SYSTEM_SWEEP_ATTEMPTS = 5;
+
+/** basis: guessed — 5 Telegram link requests per user per window; verify: none needed
+ * Link requests per user per window; beyond it, 429.
+ */
+export const LINK_RATE_LIMIT = 5;
+
+/** basis: guessed — … per 10 min; verify: none needed
+ */
+export const LINK_RATE_WINDOW_MS = 10 * MINUTE_MS;
+
+/** basis: guessed — a leader's recent fills list shows 200; verify: none needed
+ */
+export const LEADER_FILLS_HISTORY_LIMIT = 200;
+
+/** basis: guessed — a leader's recent alerts list shows 50; verify: none needed
+ */
+export const LEADER_ALERTS_HISTORY_LIMIT = 50;

@@ -10,12 +10,13 @@ import { HyperliquidInfoClient } from "../hyperliquid/hyperliquid-info.client.js
 import { PAGE_RANK } from "../hyperliquid/request-budgeter.service.js";
 import { TtlCache } from "../traders/ttl-cache.js";
 import { BusyException } from "../traders/busy.js";
-import { BUSY_RETRY_AFTER_MS, isBusyError } from "../traders/traders.controller.js";
+import { isBusyError } from '../traders/traders.controller.js';
 import { WalletService } from "./wallet.service.js";
 import { WithdrawalRepository, type WithdrawalRow } from "./withdrawal.repository.js";
 import { isWithdrawalNotDispatched, WithdrawalExchangeClient } from "./withdrawal-exchange.client.js";
 import type { HlLedgerUpdate } from "../hyperliquid/types.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
+import { BUSY_RETRY_AFTER_MS } from '../config/constants/http.js';
 
 /** A ledger read returns at most this many updates; a full page means
  * there may be more after it (read on from its last time). */

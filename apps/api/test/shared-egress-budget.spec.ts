@@ -12,8 +12,9 @@ import { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.clien
 import { PostgresHyperliquidQuota, type BoundHyperliquidQuota } from "../src/hyperliquid/postgres-hyperliquid-quota.js";
 import { budgetConsumer, ESSENTIAL_RANK, PAGE_RANK, RequestBudgeterService, UNRANKED_BASE } from "../src/hyperliquid/request-budgeter.service.js";
 import { BackgroundJobs } from "../src/runtime/background-jobs.service.js";
-import { SNAPSHOT_QUEUE_MS, SWEEP_QUEUE_MS } from "../src/scheduler/scheduler.service.js";
+
 import { testConfig } from "./config-test-utils.js";
+import { SNAPSHOT_QUEUE_MS, SWEEP_QUEUE_MS } from '../src/config/constants/background.js';
 
 const MINUTE = 60_000;
 const DATABASE_URL = "postgres://test@localhost/test";

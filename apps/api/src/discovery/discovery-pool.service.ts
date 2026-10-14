@@ -11,6 +11,7 @@ import { portfolioFigures, tradeFigures } from "./discovery-figures.js";
 import { DiscoveryRepository, type DiscoveryFigures, type PoolQueueRow } from "./discovery.repository.js";
 import { DiscoveryService } from "./discovery.service.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
+import { LEDGER_REFRESH_MS, POOL_LEDGER_REFRESH_SHARE, POOL_REBUILD_MS, POOL_RETRY_BACKOFF_MS, POOL_VISIBLE_TTL_MS, POOL_VISIBLE_WEIGHT, TICK_WORK_MS } from '../config/constants/background.js';
 
 /** Budgeter rank of the performance loop's calls: behind every page rank
  * (0–3), ahead of the ledger loop and of every unranked background call. */
@@ -19,28 +20,9 @@ export const DISCOVERY_RANK = UNRANKED_BASE - 1;
  * unranked background work, so a build neither jumps ahead of fill
  * storage nor starves behind it; its own cap bounds its share. */
 export const LEDGER_RANK = UNRANKED_BASE;
-/** Rebuild the pool at least this often (KOL edits), and after every
- * leaderboard import. */
-export const POOL_REBUILD_MS = 10 * 60_000;
-/** A row attempted this recently (a failure) waits before its next try. */
-export const RETRY_BACKOFF_MS = 15 * 60_000;
-/** A tick spends at most this long refreshing, so ticks never overlap. */
-export const TICK_WORK_MS = 50_000;
 /** A loop may save up at most this many minutes of its allowance. */
 const MAX_SAVED_MINUTES = 2;
 const WEIGHT_PORTFOLIO = 20;
-/** A visible row (boards, home rows, KOLs, followed traders) is refreshed
- * this many times as often as the rest of the pool. */
-export const VISIBLE_WEIGHT = 4;
-/** The visible set is recomputed at most this often. */
-const VISIBLE_TTL_MS = 60_000;
-/** A row's trade ledger is refreshed incrementally once this old (coin
- * boards and the stocks top 100 show ledger figures). */
-export const LEDGER_REFRESH_MS = 60 * 60_000;
-/** Share of the ledger loop's allowance kept for incremental refreshes
- * while cold builds are pending; the rest (and what refreshes don't use)
- * builds ledgers for rows that have none. */
-const LEDGER_REFRESH_SHARE = 0.5;
 
 /** One refresh's cost, kept for the admin/system view and the docs. */
 export interface PoolRefreshLog {
@@ -72,7 +54,7 @@ export interface PoolFreshness {
  * - **performance** (`HYPERLIQUID_POOL_PERFORMANCE_WEIGHT_PER_MIN`): one
  *   `portfolio` read (20) per row for PnL, ROI, Sharpe, drawdown, account
  *   value, copy score and sparklines. Rows are taken by urgency, the age
- *   of their figures weighted `VISIBLE_WEIGHT`× for the rows the site
+ *   of their figures weighted `POOL_VISIBLE_WEIGHT`× for the rows the site
  *   shows (every board's top 100 in every sort and window, the home rows,
  *   KOLs, favorited and copied traders), so those stay fresh at the
  *   budget's pace and the rest of the pool follows behind. At 240/min
@@ -173,13 +155,13 @@ export class DiscoveryPoolService {
   /**
    * The performance loop's order: rows never read first (best pool rank
    * first), then by the age of their figures, visible rows' ages weighted
-   * `VISIBLE_WEIGHT`×. Rows that failed within `RETRY_BACKOFF_MS` wait.
+   * `POOL_VISIBLE_WEIGHT`×. Rows that failed within `POOL_RETRY_BACKOFF_MS` wait.
    */
   performanceQueue(rows: PoolQueueRow[], visible: Set<string>, now = Date.now()): string[] {
-    const backoff = now - RETRY_BACKOFF_MS;
+    const backoff = now - POOL_RETRY_BACKOFF_MS;
     const urgency = (row: PoolQueueRow): number => {
       const age = row.portfolioAt === null ? Infinity : now - row.portfolioAt.getTime();
-      return visible.has(row.address) ? age * VISIBLE_WEIGHT : age;
+      return visible.has(row.address) ? age * POOL_VISIBLE_WEIGHT : age;
     };
     return rows
       .filter((row) => row.performanceAttemptedAt === null || row.performanceAttemptedAt.getTime() < backoff || (row.lastError === null && row.portfolioAt !== null))
@@ -204,7 +186,7 @@ export class DiscoveryPoolService {
     const tickTokens = this.ledgerTokens;
     // Refreshes get at least their share of the tick; builds get the rest
     // and whatever the refreshes leave.
-    let refreshTokens = build.length > 0 ? tickTokens * LEDGER_REFRESH_SHARE : tickTokens;
+    let refreshTokens = build.length > 0 ? tickTokens * POOL_LEDGER_REFRESH_SHARE : tickTokens;
     for (const address of refresh) {
       if (refreshTokens <= 0 || this.ledgerTokens <= 0 || Date.now() >= until || this.jobs.stopping) break;
       const { weight } = await this.refreshLedger(address);
@@ -222,7 +204,7 @@ export class DiscoveryPoolService {
 
   /** The ledger loop's queues (see `ledgerTick`). */
   ledgerQueues(rows: PoolQueueRow[], visible: Set<string>, now = Date.now()): { refresh: string[]; build: string[] } {
-    const backoff = now - RETRY_BACKOFF_MS;
+    const backoff = now - POOL_RETRY_BACKOFF_MS;
     const due = rows.filter((row) => row.attemptedAt === null || row.attemptedAt.getTime() < backoff);
     const stale = (row: PoolQueueRow) => row.tradesAt !== null && now - row.tradesAt.getTime() >= LEDGER_REFRESH_MS;
     const byAge = (a: PoolQueueRow, b: PoolQueueRow) => a.tradesAt!.getTime() - b.tradesAt!.getTime() || a.address.localeCompare(b.address);
@@ -246,10 +228,10 @@ export class DiscoveryPoolService {
   /**
    * The rows the site shows: every board's top 100 in every sort and
    * window, the home rows, every KOL, and traders someone favorited or
-   * copies. Recomputed at most every `VISIBLE_TTL_MS`.
+   * copies. Recomputed at most every `POOL_VISIBLE_TTL_MS`.
    */
   async visibleAddresses(now = Date.now()): Promise<Set<string>> {
-    if (this.visible && now - this.visible.at < VISIBLE_TTL_MS) return this.visible.addresses;
+    if (this.visible && now - this.visible.at < POOL_VISIBLE_TTL_MS) return this.visible.addresses;
     const [shown, followed, kols] = await Promise.all([
       this.boards?.visibleAddresses() ?? Promise.resolve(new Set<string>()),
       this.repository.followedAddresses(),
@@ -313,7 +295,7 @@ export class DiscoveryPoolService {
   /**
    * One `portfolio` read: the performance figures, stamped with the time
    * of the Hyperliquid read. A failure keeps the previous figures and
-   * records the error; the row then waits `RETRY_BACKOFF_MS`.
+   * records the error; the row then waits `POOL_RETRY_BACKOFF_MS`.
    */
   async refreshPerformance(address: string): Promise<{ weight: number; ok: boolean }> {
     const started = Date.now();

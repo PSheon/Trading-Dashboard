@@ -14,12 +14,13 @@ import { AccountStateService } from "../src/watcher/account-state.service.js";
 import type { FeedActionsService } from "../src/watcher/feed-actions.service.js";
 import { toFillRow } from "../src/watcher/fill-row.js";
 import { FillSyncRepository } from "../src/watcher/fill-sync.repository.js";
-import { BACKFILL_LOOKBACK_MS, BACKFILL_MAX_FILLS, FillSyncService, INDEX_LAG_MS, INITIAL_LOOKBACK_MS, PAGE_SIZE } from "../src/watcher/fill-sync.service.js";
+import { BACKFILL_MAX_FILLS, FillSyncService, PAGE_SIZE } from '../src/watcher/fill-sync.service.js';
 import type { TradeFeedService } from "../src/watcher/trade-feed.service.js";
 import { WatcherRepository } from "../src/watcher/watcher.repository.js";
 import { WatcherService } from "../src/watcher/watcher.service.js";
 import { testConfig } from "./config-test-utils.js";
 import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
+import { BACKFILL_LOOKBACK_MS, INDEX_LAG_MS, INITIAL_LOOKBACK_MS } from '../src/config/constants/background.js';
 
 const A = `0x${"c1".repeat(20)}`;
 const HOUR = 3_600_000;

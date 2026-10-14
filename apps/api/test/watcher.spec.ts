@@ -9,8 +9,9 @@ import type { AccountStateService } from "../src/watcher/account-state.service.j
 import type { FeedActionsService } from "../src/watcher/feed-actions.service.js";
 import type { FillSyncService, SyncResult } from "../src/watcher/fill-sync.service.js";
 import type { TradeFeedService } from "../src/watcher/trade-feed.service.js";
-import { CONFIRM_DELAY_MS, CONFIRM_MIN_INTERVAL_MS, WatcherService } from "../src/watcher/watcher.service.js";
+import { WatcherService } from '../src/watcher/watcher.service.js';
 import { closeTestDb, getTestDb, truncateAll } from "./db-test-utils.js";
+import { CONFIRM_DELAY_MS, CONFIRM_MIN_INTERVAL_MS } from '../src/config/constants/background.js';
 
 const T0 = 1_790_000_000_000;
 

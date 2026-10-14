@@ -1,8 +1,8 @@
 import type { INestApplication } from "@nestjs/common";
 
 import type { BackgroundJobs } from "../runtime/background-jobs.service.js";
+import { SHUTDOWN_TIMEOUT_MS } from '../config/constants/http.js';
 
-const SHUTDOWN_TIMEOUT_MS = 30_000;
 
 /**
  * Register once per process, before Nest's signal listeners. Stop accepting

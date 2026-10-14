@@ -5,22 +5,16 @@ import { AuthModule } from "../common/auth/auth.module.js";
 import { HyperliquidModule } from "../hyperliquid/hyperliquid.module.js";
 import { LeaderActivityModule } from "../traders/leader-activity.module.js";
 import { NotifyModule } from "../notify/notify.module.js";
+import { CopyReadModule } from "./copy-read.module.js";
 import { CopyAdminReadService } from "./copy-admin-read.service.js";
 import { CopyAdoptionRepairService } from "./copy-adoption-repair.service.js";
 import { CopyControlService } from "./copy-control.service.js";
-import { CopyExecutionService } from "./copy-execution.service.js";
-import { CopyPerformanceService } from "./copy-performance.service.js";
-import { CopyMarketService } from "./copy-market.service.js";
-import { CopyOrderPlanner } from "./copy-planner.service.js";
-import { CopyRiskPolicyService } from "./copy-risk-policy.service.js";
-import { CopySignalService } from "./copy-signal.service.js";
 import { CopyStrategyService } from "./copy-strategy.service.js";
 import { CopyStreamService } from "./copy-stream.service.js";
 import { CopyFundsRepository } from "./copy-funds.repository.js";
 import { CopyFundsService } from "./copy-funds.service.js";
 import { CopyFundsController } from "./copy-funds.controller.js";
 import { CopyController } from "./copy.controller.js";
-import { CopyRepository } from "./copy.repository.js";
 import { PostgresLiveExecutionJournal } from "./live/postgres-live-journal.js";
 import { PostgresWalletAuthorizationSource } from "./live/postgres-wallet-authorizations.js";
 import { CopyWalletController } from "./copy-wallet.controller.js";
@@ -44,10 +38,6 @@ import { CopyAgentRepository } from "./copy-agent.repository.js";
 import { CopyAgentService } from "./copy-agent.service.js";
 import { USER_AGENT_PROVISIONER, PrivyUserAgentProvisioner } from "./live/privy-agent-provisioner.js";
 import { AGENT_APPROVAL_CLIENT, PrivyAgentApprovalClient } from "./copy-agent-exchange.client.js";
-import { CopyFollowerLedger } from "./live/copy-follower-ledger.js";
-import { HyperliquidFollowerReceiptReader } from "./live/follower-receipt-reader.js";
-import { CopyFollowerReconciler } from "./copy-follower-monitor.service.js";
-import { CopyFollowerScanRepository } from "./copy-follower-scan.repository.js";
 import { CopyFollowerStatementRepository } from "./copy-follower-statement.repository.js";
 import { CopyFollowerController } from "./copy-follower.controller.js";
 import { CopyFollowerStatementService } from "./copy-follower-statement.service.js";
@@ -59,7 +49,6 @@ import { HyperliquidAccountModeAbsenceReader } from "./copy-account-mode-evidenc
 import { CopyFollowerActivityRepository } from "./copy-follower-activity.repository.js";
 import { CopyFollowerActivityService } from "./copy-follower-activity.service.js";
 import { CopyFollowerSnapshotController } from "./copy-follower-snapshot.controller.js";
-import { CopyFollowerSnapshotRepository } from "./copy-follower-snapshot.repository.js";
 import { CopyFollowerSnapshotService } from "./copy-follower-snapshot.service.js";
 import { CopyLiveMandateController } from "./copy-live-mandate.controller.js";
 import { CopyLiveMandateRepository } from "./copy-live-mandate.repository.js";
@@ -110,11 +99,11 @@ const setupReserve = (config: AppConfig, { network, dedicated }: Pick<WalletNetw
 
 @Module({
   // NotifyModule: the operator's system message when an order keeps failing.
-  imports: [AuthModule, HyperliquidModule, NotifyModule, LeaderActivityModule],
+  imports: [AuthModule, HyperliquidModule, NotifyModule, LeaderActivityModule, CopyReadModule],
   controllers: [CopyController, CopyFundsController, CopyWalletController, CopyFundingController, CopyAgentController, CopyFollowerController, CopyAccountModeController, CopyFollowerSnapshotController, CopyLiveMandateController, CopyLiveStopController, CopyLiveReturnController, CopyLivePortfolioController, CopyLiveCloseController, CopyLiveSetupController],
   providers: [apiSettlementProvider, CopyAdminLiveRepository, CopyAdminLiveService,
-    CopyRepository, CopyMarketService, CopyRiskPolicyService, CopyOrderPlanner, CopySignalService, CopyExecutionService,
-    CopyControlService, CopyStrategyService, CopyAdminReadService, CopyAdoptionRepairService, CopyPerformanceService, CopyStreamService, CopyFundsService, CopyFundsRepository,
+    // Paper copy and follower reporting: CopyReadModule's (also the `read` worker's).
+    CopyControlService, CopyStrategyService, CopyAdminReadService, CopyAdoptionRepairService, CopyStreamService, CopyFundsService, CopyFundsRepository,
     PostgresLiveExecutionJournal, PostgresWalletAuthorizationSource,
     { provide: HyperliquidAgentApprovalVerifier, inject: [AppConfig, WALLET_NETWORK_HL],
       useFactory: (config: AppConfig, { budget, transport }: WalletNetworkHyperliquid) => new HyperliquidAgentApprovalVerifier(
@@ -142,9 +131,9 @@ const setupReserve = (config: AppConfig, { network, dedicated }: Pick<WalletNetw
     { provide: ACCOUNT_MODE_ABSENCE_READER, inject: [AppConfig, WALLET_NETWORK_HL], useFactory: (config: AppConfig, { setupBudget, transport, network, dedicated }: WalletNetworkHyperliquid) =>
       new HyperliquidAccountModeAbsenceReader(network, liveBudget(setupBudget, setupReserve(config, { network, dedicated })), transport.fetchInfo, Date.now,
         new HyperliquidAllDexsAccountSource(Date.now, undefined, network, transport, { closeAfterRead: true }), transport) },
-    CopyFollowerLedger, CopyFollowerScanRepository, CopyFollowerReconciler, CopyFollowerStatementService, CopyFollowerStatementRepository,
+    CopyFollowerStatementService, CopyFollowerStatementRepository,
     CopyFollowerActivityRepository, CopyFollowerActivityService,
-    CopyFollowerSnapshotRepository, CopyFollowerSnapshotService,
+    CopyFollowerSnapshotService,
     CopyLiveMandateRepository, CopyLiveMandateService, CopyLiveStopRepository, CopyLiveStopService, CopyLiveSystemStops, CopyLiveReturnRepository, CopyLiveReturnService, CopyLivePortfolioRepository, CopyLiveCloseService, CopyLiveCloseRepository, CopyLiveSetupRepository, CopyLiveSetupService,
     CopyLiveSetupAbortRepository, CopyLiveSetupAbortReturnRepository, CopyLiveSetupAbortService,
     { provide: SETUP_ABORT_OBSERVER, inject: [WALLET_NETWORK_HL], useFactory: ({ budget, transport, network }: WalletNetworkHyperliquid) =>
@@ -154,24 +143,19 @@ const setupReserve = (config: AppConfig, { network, dedicated }: Pick<WalletNetw
         new HyperliquidAllDexsAccountSource(Date.now, undefined, network, transport, { closeAfterRead: true }), 52_000) },
     { provide: WORKER_MASTER_SIGNER, inject: [AppConfig], useFactory: (config: AppConfig) => new PrivyPolicyMasterSigner({ appId: config.value.auth.appId, appSecret: config.value.auth.appSecret,
       workerQuorumId: config.value.copy.agent?.workerQuorumId, authorizationPrivateKey: config.value.copy.agent?.authorizationPrivateKey }) },
-    { provide: HyperliquidFollowerReceiptReader, inject: [WALLET_NETWORK_HL], useFactory: ({ budget, transport, network }: WalletNetworkHyperliquid) =>
-      // Reporting (the follower monitor's receipts and funding): the shared
-      // meter's background lane too, waiting there for room like snapshots.
-      new HyperliquidFollowerReceiptReader(network, liveBudget(budget, { lane: "background", maxWaitMs: 5_000 }), transport.fetchEssentialInfo,
-        Date.now, weight => { if (weight > 0) budget.adjust(-weight); },
-        { acquire: liveBudget(budget, { lane: "background", maxWaitMs: Math.min(180_000, budget.refillMs()) }), maxWaitMs: Math.min(180_000, budget.refillMs()) + 2000 }) },
     { provide: USER_AGENT_PROVISIONER, inject: [AppConfig], useFactory: (config: AppConfig) => new PrivyUserAgentProvisioner({
       appId: config.value.auth.appId, appSecret: config.value.auth.appSecret, workerQuorumId: config.value.copy.agent?.workerQuorumId,
       authorizationPublicKey: config.value.copy.agent?.authorizationPublicKey, network: deploymentNetwork(config) }) },
     { provide: AGENT_APPROVAL_CLIENT, inject: [AppConfig, WALLET_NETWORK_HL], useFactory: (config: AppConfig, wallet: WalletNetworkHyperliquid) =>
       new PrivyAgentApprovalClient(config.value.auth, liveBudget(wallet.setupBudget, setupReserve(config, wallet)),undefined,Date.now,wallet.transport) },
   ],
-  exports: [CopyControlService, CopyRiskPolicyService, CopyAdminReadService, CopyAdminLiveService, PostgresLiveExecutionJournal, PostgresWalletAuthorizationSource,
+  exports: [CopyControlService, CopyAdminReadService, CopyAdminLiveService, PostgresLiveExecutionJournal, PostgresWalletAuthorizationSource,
     // Disabling a user stops their actual copies (AdminUsersService).
     CopyLiveSystemStops,
-    // For CopyWorkerModule's loops (the worker process only).
-    CopySignalService, CopyExecutionService, CopyPerformanceService, CopyFundingService, CopyFollowerReconciler, CopyFollowerSnapshotRepository,
-    // For the testnet execution engine (CopyWorkerModule).
-    CopyMarketService, CopyFollowerLedger, CopyFollowerScanRepository, CopyLiveReturnRepository, CopyLiveSetupService, WORKER_MASTER_SIGNER],
+    // CopyRiskPolicyService, the paper loops' services and the reporting
+    // reconciler, ledger and repositories (one instance per process).
+    CopyReadModule,
+    // For the copy worker's loops (CopyLiveWorkerModule).
+    CopyFundingService, CopyLiveReturnRepository, CopyLiveSetupService, WORKER_MASTER_SIGNER],
 })
 export class CopyModule {}

@@ -1,14 +1,15 @@
 import { Module } from "@nestjs/common";
 
-import { NotifyModule } from "../notify/notify.module.js";
 import { WatcherModule } from "../watcher/watcher.module.js";
 import { SchedulerRepository } from "./scheduler.repository.js";
 import { SchedulerService } from "./scheduler.service.js";
 
-/** Snapshots, sweeps, the backfill turn and the feed self-alert: the worker
- * process only (its ScheduleModule fires the `@Cron` methods). */
+/** Snapshots, sweeps and the backfill turn: the `read` (or `all`) worker
+ * only (its ScheduleModule fires the `@Cron` methods). WatcherModule gives
+ * the capabilities (the watch list, sweeps, fill sync, account state) and
+ * starts no feed; the feed's own self-alert is WatcherRuntimeModule's. */
 @Module({
-  imports: [WatcherModule, NotifyModule],
+  imports: [WatcherModule],
   providers: [SchedulerRepository, SchedulerService],
   exports: [SchedulerService],
 })

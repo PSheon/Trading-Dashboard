@@ -13,7 +13,8 @@ import { ActionRelay } from "../runtime/action-relay.js";
 import { SchedulerModule } from "../scheduler/scheduler.module.js";
 import { TelegramWorkerModule } from "../telegram/telegram.module.js";
 import { TradersWorkerModule } from "../traders/traders-worker.module.js";
-import { WatcherModule } from "../watcher/watcher.module.js";
+import { BackfillWorkerModule } from "../jobs/backfill-worker.module.js";
+import { WatcherRuntimeModule } from "../watcher/watcher-runtime.module.js";
 import { WorkerHeartbeatService } from "./worker-heartbeat.service.js";
 
 /**
@@ -27,8 +28,9 @@ import { WorkerHeartbeatService } from "./worker-heartbeat.service.js";
 @Module({
   imports: [
     HyperliquidModule,
-    WatcherModule,
+    WatcherRuntimeModule,
     SchedulerModule,
+    BackfillWorkerModule,
     TradersWorkerModule,
     DiscoveryModule,
     DiscoveryWorkerModule,

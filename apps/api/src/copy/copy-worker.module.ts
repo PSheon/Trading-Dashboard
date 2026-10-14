@@ -17,7 +17,7 @@ import { CopyLiveWorkerRepository } from "./live-worker/copy-live-worker.reposit
 import { CopyLiveStopWorkerRepository } from "./live-worker/copy-live-stop-worker.repository.js";
 import { CopyLiveWorkerService } from "./live-worker/copy-live-worker.service.js";
 import { liveEngineProvider } from "./live-worker/copy-live-engine.provider.js";
-import { WatcherModule } from "../watcher/watcher.module.js";
+import { WatcherRuntimeModule } from "../watcher/watcher-runtime.module.js";
 
 export function followerSnapshotReader({ budget, transport, network }: Pick<WalletNetworkHyperliquid, 'budget' | 'transport' | 'network'>) {
   // Reporting waits before its evidence clock, under the existing background
@@ -87,8 +87,8 @@ export function followerSnapshotReader({ budget, transport, network }: Pick<Wall
  * follower receipt monitor and the follower snapshot collector. Imported by
  * the worker process only (AppModule.worker()); the api never constructs them. */
 @Module({
-  // WatcherModule: the trade feed's state (the fast copy source polls while it is down).
-  imports: [CopyModule, HyperliquidModule, WatcherModule],
+  // WatcherRuntimeModule: the running trade feed (the fast copy source polls while it is down).
+  imports: [CopyModule, HyperliquidModule, WatcherRuntimeModule],
   providers: [CopyWorkerService, CopyFundingMonitor, CopyFollowerMonitor, CopyFollowerSnapshotCollector,
     CopyLiveSourceRepository, CopyLiveWorkerRepository, CopyLiveStopWorkerRepository, liveEngineProvider, CopyLiveWorkerService,
     // Copy-account reads use the wallet network's own budget (copy.module.ts), not

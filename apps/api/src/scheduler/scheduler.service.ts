@@ -7,15 +7,11 @@ import { budgetConsumer } from "../hyperliquid/request-budgeter.service.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { forEachConcurrent } from "../runtime/concurrency.js";
 import { SchedulerRepository } from "./scheduler.repository.js";
-import { NotifyService } from "../notify/notify.service.js";
 import { AccountStateService, MAIN_DEX, type AccountState } from "../watcher/account-state.service.js";
 import { FillSyncService } from "../watcher/fill-sync.service.js";
-import { TradeFeedService } from "../watcher/trade-feed.service.js";
 import { WatcherService } from "../watcher/watcher.service.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
 
-/** §8: feed down this long → Telegram self-alert. */
-const FEED_DOWN_ALERT_MS = 10 * 60_000;
 const RECONCILE_OVERLAP_MS = 60_000;
 /** A snapshot or sweep call that has waited this long for the Hyperliquid
  * budget fails, so the run ends (and is reported as failed) before its
@@ -29,17 +25,17 @@ export const SWEEP_QUEUE_MS = 14 * 60_000;
  *   dex it uses → `position_snapshots` / `equity_snapshots`, and
  *   reconciliation: a position that changed with no stored fill since the
  *   previous snapshot triggers a fill sync;
- * - hourly: sweep every address from its verified cursor, and subscribe to
- *   newly listed markets;
+ * - hourly, and at :15/:30/:45: sweep every address from its verified cursor;
  * - every minute: one backward backfill window for an address whose stored
- *   history has not reached its floor yet;
- * - every minute: §8 self-alert when the trade feed has been down 10 min.
+ *   history has not reached its floor yet.
+ *
+ * None of these needs the trade feed: a `read` worker runs them with the
+ * watcher's capabilities and no feed. The feed's own schedules (the §8
+ * self-alert, new markets) are FeedMonitorService's, beside the feed.
  */
 @Injectable()
 export class SchedulerService {
   private readonly logger = new Logger(SchedulerService.name);
-  private feedDownAlerted = false;
-  private feedMissingSince: number | null = null;
   lastSnapshotAt: Date | null = null;
   lastSnapshotAttemptAt: Date | null = null;
   lastSnapshotFailureAt: Date | null = null;
@@ -49,8 +45,6 @@ export class SchedulerService {
     private readonly watcher: WatcherService,
     private readonly accounts: AccountStateService,
     private readonly fillSync: FillSyncService,
-    private readonly feed: TradeFeedService,
-    private readonly notify: NotifyService,
     private readonly repository: SchedulerRepository,
     private readonly unitOfWork: UnitOfWork,
     @Optional() private readonly jobs: BackgroundJobs = new BackgroundJobs(),
@@ -96,11 +90,6 @@ export class SchedulerService {
   @Cron(CronExpression.EVERY_HOUR)
   async hourly(): Promise<void> {
     if (this.jobs.stopping) return;
-    try {
-      await this.feed.refreshMarkets();
-    } catch (error) {
-      this.logger.error(`Market refresh failed: ${safeErrorText(error)}`);
-    }
     const result = await budgetConsumer("sweep", () => this.watcher.sweep(), { queueMs: SWEEP_QUEUE_MS });
     this.logger.log(`Hourly sweep: ${result.addresses} addresses, ${result.inserted} new fills, ${result.failed} failed`);
   }
@@ -121,36 +110,6 @@ export class SchedulerService {
     } catch (error) {
       // Progress is in fill_coverage; the next minute retries the same window.
       this.logger.warn(`Backfill window failed: ${safeErrorText(error)}`);
-    }
-  }
-
-  @Cron(CronExpression.EVERY_MINUTE)
-  async checkFeed(now = Date.now()): Promise<void> {
-    if (this.jobs.stopping) return;
-    try {
-      await this.checkFeedOnce(now);
-    } catch (error) {
-      this.logger.error(`Feed check failed: ${safeErrorText(error)}`);
-    }
-  }
-
-  private async checkFeedOnce(now: number): Promise<void> {
-    const status = this.feed.status();
-    const down = status.socketsTotal === 0 || status.socketsOpen < status.socketsTotal;
-    if (!down) {
-      this.feedMissingSince = null;
-      if (this.feedDownAlerted) {
-        this.feedDownAlerted = false;
-        await this.notify.sendSystemMessage("✅ Trade feed recovered; missed fills are being swept.");
-      }
-      return;
-    }
-    const since = status.disconnectedSince?.getTime() ?? (this.feedMissingSince ??= now);
-    if (!this.feedDownAlerted && now - since >= FEED_DOWN_ALERT_MS) {
-      this.feedDownAlerted = true;
-      await this.notify.sendSystemMessage(
-        `⚠️ Trade feed down for ${Math.round((now - since) / 60_000)} min (${status.socketsOpen}/${status.socketsTotal} sockets open). No alerts until it recovers.`,
-      );
     }
   }
 

@@ -8,7 +8,7 @@ import { AdminSystemRepository } from "./admin-system.repository.js";
 import { explorerHealth } from "../copy/explorer-health.js";
 import { egressIdentity } from "../runtime/egress-identity.js";
 import { foreignUsage } from "../hyperliquid/foreign-usage.js";
-import { WALLET_NETWORK_HL, type WalletNetworkHyperliquid } from "../hyperliquid/wallet-network-hyperliquid.js";
+import { WALLET_NETWORK_HL, walletSetupBucket, type WalletNetworkHyperliquid } from "../hyperliquid/wallet-network-hyperliquid.js";
 
 @Injectable()
 export class AdminSystemService {
@@ -16,7 +16,7 @@ export class AdminSystemService {
   private pending?: Promise<AdminSystemOverview>;
   constructor(private readonly repository: AdminSystemRepository, private readonly config: AppConfig,
     private readonly budgeter: RequestBudgeterService, private readonly fleet: WorkerFleetService,
-    @Optional() @Inject(WALLET_NETWORK_HL) private readonly wallet?: Pick<WalletNetworkHyperliquid, "transport">) {}
+    @Optional() @Inject(WALLET_NETWORK_HL) private readonly wallet?: Pick<WalletNetworkHyperliquid, "transport"> & Partial<Pick<WalletNetworkHyperliquid, "network" | "budget" | "setupBudget" | "dedicated">>) {}
 
   overview(): Promise<AdminSystemOverview> {
     if (this.cached && Date.now() < this.cached.until) return Promise.resolve(this.cached.value);
@@ -34,7 +34,8 @@ export class AdminSystemService {
     ]);
     const meter = lanes.status === "fulfilled" ? lanes.value : undefined;
     const lane = (demand: { count: number; held: number; until: number | null }) => ({ ...demand, until: demand.until === null ? null : new Date(demand.until).toISOString() });
-    const budget = this.budgeter.introspect(), explorer = explorerHealth.status();
+    const budget = this.budgeter.introspect(), explorer = explorerHealth.status(), w = this.wallet;
+    const setup = w?.network && w.budget && w.setupBudget && w.dedicated ? walletSetupBucket({ network: w.network, budget: w.budget, setupBudget: w.setupBudget, dedicated: w.dedicated }) : undefined;
     return {
       sampledAt: new Date().toISOString(),
       api: { state: "active", uptimeSeconds: Math.floor(process.uptime()),
@@ -47,7 +48,9 @@ export class AdminSystemService {
         // This process's public IPs (HL_EGRESS_IDENTITY; absent while off).
         ...(egressIdentity.mode === "off" ? {} : { egressIdentity: egressIdentity.snapshot() }),
         // Hyperliquid's rate limits this process met; foreign_usage_suspected among them.
-        foreignUsage: foreignUsage.status() },
+        foreignUsage: foreignUsage.status(),
+        // This process's copy-setup bucket, when it has its own (setups the api drives: API_SETUP_DRIVE=local).
+        ...(setup ? { setupBudget: setup } : {}) },
       worker: worker.status === "fulfilled" ? worker.value.worker : { state: "unavailable", sample: null },
       ...(worker.status === "fulfilled" && worker.value.read ? { workerRead: worker.value.read } : {}),
       database: database.status === "fulfilled" ? { state: "available", latencyMs: database.value } : { state: "unavailable", latencyMs: null },

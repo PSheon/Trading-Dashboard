@@ -155,7 +155,11 @@ export const adminSystemSchema = z.object({
     egressIdentity: s.egressIdentitySchema.optional(),
     /** Hyperliquid's rate limits this api process met, and those suspected
      * to be someone else's use of its IP (foreign_usage_suspected). Additive. */
-    foreignUsage: s.foreignUsageSchema.optional() }),
+    foreignUsage: s.foreignUsageSchema.optional(),
+    /** This api process's copy-setup bucket (it drives setups while
+     * API_SETUP_DRIVE=local), when it is a bucket of its own: its tokens
+     * and queue, as the worker heartbeat's setupBudget. Additive. */
+    setupBudget: s.walletBucketSchema.optional() }),
   /** WORKER_URL's worker (the `copy` worker, or the single `all` one). While
    * the `read` worker (WORKER_READ_URL) is active, this sample's heartbeat
    * carries its snapshot, sweep, discovery, archive and dry-run fields, and

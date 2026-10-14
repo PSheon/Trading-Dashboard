@@ -5,7 +5,7 @@ import { AppConfig } from "../config/app-config.js";
 import { DiscoveryPoolService } from "../discovery/discovery-pool.service.js";
 import { ArchiveIngestService } from "../ingest/archive-ingest.service.js";
 import { RequestBudgeterService } from "../hyperliquid/request-budgeter.service.js";
-import { WALLET_NETWORK_HL, type WalletNetworkHyperliquid } from "../hyperliquid/wallet-network-hyperliquid.js";
+import { WALLET_NETWORK_HL, walletBucket, walletSetupBucket, type WalletNetworkHyperliquid } from "../hyperliquid/wallet-network-hyperliquid.js";
 import { SchedulerService } from "../scheduler/scheduler.service.js";
 import { roleLeases } from "../runtime/worker-role.js";
 import { WatcherService } from "../watcher/watcher.service.js";
@@ -68,9 +68,9 @@ export class WorkerHeartbeatService {
         caps: budget.consumerCaps,
       },
       // The real-money bucket: who spends it (local testnet, 2026-10-12, where no copy order fitted).
-      walletBudget: this.wallet?.dedicated ? (() => { const w = this.wallet!.budget.introspect(); return {
-        network: this.wallet!.network, effectivePerMin: w.effectiveBudgetPerMin, weightLastMinute: w.weightLastMinute, tokensAvailable: Math.round(w.tokensAvailable),
-        reserveTokens: Math.round(w.reserveTokens), queued: this.wallet!.budget.queued(), consumers: w.consumers }; })() : undefined,
+      walletBudget: this.wallet?.dedicated ? walletBucket(this.wallet.network, this.wallet.budget) : undefined,
+      // Copy setups' own bucket beside it (c2581938): its tokens and who waits on it.
+      setupBudget: this.wallet ? walletSetupBucket(this.wallet) : undefined,
       // Our clock against Hyperliquid's (warns above 1 s; comparisons tolerate 2 s).
       clockSkew: clockSkew.status(),
       // Hyperliquid's explorer, which proves a deposit's credit: reached, or failing since when.

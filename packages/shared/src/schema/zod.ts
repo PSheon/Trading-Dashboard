@@ -397,6 +397,18 @@ export const foreignUsageSchema = z.object({
   lastOurWindowUse: z.number().nullable(),
 });
 export type ForeignUsage = z.infer<typeof foreignUsageSchema>;
+/** One of the wallet network's local token buckets (the order bucket, the
+ * setup bucket): its rate, trailing-minute spend per consumer, the tokens
+ * it holds, its reserve and the calls waiting on it. */
+export const walletBucketSchema = z.object({
+  network: z.enum(["mainnet", "testnet"]),
+  effectivePerMin: z.number(),
+  weightLastMinute: z.number(),
+  tokensAvailable: z.number(),
+  reserveTokens: z.number(),
+  queued: z.object({ live: z.number().int(), background: z.number().int() }),
+  consumers: z.record(z.number()),
+});
 export const heartbeatResponseSchema = z.object({
   feedConnected: z.boolean(),
   feedSocketsOpen: z.number().int(),
@@ -428,15 +440,12 @@ export const heartbeatResponseSchema = z.object({
   }).optional(),
   /** The wallet network's own bucket (real-money copy work), when it has
    * one: its trailing-minute spend per consumer and what it holds. Additive. */
-  walletBudget: z.object({
-    network: z.enum(["mainnet", "testnet"]),
-    effectivePerMin: z.number(),
-    weightLastMinute: z.number(),
-    tokensAvailable: z.number(),
-    reserveTokens: z.number(),
-    queued: z.object({ live: z.number().int(), background: z.number().int() }),
-    consumers: z.record(z.number()),
-  }).optional(),
+  walletBudget: walletBucketSchema.optional(),
+  /** The wallet network's copy-setup bucket (WalletNetworkHyperliquid
+   * .setupBudget: account mode, agent approval, builder fee), when it is a
+   * bucket of its own beside walletBudget: what it holds and who waits.
+   * Additive. */
+  setupBudget: walletBucketSchema.optional(),
   /** Our clock against Hyperliquid's, from account state times this process
    * read: the recent smallest (ours − theirs) in ms (positive: ours runs
    * ahead), and a warning above 1 s. Additive. */

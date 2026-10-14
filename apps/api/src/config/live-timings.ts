@@ -7,10 +7,8 @@ import type { RetryPolicy } from "../copy/live/error-class.js";
 type Environment = Record<string, string | undefined>;
 
 /**
- * The time a live setup driver may spend (architecture review 2026-10-12
- * §6.3): one lease, the budget of one step inside it, and how a step that
- * did not finish is retried. Today's values are the defaults; every one was
- * a scattered literal before (copy-live-setup.service.ts, copy.module.ts).
+ * The time a live setup driver may spend: one lease, the budget of one step
+ * inside it, and how a step that did not finish is retried.
  */
 export interface LiveSetupTimings {
   /** How long one driver holds a setup (a crashed driver's lease lapses). */
@@ -40,8 +38,8 @@ export interface LiveSetupTimings {
     readonly backoffBaseMs: number;
     readonly backoffMaxMs: number;
     /** A transient failure ends the setup (failed) at this many attempts in
-     * one stage (handoff 2026-10-11 §4e: "暫時錯誤可重試 3 次"). Budget waits
-     * and outcomes still unknown never count (error-class.ts). */
+     * one stage. Budget waits and outcomes still unknown never count
+     * (error-class.ts). */
     readonly transientAttempts: number;
     /** A step waiting for its owner (needs_owner) is looked at again after this. */
     readonly needsOwnerMs: number;

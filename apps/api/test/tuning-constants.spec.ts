@@ -4,8 +4,7 @@ import { join, relative, resolve } from 'node:path';
 
 /**
  * Every tuning constant of the live copy path has one home,
- * src/config/constants/ (review J-6, 2026-10-15; Paul: "constants must live in
- * one shared place, with no duplicates"):
+ * src/config/constants/ (review J-6, 2026-10-15):
  * - a tuning-named `const` (TUNING) declared anywhere else under the guarded
  *   directories is refused, unless it is allow-listed here with its reason;
  * - two constants with the same name are refused (one meaning, one name);

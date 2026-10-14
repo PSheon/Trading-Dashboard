@@ -521,3 +521,10 @@ Then Phase 2 (in-memory scheduler). §1 scoping and Phase 3 (node) come after ma
 3. Hyperliquid's WebSocket rate-limit wording is not verified: a WS `error` is counted when it matches `/rate.?limit|too many/i`. Every other error text is logged as `hl_ws_error_unmatched {text}` (addresses, hashes and tokens stripped, at most 200 characters, each distinct text at most once per 10 min); calibrate the pattern from those lines during the observe week.
 
 **I-16 (2026-10-15) Phase 2.3 acceptance.** The scheduler is accepted only when every row D1–D12 of `docs/egress-subtraction-inventory-2026-10-15.md` §1.1 is deleted in the same batch (about 735 lines plus about 10 specs). The two must not coexist. The safety items in §1.2 of that inventory stay. Its §2 constants audit (98 constants; 56 of them guesses) is for Paul to decide which to cut.
+
+**I-17 (2026-10-14) Observe first; gateway + enforce after the mainnet test.**
+- Observe readings on Stage, default egress, release 450f41f4. Each service already has its own IP: worker-copy `208.77.246.108`, worker-read `208.77.246.60`, api `152.55.188.100`. `foreignUsage` is 0 on both workers.
+- The gateway plus enforce wait until after the mainnet test, subject to three conditions:
+  1. A `foreignUsage.count` of 0 is evidence only when `rateLimited > 0` has also happened. Stage traffic rarely draws a 429 from Hyperliquid. Report `rateLimited` and `count` every day. During gate run 9 (contention fully on, the only time traffic nears 1200), watch them closely.
+  2. Redeploy every service at least twice. Record how its `publicIps` change, and whether they ever overlap another service's. The guard keeps a 24 h set, so overlaps leave a trace.
+  3. The mainnet test may run on the default egress, because the guard alerts on overlap. If worker-copy is redeployed during the test and its new IP shows a non-zero `foreignUsage`, switch to the gateway plus enforce immediately, without waiting for the test to end.

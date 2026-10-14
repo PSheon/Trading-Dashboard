@@ -10,6 +10,14 @@ let scopes: PostgresLiveRiskScope;
 const identity = { userId: 1, network: 'testnet' as const, accountAddress: `0x${'ab'.repeat(20)}` };
 beforeAll(() => { getTestDb(); pool = new Pool({ connectionString: process.env.TEST_DATABASE_URL, max: 4 }); scopes = new PostgresLiveRiskScope(pool); });
 afterAll(async () => { await pool?.end(); await closeTestDb(); });
+/** The backend pid of a scope's own session. */
+const backendPid = async (session: Parameters<Parameters<PostgresLiveRiskScope['run']>[1]>[1]) =>
+  Number((await session.read(db => db.execute(sql`select pg_backend_pid() as pid`))).rows[0]!.pid);
+/** A refusal's pg_locks sessions that are `pid` (fails if pg_locks was not read). */
+function ownSessions(refused: LiveRiskBusyError, pid: number) {
+  expect(refused.detail.sessions).not.toBeNull();
+  return refused.detail.sessions!.filter(session => session.pid === pid);
+}
 describe('distributed user and account risk serialization', () => {
   it('accepts only the original factory-issued session while that scope is live', async () => {
     let old!: Parameters<Parameters<PostgresLiveRiskScope['run']>[1]>[1];
@@ -155,29 +163,35 @@ describe('distributed user and account risk serialization', () => {
   it('names the lock and its holder (kind, id, how long) in a live_risk_busy refusal', async () => {
     let clock = 1_000_000;
     const order = new PostgresLiveRiskScope(pool, () => clock, undefined, { kind: 'order', id: 'testnet:0xab:0x01' });
-    await order.run(identity, async () => {
+    await order.run(identity, async (_scope, session) => {
+      // pg_locks spans every database on the server: under a concurrent suite
+      // another run's scope can hold the same key in its own database. Only
+      // this scope's backend is the holder asserted here.
+      const holderPid = await backendPid(session);
       clock += 1_500;
       const refused = await new PostgresLiveRiskScope(pool, () => clock, undefined, { kind: 'settlement' }).run({ ...identity, userId: 2 }, async () => 'unsafe').catch((error: unknown) => error);
       expect(refused).toBeInstanceOf(LiveRiskBusyError);
       expect((refused as LiveRiskBusyError).detail).toMatchObject({ lock: 'account', holders: [{ kind: 'order', id: 'testnet:0xab:0x01', heldMs: 1_500 }] });
       // The holding session as pg_locks shows it (any process, any writer).
-      expect((refused as LiveRiskBusyError).detail.sessions).toHaveLength(1);
+      expect(ownSessions(refused as LiveRiskBusyError, holderPid)).toEqual([expect.objectContaining({ pid: holderPid })]);
       expect(liveRiskBusyDetail(refused)).toContain('"kind":"order"');
     });
     // A transaction-scoped writer in another session: no scope holds it, pg_locks names it.
     const writer = await pool.connect();
     try {
       await writer.query('begin');
+      const writerPid = (await writer.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0]!.pid;
       await writer.query('select pg_advisory_xact_lock(7404, $1::integer)', [identity.userId]);
       const refused = await scopes.run(identity, async () => 'unsafe').catch((error: unknown) => error) as LiveRiskBusyError;
-      expect(refused.detail).toMatchObject({ lock: 'user', holders: [], sessions: [{ state: 'idle in transaction' }] });
-      expect(refused.detail.sessions![0]!.heldMs).toBeGreaterThanOrEqual(0);
+      expect(refused.detail).toMatchObject({ lock: 'user', holders: [] });
+      expect(ownSessions(refused, writerPid)).toEqual([expect.objectContaining({ state: 'idle in transaction' })]);
+      expect(ownSessions(refused, writerPid)[0]!.heldMs).toBeGreaterThanOrEqual(0);
       // Which code path: the table (or lock function) of its latest statement
       // (gate run 10: an idle-in-transaction holder nothing could name).
-      expect(refused.detail.sessions![0]!.last).toBe('pg_advisory_xact_lock');
+      expect(ownSessions(refused, writerPid)[0]!.last).toBe('pg_advisory_xact_lock');
       await writer.query('select count(*) from copy_live_dispatches');
       const again = await scopes.run(identity, async () => 'unsafe').catch((error: unknown) => error) as LiveRiskBusyError;
-      expect(again.detail.sessions![0]).toMatchObject({ state: 'idle in transaction', last: 'copy_live_dispatches' });
+      expect(ownSessions(again, writerPid)).toEqual([expect.objectContaining({ state: 'idle in transaction', last: 'copy_live_dispatches' })]);
     } finally { await writer.query('rollback'); writer.release(); }
   });
   it('allows independent users/accounts but serializes a user across networks', async () => {

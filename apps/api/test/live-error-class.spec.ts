@@ -1,7 +1,8 @@
 import { BadGatewayException, ConflictException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import { assertSetupTimings, DEFAULT_LIVE_SETUP_TIMINGS, setupStepBudgetMs } from '../src/config/live-timings.js';
-import { classify, decideRetry, exhausted, IDENTITY_UNVERIFIED_ISSUE, LIVE_LEG_RETRY_POLICY, liveRetryDelayMs, PRIVY_IDENTITY_EVIDENCE_CODES, PROVIDER_READ_RETRY_MS, StepFail, StepWait } from '../src/copy/live/error-class.js';
+import { classify, decideRetry, exhausted, IDENTITY_UNVERIFIED_ISSUE, LIVE_LEG_RETRY_POLICY, liveRetryDelayMs, PRIVY_IDENTITY_EVIDENCE_CODES, PROVIDER_READ_RETRY_MS, StepFail, StepWait, WAIT_FLOOR_MS } from '../src/copy/live/error-class.js';
+import { errorCode } from '../src/runtime/safe-error-text.js';
 import { setupRetryPolicy } from '../src/config/live-timings.js';
 import { AgentIdentityEvidenceExpired } from '../src/copy/copy-agent.service.js';
 import { LiveBoundaryError } from '../src/copy/live/wallet-authorization.js';
@@ -121,6 +122,19 @@ describe('THE retry policy of a live step (decideRetry): a leg, a stop and a set
       expect(decideRetry(unavailable(new HyperliquidRestCapacityError(4_000)), 5, policy)).toMatchObject({ kind: 'wait', delayMs: 4_250 });
       expect(decideRetry(new StepWait('awaiting_credit', 3_000), 5, policy)).toMatchObject({ kind: 'wait', delayMs: 3_000 });
     }
+  });
+  it("a wait whose error says no time is back after the policy's default: a setup step its pendingMs (3 s, as before), a leg a second; a hint under a second is a second", () => {
+    expect(decideRetry(new LiveBoundaryError('hyperliquid_quota_queue_full'), 0, setup)).toMatchObject({ kind: 'wait', delayMs: DEFAULT_LIVE_SETUP_TIMINGS.retry.pendingMs });
+    expect(decideRetry(new LiveBoundaryError('hyperliquid_quota_queue_full'), 0, LIVE_LEG_RETRY_POLICY)).toMatchObject({ kind: 'wait', delayMs: WAIT_FLOOR_MS });
+    expect(decideRetry(new StepWait('x', 10), 0, setup)).toMatchObject({ kind: 'wait', delayMs: WAIT_FLOOR_MS });
+    expect(WAIT_FLOOR_MS).toBe(1_000);
+  });
+  it("the engine's reason (errorCode) and the classifier's code agree on every code the policy reads, wrapped observations included", () => {
+    for (const error of [new LiveBoundaryError('live_risk_stale'), unavailable(new TypeError('fetch failed')), new LiveBoundaryError('hyperliquid_quota_users'), new Error('no_follower_position')])
+      expect(classify(error).code).toBe(errorCode(error));
+    // The one divergence: an HttpException carries its code in the response, which errorCode never read; the policy now spaces it as the provider read it is.
+    expect(errorCode(new ConflictException({ statusCode: 409, code: 'live_risk_stale', message: 'Stale read.' }))).toBe('live_execution_failed');
+    expect(liveRetryDelayMs(new ConflictException({ statusCode: 409, code: 'live_risk_stale', message: 'Stale read.' }))).toBe(PROVIDER_READ_RETRY_MS);
   });
   it("a transient failure backs off under the setup's policy (3 s × 2^attempts, 60 s at most) and ends at its eighth attempt", () => {
     const error = new Error('privy_unavailable');

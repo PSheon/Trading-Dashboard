@@ -78,7 +78,7 @@ export const DEFAULT_LIVE_STOP_TIMINGS: LiveStopTimings = Object.freeze({
  * attempts at which a stage gives up, and when an owner's step is looked at
  * again. One table with the copy legs' and the stops' (LIVE_LEG_RETRY_POLICY). */
 export const setupRetryPolicy = (timings: LiveSetupTimings): RetryPolicy =>
-  ({ baseMs: timings.retry.backoffBaseMs, maxMs: timings.retry.backoffMaxMs, attempts: timings.retry.transientAttempts, needsOwnerMs: timings.retry.needsOwnerMs });
+  ({ baseMs: timings.retry.backoffBaseMs, maxMs: timings.retry.backoffMaxMs, attempts: timings.retry.transientAttempts, needsOwnerMs: timings.retry.needsOwnerMs, waitDefaultMs: timings.retry.pendingMs });
 
 /** Sum of one setup step's budgets: what a driver may spend under one lease. */
 export const setupStepBudgetMs = (timings: LiveSetupTimings): number =>

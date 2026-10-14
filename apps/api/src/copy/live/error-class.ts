@@ -205,16 +205,24 @@ export const PROVIDER_READ_RETRY_MS = 10_000;
  * - `attempts`: at this many transient attempts the step ends (`exhausted`),
  *   or, for a code with `exhaustedAs`, waits for its owner.
  * - `needsOwnerMs`: when a step waiting for its owner is looked at again.
+ * - `waitDefaultMs`: a wait (`budget`) whose error says no time (a busy
+ *   lock, a full queue) is back after this; one that says is back then, at
+ *   least WAIT_FLOOR_MS.
  */
 export interface RetryPolicy {
   readonly baseMs: number;
   readonly maxMs: number;
   readonly attempts: number;
   readonly needsOwnerMs: number;
+  readonly waitDefaultMs: number;
 }
+/** No live step is tried again within a second of a wait, whatever the
+ * error's hint: a sub-second retry of a real-money step only spins. */
+export const WAIT_FLOOR_MS = 1_000;
 /** A copy leg's and a stop's policy: 3 s flat, never ended by this count
- * (legs and stops have their own limits: the signal's age, CLOSE_ATTEMPT_LIMIT). */
-export const LIVE_LEG_RETRY_POLICY: RetryPolicy = Object.freeze({ baseMs: 3_000, maxMs: 3_000, attempts: Number.MAX_SAFE_INTEGER, needsOwnerMs: 3_000 });
+ * (legs and stops have their own limits: the signal's age, CLOSE_ATTEMPT_LIMIT);
+ * a wait without a time is back in a second. */
+export const LIVE_LEG_RETRY_POLICY: RetryPolicy = Object.freeze({ baseMs: 3_000, maxMs: 3_000, attempts: Number.MAX_SAFE_INTEGER, needsOwnerMs: 3_000, waitDefaultMs: WAIT_FLOOR_MS });
 
 /** What a failed step does next (decideRetry). `delayMs` is from now. */
 export type RetryDecision =
@@ -230,7 +238,8 @@ export type RetryDecision =
 /**
  * The one decision for a failed live step, from the error's class
  * (classify), the step's attempts so far and the caller's policy:
- * - `budget`: `wait` when the error said (at least 1 s); never an attempt.
+ * - `budget`: `wait` when the error said (at least WAIT_FLOOR_MS), else
+ *   after `policy.waitDefaultMs`; never an attempt.
  * - `needs_owner`: `owner` after `needsOwnerMs`; attempts unchanged.
  * - `permanent`: `end`.
  * - `transient`: one attempt more. At `policy.attempts` (unless the outcome
@@ -243,7 +252,7 @@ export type RetryDecision =
 export function decideRetry(error: unknown, priorAttempts: number, policy: RetryPolicy): RetryDecision {
   const classified = classify(error), code = classified.code ?? '';
   switch (classified.class) {
-    case 'budget': return { kind: 'wait', delayMs: Math.max(1_000, classified.retryAfterMs ?? 1_000), classified };
+    case 'budget': return { kind: 'wait', delayMs: Math.max(WAIT_FLOOR_MS, classified.retryAfterMs ?? policy.waitDefaultMs), classified };
     case 'needs_owner': return { kind: 'owner', delayMs: policy.needsOwnerMs, attempts: priorAttempts, exhausted: false, classified };
     case 'permanent': return { kind: 'end', attempts: priorAttempts, exhausted: false, classified };
     case 'transient': {

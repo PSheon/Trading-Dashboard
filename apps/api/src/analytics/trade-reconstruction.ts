@@ -11,46 +11,29 @@ import {
 } from "../watcher/action-classifier.js";
 
 /**
- * Round-trip trades from fills, for any address, as CopyDog defines them
- * (its 交易 / 表現 tabs; reverse-engineered from its public API and bundle,
- * see docs/trade-analytics.md).
+ * Round-trip trades from fills, as CopyDog defines them (its 交易 / 表現
+ * tabs; see docs/trade-analytics.md).
  *
  * A trade opens when a coin's position leaves 0 and closes when it returns
- * to 0, or flips: a fill that takes a long through zero into a short closes
- * the long with the part of its size that reaches zero and opens the short
- * with the rest (its fee and `closedPnl` both belong to
- * the closing leg, which is where Hyperliquid books it). Adds and reduces
- * stay inside the trade. Every fill carries `startPosition`, the position
- * right before it, so the boundaries are exact; fills sharing a
- * millisecond are put in execution order by chaining those positions
- * (`executionOrder`, the same rule the action classifier uses).
+ * to 0 or flips (the part reaching zero closes, the rest opens the next
+ * trade; fee and `closedPnl` stay with the closing leg, as Hyperliquid books
+ * them). `startPosition` makes boundaries exact; same-millisecond fills are
+ * chained by `executionOrder`.
  *
- * Per trade: size = Σ every fill that grew the position; entry price is
- * their volume-weighted average and exit price that of every fill that
- * shrank it; gross PnL = Σ `closedPnl` (Hyperliquid's own, before fees);
- * fees = Σ `fee`; net = gross − fees (a win is net > 0). Funding is added
- * separately (`attributeFunding`) and isn't in net. TWAP slices are fills
- * like any other.
+ * Per trade: size = Σ fills that grew the position; entry/exit price are
+ * VWAPs of growing/shrinking fills; gross = Σ `closedPnl`; net = gross − Σ
+ * `fee` (win: net > 0). Funding is separate (`attributeFunding`), not in net.
  *
- * History that starts mid-position (the first fill we hold for a coin
- * doesn't start from 0: older fills are beyond Hyperliquid's retention or
- * the lookback) gives a *partial* trade, as on CopyDog: its entry time is
- * that first fill ("before …"), the unseen part of its size is the
- * position before it, and that part's price is solved from the first
- * closing fill's `closedPnl` (Hyperliquid books closedPnl against the
- * position's average entry, so the entry price is exact). Until a closing
- * fill arrives its entry price covers only the fills we hold
- * (`entryApprox`).
+ * History starting mid-position gives a *partial* trade: the unseen size is
+ * the position before the first held fill, priced exactly from the first
+ * closing fill's `closedPnl` (booked against average entry); until then
+ * `entryApprox`.
  *
- * A trade the exchange closed (auto-deleveraging, settlement of a delisted
- * market) is dropped, as CopyDog leaves it out.
+ * Exchange-forced closes (ADL, delisting settlement) are dropped, as on
+ * CopyDog. A fill not starting where the trade stands (missing fill): a
+ * same-side jump continues, anything else drops the trade.
  *
- * A fill that doesn't start where the running trade stands (a fill missing
- * from the data) resyncs to it: a same-side jump just continues, anything
- * else drops the trade rather than guessing.
- *
- * Reconstruction is incremental: `applyFills` continues from the trades
- * still open after the previous batch, so a refresh only reads new fills.
+ * Incremental: `applyFills` continues from trades still open.
  */
 export type TradeSide = "long" | "short";
 
@@ -86,10 +69,8 @@ export interface Trade {
   lastFillTime: number;
 }
 
-/** Closes the exchange forces on a position (auto-deleveraging against a
- * liquidation, a delisted market's settlement). CopyDog counts no trade
- * that ends in one (checked: 0xf62e…'s ETH ADL of 2025-10-10 and ZEREBRO
- * settlement, 0xeadc…'s hyna settlements are all missing from its ledger). */
+/** Exchange-forced closes; CopyDog counts no trade ending in one (checked
+ * against 0xf62e… and 0xeadc… ledgers). */
 const FORCED_CLOSE_DIRS = new Set(["Auto-Deleveraging", "Settlement"]);
 
 const sign = (v: bigint): -1 | 0 | 1 => (v > 0n ? 1 : v < 0n ? -1 : 0);
@@ -309,13 +290,10 @@ export interface FundingEvent {
 }
 
 /**
- * Adds funding payments to the trade that held the coin at that time:
- * entry < time ≤ exit (open: no upper bound). Hyperliquid pays funding
- * hourly and reports older payments as daily sums stamped 00:00 UTC, so a
- * day in which a coin was closed and reopened is attributed to whichever
- * trade was open at midnight; that is the only approximation. Trades whose
- * `funding` is null (opened before funding was read) are left null.
- * Returns how many events found a trade.
+ * Adds funding to the trade holding the coin then: entry < time ≤ exit.
+ * Older payments arrive as daily sums at 00:00 UTC, so a day with a
+ * close/reopen goes to the trade open at midnight (the only approximation).
+ * Null `funding` stays null. Returns how many events found a trade.
  */
 export function attributeFunding(trades: Iterable<Trade>, events: FundingEvent[]): number {
   const byCoin = new Map<string, Trade[]>();

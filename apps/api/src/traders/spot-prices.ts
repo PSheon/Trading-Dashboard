@@ -37,20 +37,15 @@ export interface SpotPriceBook {
 }
 
 /**
- * Prices every spot token in USD, the way Hyperliquid's portfolio totals do
- * (verified live 2026-09-29 against `portfolio` account values):
- *
- * - USDC is 1.
- * - A token with a USDC pair ("PURR/USDC", "@107" for HYPE) takes that
- *   pair's mark price (`markPx`), falling back to its mid. Hyperliquid
- *   values by mark: an illiquid pair whose mid is far off (FXMR, mid 30 vs
- *   mark 54.7) matched the portfolio total only at the mark.
- * - A token quoted only in another token (USDT0, USDH, USDE) takes that
- *   pair's mark × the quote token's USD price.
- * - Contexts are matched to pairs by name; the arrays are not aligned.
- * - Outcome tokens ("+12301") are priced from `allMids["#12301"]`.
- *
- * A token with none of these is left out (valued at 0 by the caller).
+ * Prices spot tokens in USD as Hyperliquid's portfolio totals do (verified
+ * 2026-09-29):
+ * - USDC is 1;
+ * - a USDC pair: its `markPx`, else mid (Hyperliquid values by mark, which
+ *   matters for illiquid pairs);
+ * - quoted only in another token: pair mark × quote token's USD price;
+ * - contexts match pairs by name (the arrays are not aligned);
+ * - outcome tokens ("+12301") from `allMids["#12301"]`.
+ * Anything else is left out (valued at 0 by the caller).
  */
 export function buildSpotPriceBook(
   [meta, ctxs]: HlSpotMetaAndAssetCtxsResponse,
@@ -148,17 +143,12 @@ export function toAccountMode(abstraction: string | null, portfolioMarginEnabled
 }
 
 /**
- * Total equity as Hyperliquid's `portfolio` reports it (verified live
- * 2026-09-29 on 16 active accounts in every mode: within 0.05% except where
- * noted in the docs below):
- *
- * - standard: perp equity (every dex) + spot value + staked HYPE;
- * - unified / portfolio margin: spot value + staked HYPE. The spot
- *   clearinghouse already holds the perp collateral and PnL; adding the
- *   per-dex perp states would count it twice.
- *
- * Not included: borrow/lend positions outside portfolio margin (supplied
- * minus borrowed; seen on 1 of 16 accounts, 5%) and vault deposits.
+ * Total equity as `portfolio` reports it (verified 2026-09-29 on 16 accounts,
+ * within 0.05%):
+ * - standard: perp equity (every dex) + spot + staked HYPE;
+ * - unified / portfolio margin: spot + staked HYPE (spot already holds the
+ *   perp collateral; adding perp states would double-count).
+ * Excludes borrow/lend outside portfolio margin and vault deposits.
  */
 export function totalAccountValue(mode: AccountMode, perpEquity: number, spotValue: number, stakedValue: number): number {
   return (mode === "standard" ? perpEquity : 0) + spotValue + stakedValue;

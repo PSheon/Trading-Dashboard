@@ -8,11 +8,9 @@ import { COPY_ACTIVITY_TTL_MS } from '../config/constants/cache-ttls.js';
 
 
 /**
- * Whether a live copy can keep up with a leader (`leader-activity.ts` in
- * shared): one `userFillsByTime` page of the last 24 h on the data host
- * (HYPERLIQUID_API_URL, mainnet), as page work on the background lane, never
- * ahead of live detection. Served to the copy panel (GET
- * /traders/:address/copy-activity) and checked again by a mainnet start.
+ * Whether a live copy can keep up with a leader (shared `leader-activity.ts`):
+ * one `userFillsByTime` page of the last 24 h on the mainnet data host, on
+ * the background lane. Served to the copy panel and rechecked by a mainnet start.
  */
 @Injectable()
 export class LeaderActivityService {

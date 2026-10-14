@@ -59,11 +59,9 @@ export function mergeOrders(lists: HlFrontendOpenOrder[][]): TraderOrder[] {
 // --- TWAP ---------------------------------------------------------------------
 
 /**
- * The TWAPs still running: those whose latest `twapHistory` status is
- * "activated". Their progress is the size of their slice fills among the
- * latest ones we hold (`userTwapSliceFills`, 2,000 newest), capped at the
- * TWAP's size; Hyperliquid's own `executedSz` is only filled in when a TWAP
- * ends. Newest first.
+ * Running TWAPs (latest status "activated"), newest first. Progress is the
+ * size of their held slice fills, capped at the TWAP's size: Hyperliquid's
+ * `executedSz` is only filled in when a TWAP ends.
  */
 export function activeTwaps(history: HlTwapHistoryEntry[], slices: HlUserFill[]): TraderTwap[] {
   const latest = new Map<number, HlTwapHistoryEntry>();
@@ -112,10 +110,9 @@ const DIRECTION: Record<TransferKind, TraderTransfer["direction"]> = {
 };
 
 /**
- * One ledger update as a 轉帳 row, classified as CopyDog does (its bundle's
- * ledger classifier): the kind, the asset and amount (token units, or USD
- * for vault and liquidation rows), and the counterparties. Null for a kind
- * CopyDog doesn't list either.
+ * One ledger update as a 轉帳 row, classified as CopyDog does. Amount is in
+ * token units, or USD for vault and liquidation rows. Null for a kind
+ * CopyDog doesn't list.
  */
 export function toTraderTransfer(update: HlLedgerUpdate, address: string): TraderTransfer | null {
   const self = address.toLowerCase();

@@ -26,11 +26,9 @@ export const MAX_PENDING_PER_CLIENT = 3;
 const callerOf = (user: RequestUser | null): HistoryCaller => (user ? "user" : "anonymous");
 
 /**
- * Round-trip analytics for any address: GET /traders/:address/analytics
- * and /traders/:address/trades. Stored answers come back at once (a stale
- * one starts a refresh); a cold address is computed in the background and,
- * past `pageDeadlineMs`, answered 503 busy with Retry-After — the
- * computation carries on, and the retry is served from the store.
+ * Round-trip analytics for any address. Stored answers return at once; a
+ * cold address past `pageDeadlineMs` answers 503 busy while the computation
+ * carries on for the retry.
  */
 @Public()
 @Controller("traders")
@@ -59,13 +57,9 @@ export class TradeAnalyticsController {
     return this.within(() => this.analytics.trades(addr, query, callerOf(user)), addr);
   }
 
-  /** Runs `work` for the calling client unless it already has
-   * `MAX_PENDING_PER_CLIENT` other addresses in progress (then 503 busy).
-   * An address stays counted until its work settles, 503 or not. An address
-   * whose figures are stored is answered from the store whatever is in
-   * progress: the limit holds back new computations, not finished ones (a
-   * fourth cold trader opened alongside three others kept answering busy
-   * after its own figures were ready). */
+  /** Runs `work` unless the client has `MAX_PENDING_PER_CLIENT` other
+   * addresses in progress (then 503 busy); counted until settled. A stored
+   * address is always answered: the limit holds back new computations only. */
   private async admit<T>(address: string, work: () => Promise<T>): Promise<T> {
     const client = currentRequestClient();
     if (client === undefined) return work();

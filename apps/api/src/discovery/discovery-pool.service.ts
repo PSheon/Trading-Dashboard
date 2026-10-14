@@ -46,30 +46,14 @@ interface PoolFreshness {
 }
 
 /**
- * The discovery pool (Stage 3 §1.7): the official leaderboard's top
- * `DISCOVERY_CANDIDATE_POOL_SIZE` by all-time PnL among non-vault accounts
- * that traded in 30 days, plus every KOL. Two loops, each on its own cron
- * tick, allowance and budgeter rank, so neither waits on the other:
- *
- * - **performance** (`HYPERLIQUID_POOL_PERFORMANCE_WEIGHT_PER_MIN`): one
- *   `portfolio` read (20) per row for PnL, ROI, Sharpe, drawdown, account
- *   value, copy score and sparklines. Rows are taken by urgency, the age
- *   of their figures weighted `POOL_VISIBLE_WEIGHT`× for the rows the site
- *   shows (every board's top 100 in every sort and window, the home rows,
- *   KOLs, favorited and copied traders), so those stay fresh at the
- *   budget's pace and the rest of the pool follows behind. At 240/min
- *   (12 rows) with ≈ 480 visible rows of ≈ 1,140, a visible row is read
- *   every ≈ 54 min (median age ≈ 27 min), the rest every ≈ 3.6 h.
- * - **ledgers** (`HYPERLIQUID_POOL_LEDGER_WEIGHT_PER_MIN`): the trade ledger (the
- *   trader page's own analytics, incremental after the first read,
- *   without the funding step) for style, coins, last trade and per-coin
- *   PnL. Visible rows whose ledger is older than `LEDGER_REFRESH_MS` are
- *   refreshed first (≈ 20–140 weight), then rows without a ledger are
- *   built (≈ 1,000 weight each, only while no page is waiting on the
- *   budget), then the rest.
- *
- * Both scale their allowance by the budgeter's `backgroundFactor`, so they
- * yield while page traffic is high. One refresh at a time per loop.
+ * The discovery pool (Stage 3 §1.7): the leaderboard's top
+ * `DISCOVERY_CANDIDATE_POOL_SIZE` by all-time PnL (non-vault, traded in 30 days)
+ * plus every KOL. Two independent loops, each with its own tick, allowance and rank:
+ * - performance: one `portfolio` read (20) per row, most urgent first (figure age,
+ *   ×`POOL_VISIBLE_WEIGHT` for rows the site shows).
+ * - ledgers: the trade ledger without funding; stale visible rows first, then cold
+ *   builds (≈ 1,000 weight, only while no page waits), then the rest.
+ * Both scale by the budgeter's `backgroundFactor`; one refresh at a time per loop.
  */
 @Injectable()
 export class DiscoveryPoolService {

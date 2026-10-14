@@ -12,11 +12,8 @@ export const ACCOUNT_READ_QUEUE_MAX = 16;
  * separate REST request per venue. Missing entries remain unknown. This is
  * never a dedicated-account admission or proof of an empty financial account.
  *
- * The source is one socket that holds one subscription exchange at a time
- * and refuses a second at once (`live_account_aggregate_unavailable`). Two
- * visitors opening different trader pages together used to get one profile
- * without perps (audit A1); reads now take turns, each waiting at most
- * `ACCOUNT_READ_WAIT_MS` (a warm read takes a few hundred ms). */
+ * The source socket refuses a second concurrent subscription exchange, so
+ * reads take turns, each waiting at most `ACCOUNT_READ_WAIT_MS` (audit A1). */
 export class TraderAccountReader implements OnModuleDestroy {
   private tail: Promise<void> = Promise.resolve();
   private waiting = 0;

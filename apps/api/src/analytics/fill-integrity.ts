@@ -3,12 +3,9 @@ import { executionOrder, isOutOfScopeSpotFill, signedSize, toScaled } from "../w
 import { applyFills, isPartial, type ApplyResult, type Trade } from "./trade-reconstruction.js";
 
 /**
- * Correctness checks over a set of fills, independent of where they were
- * read (REST, the S3 archive, our own tables). They are the acceptance
- * gate for trusting a source: reconciliation compares two sources tid by
- * tid, and the invariants catch what a single source cannot hide — a
- * missing fill breaks the position chain, a double-counted one breaks the
- * PnL identity.
+ * Source-independent correctness checks over fills: the acceptance gate for
+ * trusting a source. A missing fill breaks the position chain, a
+ * double-counted one breaks the PnL identity.
  */
 
 /** Hyperliquid's documented REST retention ("only the 10000 most recent
@@ -38,15 +35,13 @@ interface PositionBreak {
 }
 
 /**
- * Perp fills whose `startPosition` differs from where the previous fill of
- * the coin left the position: at least one fill between them is missing
- * (or, at a source seam, the two sources disagree). Spot fills are out of
- * scope: transfers move spot balances without fills.
+ * Perp fills whose `startPosition` differs from where the coin's previous
+ * fill left it: a fill is missing (or two sources disagree at a seam). Spot
+ * is out of scope (transfers move balances without fills).
  *
- * Fills of one millisecond are judged together, since their order is not
- * recoverable from storage: the group continues the chain when one of its
- * fills starts at the running position, and it moves the position by its
- * net size. A fill missing inside a group therefore shows at the next one.
+ * One millisecond's fills are judged as a group (order not recoverable from
+ * storage): it continues the chain if any fill starts at the running
+ * position, and moves it by its net size.
  */
 export function positionBreaks(fills: HlUserFill[]): PositionBreak[] {
   const byCoin = new Map<string, HlUserFill[]>();
@@ -82,10 +77,9 @@ export function positionBreaks(fills: HlUserFill[]): PositionBreak[] {
   return breaks.sort((a, b) => a.time - b.time);
 }
 
-/** Σ `closedPnl` of the fills the reconstruction consumed, against Σ
- * realized PnL of every trade it produced (kept and dropped). The two are
- * the same additions grouped differently, so any difference beyond float
- * noise means a fill was counted twice or not at all. */
+/** Σ `closedPnl` of consumed fills vs Σ realized PnL of every trade (kept
+ * and dropped): same additions, so a difference beyond float noise means a
+ * fill was counted twice or not at all. */
 export function pnlIdentity(address: string, fills: HlUserFill[]): { fillsPnl: number; tradesPnl: number; difference: number; holds: boolean } {
   const unique = [...new Map(fills.map((fill) => [fill.tid, fill])).values()];
   const result = applyFills(address, new Map<string, Trade>(), unique, null);
@@ -100,11 +94,9 @@ export function pnlIdentity(address: string, fills: HlUserFill[]): { fillsPnl: n
 }
 
 /**
- * Whether figures built from `fills` may be presented as lifetime figures:
- * neither stream reaches upstream's retention size (so nothing older was
- * dropped before we read it), every position was opened inside the history
- * (no partial trade), no fill lacked `startPosition`, and the position
- * chain has no break. Anything else is "partial since the earliest fill".
+ * Whether figures from `fills` may be shown as lifetime: neither stream
+ * reaches upstream retention, no partial trade, no fill lacked
+ * `startPosition`, and no position break.
  */
 export function lifetimeComplete(fills: HlUserFill[], result: Pick<ApplyResult, "touched" | "skipped">): boolean {
   let regular = 0;
@@ -169,12 +161,8 @@ function fillTotals(fills: HlUserFill[]): FillTotals {
   }), { count: 0, volume: 0, closedPnl: 0, fees: 0 });
 }
 
-/**
- * Compares two reads of the same account and window, tid by tid: which
- * fills each side lacks and every field that differs (price, size, side,
- * time, PnL, fee, start position, coin, direction, order id). Both inputs
- * are deduplicated by tid first.
- */
+/** Compares two reads of the same account and window tid by tid (inputs
+ * deduplicated by tid): fills each side lacks and every differing field. */
 export function reconcileFills(left: HlUserFill[], right: HlUserFill[]): Reconciliation {
   const a = new Map(left.map((fill) => [fill.tid, fill]));
   const b = new Map(right.map((fill) => [fill.tid, fill]));

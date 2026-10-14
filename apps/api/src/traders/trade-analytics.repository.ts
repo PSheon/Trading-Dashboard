@@ -233,20 +233,14 @@ export class TradeAnalyticsRepository {
     return rows.map(fromRow);
   }
 
-  /** What the watcher's `fills` table is proven to hold for the address. */
   /**
-   * Watched addresses whose figures are due, oldest first: no figures yet,
-   * figures older than `staleBefore`, figures from Hyperliquid's REST
-   * history for an address whose backfill has ended (the tracked source
-   * applies now), or fills revised since the figures (a backfill window, a
-   * repaired hole, a break found) once the backfill is not running. `fundingCursor`: how far its funding was read. The worker
-   * refreshes these (`TradeAnalyticsService.refreshTracked`).
+   * Watched addresses whose figures are due, oldest first: none yet, older
+   * than `staleBefore`, or (backfill not pending) still from REST or with
+   * fills revised since. `fundingCursor`: how far funding was read.
    */
   async trackedDue(staleBefore: Date, limit: number, waiting: readonly string[] = []): Promise<Array<{ address: string; fundingCursor: Date | null }>> {
-    // Addresses whose last refresh failed and whose backoff has not run out
-    // (`TradeAnalyticsService.refreshTracked`) are left out, so they cannot
-    // hold every slot of a turn (a failed refresh writes nothing, and they
-    // would be the oldest for ever).
+    // Backed-off addresses are skipped: a failed refresh writes nothing, so
+    // they would stay oldest and hold every slot.
     const skip = waiting.length > 0 ? sql`and l.address not in (${sql.join(waiting.map((address) => sql`${address}`), sql`, `)})` : sql``;
     const rows = await this.db.execute<{ address: string; funding_cursor: Date | string | null }>(sql`
       select l.address, ta.funding_cursor from ${leaders} l
@@ -261,6 +255,7 @@ export class TradeAnalyticsRepository {
     return rows.rows.map((r) => ({ address: r.address, fundingCursor: r.funding_cursor === null ? null : new Date(r.funding_cursor) }));
   }
 
+  /** What the watcher's `fills` table is proven to hold for the address. */
   async fillCoverage(address: string): Promise<FillCoverage | undefined> {
     const [row] = await this.db.select().from(fillCoverage)
       .where(and(eq(fillCoverage.chain, CHAIN_DEFAULT), eq(fillCoverage.address, address))).limit(1);

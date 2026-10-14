@@ -93,11 +93,8 @@ export class DiscoveryRepository {
     return rows.map((r) => r.address);
   }
 
-  /**
-   * Makes the pool exactly `entries`: new addresses are added (never
-   * attempted, so they go first), ranks are updated, and rows no longer
-   * selected are deleted. One transaction.
-   */
+  /** Makes the pool exactly `entries` in one transaction (new rows, never
+   * attempted, go first). */
   async syncPool(tx: DbTransaction, entries: Array<{ address: string; poolRank: number | null }>): Promise<{ added: number; removed: number }> {
     let added = 0;
     for (let i = 0; i < entries.length; i += 1000) {

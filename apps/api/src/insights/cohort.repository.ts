@@ -45,20 +45,14 @@ function bounds(column: typeof discoveryTraders.pnlAll, tier: CohortTier): SQL |
   );
 }
 
-/**
- * `cohort_members` and `cohort_snapshots` (Stage 3 §3), plus the reads that
- * choose members: the discovery pool (perp PnL, CopyDog's definition) and,
- * where a tier is short, the leaderboard. Single-statement writes; the
- * cohort job is the only writer.
- */
+/** `cohort_members` and `cohort_snapshots` (Stage 3 §3) and the member-choosing
+ * reads. The cohort job is the only writer. */
 @Injectable()
 export class CohortRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
 
-  /** Pool rows with figures: address, perp PnL / ROI, account value (whole
-   * account), the coins they traded, and what the eligibility rule reads
-   * (`cohortEligible`): vault flag and perp equity (latest cohort snapshot,
-   * else the ledger's classification). */
+  /** Pool rows with figures and the `cohortEligible` inputs; perp equity is
+   * the latest cohort snapshot, else the ledger's classification. */
   poolFigures() {
     return this.db
       .select({
@@ -77,11 +71,9 @@ export class CohortRepository {
       .where(and(eq(discoveryTraders.chain, CHAIN_DEFAULT), eq(discoveryTraders.inPool, true), isNotNull(discoveryTraders.pnlAll)));
   }
 
-  /** Active non-vault accounts with known perp portfolio figures, largest
-   * perp equity first, as the pool's members are chosen (equity not known
-   * yet after every known one, never ranked by the whole account's value:
-   * audit A4). Never infer a perp tier from whole-account leaderboard PnL.
-   * Unknown perp history stays excluded; a short tier remains visibly short. */
+  /** Active non-vault accounts with known perp portfolio figures, largest perp
+   * equity first (unknown last; never by whole-account value, audit A4). Never
+   * infer a perp tier from whole-account PnL; a short tier stays visibly short. */
   async leaderboardTopUp(tier: CohortTier, limit: number, exclude: string[]): Promise<Array<{ address: string; pnlAll: string | null; roiAll: string | null }>> {
     if (limit <= 0) return [];
     // The member's latest snapshot, else the ledger's classification (as `poolFigures`).
@@ -107,12 +99,8 @@ export class CohortRepository {
       .limit(limit);
   }
 
-  /**
-   * Makes the members exactly `candidates`: new ones are inserted (never
-   * attempted, so they go first), existing ones keep their snapshot and get
-   * their new tier / rank / figures, and the rest are deleted. One
-   * transaction.
-   */
+  /** Makes the members exactly `candidates` in one transaction; existing ones
+   * keep their snapshot. */
   async sync(candidates: CohortCandidate[]): Promise<{ added: number; removed: number }> {
     return this.db.transaction(async (tx) => {
       const keep = candidates.map((c) => c.address);
@@ -145,20 +133,16 @@ export class CohortRepository {
     });
   }
 
-  /** The next members to refresh: expired observations first when a
-   * freshness cutoff is supplied; otherwise oldest attempts as before. */
+  /** The next members to refresh: expired snapshots first when `staleBefore`
+   * is given, else oldest attempt first. */
   nextDue(limit: number, before: Date, retries?: { failureBefore: Date; capacityBefore: Date; staleBefore?: Date }): Promise<CohortMemberRow[]> {
-    // attemptedAt is scheduling evidence, never snapshot freshness. Failed
-    // reads have a shorter, bounded cooldown while retaining oldest-first
-    // ordering so a persistently failing account cannot own every turn.
+    // attemptedAt schedules, never measures freshness. Failures get their own
+    // cooldown but stay oldest-first, so a failing account cannot own every turn.
     const dueBefore = retries
       ? sql`case when ${cohortMembers.lastError} like 'capacity: %' then ${retries.capacityBefore}::timestamptz when ${cohortMembers.lastError} is not null then ${retries.failureBefore}::timestamptz else ${before}::timestamptz end`
       : sql`${before}::timestamptz`;
-    // A failed read does not renew the data's expiry. Order expired members
-    // by how long BOTH expiry and retry eligibility have been overdue:
-    // recently failed accounts cannot displace already-waiting healthy
-    // members, while older overdue retries outrank newly expired data.
-    // Cooldowns and oldest-attempt tie fairness remain unchanged.
+    // Expired members order by how long BOTH expiry and retry eligibility are
+    // overdue, so a just-failed account cannot displace waiting healthy ones.
     const freshnessOrder = retries?.staleBefore
       ? [
         sql`${cohortMembers.fetchedAt} is not null and ${cohortMembers.fetchedAt} >= ${retries.staleBefore}::timestamptz`,
@@ -222,10 +206,8 @@ export class CohortRepository {
     return new Map(rows.map((r) => [r.tier, new Date(r.ts)]));
   }
 
-  /** History rows of a tier since `since` (null: all), oldest first. Rows
-   * recorded while less than COHORT_HISTORY_MIN_COVERAGE of the tier was
-   * fresh are left out: each is the long share of part of the members, and a
-   * missing whale moves it by tens of points (the chart's spikes). */
+  /** History rows of a tier since `since` (null: all), oldest first, leaving out
+   * rows recorded below COHORT_HISTORY_MIN_COVERAGE (partial-member spikes). */
   history(tier: CohortTier, since: Date | null): Promise<Array<{ ts: Date; longPct: string | null; membershipVersion: string | null }>> {
     return this.db
       .select({ ts: cohortSnapshots.ts, longPct: cohortSnapshots.longPct, membershipVersion: cohortSnapshots.membershipVersion })

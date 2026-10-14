@@ -63,11 +63,10 @@ export interface PoolScores {
 }
 
 /**
- * One universe for every board, card and detail in a snapshot. $10 dust,
- * 30-day activity and archive high-fill-rate exclusion are local inferred
- * eligibility rules, not Copydog's unpublished thresholds/classification.
- * Unknown activity is unscored. Recent imported positive monthly volume
- * provides evidence while the fill ledger is still warming up.
+ * One score universe for every board, card and detail in a snapshot. The $10
+ * dust, 30-day activity and archive exclusion rules are our own inference, not
+ * CopyDog's (unpublished). Recent leaderboard monthly volume counts as activity
+ * while the fill ledger warms up; unknown activity is unscored.
  */
 export function candidateScores(candidates: Candidate[], now = Date.now()): PoolScores {
   const since = now - 30 * 86_400_000;
@@ -140,11 +139,9 @@ function compare(sort: BoardSort) {
 }
 
 /**
- * One board from the pool: crypto top 100 (perp figures of the window),
- * KOL (the registry's traders that have a copy score), a coin (that coin's realized PnL and PnL ÷
- * volume, all-time), or the stocks top 100 (realized figures over every
- * stock market). Only traders with an account value above 0, and matching
- * `style` when given; at most `limit`.
+ * One board from the pool: crypto top 100 (perp figures of the window), KOL
+ * (scored registry traders), a coin (its realized PnL, PnL ÷ volume), or stocks
+ * top 100 (realized over every stock market). Account value > 0 only.
  */
 export function buildBoard(
   candidates: Candidate[],
@@ -167,9 +164,8 @@ export function buildBoard(
     const t = figures(c, query.market, kind, coin, window);
     if (!t) continue;
     const copyScore = scores.values.get(t.address) ?? null;
-    // CopyDog's KOL board (`leaderboard?focus=tagged`, also its home 精選 row)
-    // lists only tagged traders that have a copy score: 51 of its 168 tagged
-    // on 2026-10-04, every one scored, none of the other 117.
+    // CopyDog's KOL board (`leaderboard?focus=tagged`, also home 精選) lists
+    // only tagged traders with a copy score (51 of 168, 2026-10-04).
     if (kind === "kol" && copyScore === null) continue;
     items.push({ ...t, copyScore });
     const at = c.row.portfolioAt;
@@ -191,13 +187,9 @@ export function boardFreshness(items: BoardTrader[]) {
 }
 
 /**
- * Any trader as a watchlist card: the pool's all-time figures when it has
- * them, else the leaderboard's name and account value only, else identity
- * only. KOL name, handle, badge and cached avatar come from the registry
- * either way. A card's PnL / ROI are perp (as everywhere they are labelled
- * so); the leaderboard's are the whole account's, so they are not shown
- * as PnL / ROI ("—" until the pool reads the trader, which it does for
- * every favorited or copied one).
+ * Any trader as a watchlist card: the pool's all-time figures, else the
+ * leaderboard's name and account value, else identity only. A card's PnL / ROI
+ * are perp; the leaderboard's are whole-account, so they are never shown as them.
  */
 export function traderCard(address: string, row: BoardSourceRow | undefined, identity: CardIdentityRow | undefined, score: number | null = null): TraderCard {
   if (row && row.portfolioAt !== null) {
@@ -244,10 +236,8 @@ export function traderCard(address: string, row: BoardSourceRow | undefined, ide
     winRate: null,
     sharpe: null,
     maxDrawdown: null,
-    // "leaderboard" names where the card's figures came from: only the
-    // account value (trader_stats.account_value, never null on a row). Its
-    // PnL / ROI are the whole account's, never shown as a card's (perp) PnL /
-    // ROI (audit A3), so they are not what makes it a source.
+    // "leaderboard" means only the account value came from there; its
+    // whole-account PnL / ROI are never a card's perp PnL / ROI (audit A3).
     source: identity?.accountValue != null ? "leaderboard" : "none",
   };
 }
@@ -279,10 +269,8 @@ export function coinIndex(candidates: Candidate[]): CoinIndexRow[] {
 }
 
 /**
- * One coin's page (「Hyperliquid 上最強的 BTC 交易者」): the pool traders who
- * made money on `coin`, by its realized PnL (then address), at most `limit`;
- * win rate is winning ÷ closed round trips. `stats` sums the listed rows,
- * as CopyDog's 列出的交易者 / 獲利總額 / 交易量 / 交易數 do.
+ * One coin's page: pool traders who made money on `coin`, by realized PnL; win
+ * rate is wins ÷ closed round trips. `stats` sums the listed rows, as CopyDog's do.
  */
 export function coinBoard(candidates: Candidate[], coin: string, limit = COIN_BOARD_SIZE): Pick<CoinBoardResponse, "coin" | "market" | "stats" | "items"> & { updatedAt: Date | null } {
   const rows: Array<{ trader: CoinTrader; at: Date | null }> = [];

@@ -41,19 +41,12 @@ interface CohortRefreshLog {
 }
 
 /**
- * 洞察 cohorts (Stage 3 §3, CopyDog's /hyperliquid/cohorts): the discovery
- * pool's traders grouped by all-time perp PnL tier: every eligible one is a
- * member, as on CopyDog (whose 極度盈利 members are its pool's tier, 352 on
- * 2026-10-04, no round cap), largest perp equity first, with
- * `DISCOVERY_COHORT_MEMBERS_PER_TIER` only as a safety cap; a tier the pool
- * leaves short is topped up from the leaderboard up to that cap. A cron tick (every minute) spends at most
- * `HYPERLIQUID_COHORT_WEIGHT_PER_MIN` Hyperliquid weight reading members'
- * positions — `clearinghouseState` on the main dex plus the dexes they hold
- * or traded (2 weight each); every dex on the first read and once a day
- * after (22 with 11 dexes) — oldest first, so each
- * member is refreshed about every `cohortRefreshMinutes` when the budget
- * allows. After each tick a tier whose last history row is that old gets a
- * new one. Calls rank behind page loads.
+ * 洞察 cohorts (Stage 3 §3, CopyDog's /hyperliquid/cohorts): every eligible pool
+ * trader grouped by all-time perp PnL tier, largest perp equity first;
+ * `DISCOVERY_COHORT_MEMBERS_PER_TIER` is only a safety cap, and a short tier is
+ * topped up from the leaderboard. Each minute's tick reads members' positions
+ * (`clearinghouseState`, 2 weight per dex; every dex on the first read and once a
+ * day) oldest first within `HYPERLIQUID_COHORT_WEIGHT_PER_MIN`, then writes due history rows.
  */
 @Injectable()
 export class CohortService implements OnModuleDestroy {
@@ -92,9 +85,8 @@ export class CohortService implements OnModuleDestroy {
       .catch((error: Error) => this.logger.error(`Cohort tick failed: ${safeErrorText(error)}`))
       .finally(() => {
         this.running = undefined;
-        // A validated release between cron ticks must not leave capacity
-        // idle for the rest of the minute. This starts the same paced,
-        // single-flight job; it never bypasses the failed member cooldown.
+        // A capacity pause ending between cron ticks re-runs the same paced,
+        // single-flight job early (member cooldowns still apply).
         if (!this.destroyed && !this.jobs.stopping && this.capacityRetryAt > 0
           && pacedWeightPerMinute(this.budgeter, "cohort", this.config.value.tuning.weights.cohort) > 0) {
           this.retryTimer = setTimeout(() => {
@@ -148,13 +140,9 @@ export class CohortService implements OnModuleDestroy {
   }
 
   /**
-   * Chooses each tier's members: eligible pool traders (`cohortEligible`:
-   * no vaults, no wallet above the perp-equity ceiling) by perp PnL tier,
-   * largest perp equity first (traders whose perp equity is not known yet
-   * after every known one: never ranked by the whole account's value), up
-   * to `perTier`; a short
-   * tier is topped up with the leaderboard's largest active accounts in that
-   * PnL range.
+   * Chooses each tier's members: `cohortEligible` pool traders, largest perp
+   * equity first (unknown equity last, never ranked by account value), up to
+   * `perTier`; a short tier is topped up from the leaderboard in that PnL range.
    */
   async build(perTier: number): Promise<{ total: number; added: number; removed: number }> {
     const pool = await this.repository.poolFigures();
@@ -229,18 +217,15 @@ export class CohortService implements OnModuleDestroy {
     } catch (error) {
       const capacityLimited = Boolean(sharedCapacityWait(error)) || error instanceof BudgetWaitError
         || error instanceof Error && error.message === "Hyperliquid queue is full";
-      // Only the typed meter refusal before any member read can shorten the
-      // global pause. Each failed member retains its separate 65 s cooldown;
-      // dispatched/unknown work and local queue failures stay conservative.
+      // Only a typed meter refusal before any read may shorten the global pause;
+      // the member keeps its own cooldown either way.
       const retryHint = weight === 0 && calls === 0 ? sharedRestRetryAfterMs(error) : undefined;
       const message = (error as Error).message;
       await this.repository.saveFailure(member.address, new Date(now), `${capacityLimited ? "capacity: " : ""}${message}`.slice(0, 300));
       this.record({ address: member.address, tier: member.tier, weight, calls, swept, ms: Date.now() - started, ok: false, at: new Date() });
       this.logger.warn(`Cohort refresh ${member.address} failed: ${safeErrorText(error)}`);
-      // A typed pre-dispatch meter refusal spent no read weight. The
-      // validated global pause and member cooldown already bound retries;
-      // charging a phantom read would consume the producer's allowance.
-      // Dispatched work and unproven/local failures keep their full charge.
+      // A typed pre-dispatch refusal spent no weight, so it is not charged;
+      // dispatched work and unproven/local failures keep their full charge.
       const chargedWeight = retryHint === undefined ? Math.max(weight, WEIGHT_STATE) : 0;
       return { weight: chargedWeight, ok: false, ...(capacityLimited ? {
         capacityLimited: true,
@@ -259,11 +244,9 @@ export class CohortService implements OnModuleDestroy {
     return new Date(now.getTime() - Math.max(3 * intervalMs, 3_600_000));
   }
 
-  /** One history row per tier whose last row is `intervalMs` old, once
-   * enough of the tier is fresh for the figure to be the tier's
-   * (`cohortHistoryReady`: 95 % of the members and of their perp equity). A
-   * point from part of the members would stay on the 倉位傾向 chart for good;
-   * one missing whale moved it by 30 points. */
+  /** One history row per tier whose last row is `intervalMs` old, only once
+   * `cohortHistoryReady` (95 % of members and of perp equity fresh): a partial
+   * point stays on the 倉位傾向 chart for good (one missing whale moved it 30 points). */
   async writeSnapshots(intervalMs: number, now = new Date()): Promise<number> {
     this.lastSnapshot ??= await this.repository.lastSnapshotAt();
     let written = 0;
@@ -340,10 +323,9 @@ export class CohortService implements OnModuleDestroy {
   }
 
   /**
-   * GET /insights/cohorts/:tier/history: the stored long share over the
-   * window (at most 400 points) and BTC closes over the same span from
-   * `candleSnapshot` (20 weight + 1 per 60 candles, cached
-   * `COHORT_CANDLES_TTL_MS`; left empty when Hyperliquid is busy).
+   * GET /insights/cohorts/:tier/history: the stored long share (at most
+   * `MAX_POINTS`) and BTC closes over the same span (`candleSnapshot`: 20 weight
+   * + 1 per 60 candles; the last read is served while Hyperliquid is busy).
    */
   async history(tier: string, window: CohortWindow): Promise<CohortHistoryResponse> {
     const parsed = parseTier(tier);
@@ -355,8 +337,8 @@ export class CohortService implements OnModuleDestroy {
       if (index > 0 && row.membershipVersion !== history[index - 1].membershipVersion) segment++;
       return { t: row.ts, pctLong: row.longPct === null ? null : Number(row.longPct), membershipVersion: row.membershipVersion, segment };
     }).filter((row): row is typeof row & { pctLong: number } => row.pctLong !== null);
-    // Retain real observations, never average across different member sets. Segment
-    // numbers preserve even a short A→B→A change skipped by the point budget.
+    // Sample real rows, never average across member sets; segments keep even a
+    // short A→B→A change that the point budget skips.
     const count = Math.min(rows.length, MAX_POINTS);
     const sampled = Array.from({ length: count }, (_, i) => rows[count < 2 ? 0 : Math.floor(i * (rows.length - 1) / (count - 1))]);
     const series = sampled.map((row, index) => ({ t: row.t, pctLong: row.pctLong, membershipVersion: row.membershipVersion,

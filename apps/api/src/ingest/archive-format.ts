@@ -3,23 +3,12 @@ import { DAY_MS, HOUR_MS } from '../config/constants/time.js';
 
 /**
  * Layout and line formats of Hyperliquid's public node archive
- * (`s3://hl-mainnet-node-data`, requester-pays, ap-northeast-1).
- *
- * Sources: the official "Historical data" page (prefixes; `node_fills_by_block`
- * is `--write-fills --batch-by-block` output; `node_fills` "matches the API
- * format"), the node README (`{local_time, block_time, block_number, events}`
- * per line when batched by block; one event per line otherwise) and
- * bond-labs/hyperliquid-data (key shape `hourly/<YYYYMMDD>/<H>.lz4`, the
- * 2025-05-25 start and the 2025-07-27 format change).
- *
- * Checked against the bucket on 2026-10-02 (listings, two by-block objects
- * and one legacy object): the hour is not zero-padded; `node_fills` runs
- * from 2025-05-25 14:00 to 2025-07-27 08:45 UTC, one `[address, fill]` per
- * line, without `twapId`; `node_fills_by_block` starts inside that same
- * hour (`20250727/8.lz4` exists under both prefixes, the by-block one
- * holding only the rest of the hour). `parseArchiveLine` still accepts
- * every shape the sources describe and throws on anything else, so a
- * wrong assumption stops the cursor instead of storing wrong fills.
+ * (`s3://hl-mainnet-node-data`, requester-pays, ap-northeast-1), per the official
+ * "Historical data" page, the node README and bond-labs/hyperliquid-data, checked
+ * against the bucket (2026-10-02): keys `hourly/<YYYYMMDD>/<H>.lz4` (hour not
+ * zero-padded); legacy `node_fills` until 2025-07-27 08:45 UTC, then
+ * `node_fills_by_block` from inside that same hour. `parseArchiveLine` throws on
+ * any unknown shape, so a wrong assumption stops the cursor instead of storing wrong fills.
  */
 
 /** First hour of `node_fills` (legacy, one event per line). */

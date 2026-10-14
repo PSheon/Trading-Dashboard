@@ -11,11 +11,8 @@ const SPAN_MS: Record<Exclude<TraderWindow, "allTime">, number> = { day: 86_400_
 const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number.isFinite(Number(v)) ? Number(v) : null);
 
 /**
- * CopyDog's `chart-snapshots` (GET /api/hyperliquid/traders/:a/chart-snapshots,
- * read 2026-10-04: `{window, kind, coverageStartMs, snapshots: [{t, n, upnl,
- * positions: [{coin, szi, entryPx, markPx, notional, upnl}]}]}`), from the
- * snapshots the worker takes of watched traders every five minutes: a
- * database read, no Hyperliquid call.
+ * CopyDog's `chart-snapshots` shape (read 2026-10-04), from the worker's
+ * five-minute snapshots of watched traders: a database read only.
  */
 @Injectable()
 export class ChartSnapshotsService {

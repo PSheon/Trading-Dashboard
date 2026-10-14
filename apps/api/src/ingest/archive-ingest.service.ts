@@ -18,9 +18,7 @@ const HEAVY_ADDRESS_HOUR = 20_000;
 
 type ObjectOutcome = "ingested" | "missing" | "over_budget" | "lost" | "idle";
 
-/** A store to read in place of the configured one (tests construct the
- * service with it; no module provides it, so Nest builds the store from the
- * config). A token, because the `ArchiveStore` interface's
+/** A test-only store override; a token because the `ArchiveStore` interface's
  * design:paramtypes is `Object` (test/injection-metadata.spec.ts). */
 const ARCHIVE_STORE = Symbol("ARCHIVE_STORE");
 
@@ -33,29 +31,16 @@ function archiveStoreFrom(config: AppConfig): ArchiveStore | undefined {
 }
 
 /**
- * Reads Hyperliquid's public node archive (hourly, whole-market fill files)
- * and keeps the fills of the tracked set in `history_fills`.
- *
- * Two cursors over the same hourly keys:
- * - live, forward: the next hour once it has settled; every active address
- *   is filtered for, and its covered span grows to the hour's end;
- * - backfill, backward: from the latest span start down to the window's
- *   floor (`backfillDays` before today, never before the archive's first
- *   day); an address joins the pass at the hour just before its own span,
- *   so spans stay contiguous and the newest history arrives first. A new
- *   pass (addresses that joined since, or a longer window) starts at the
- *   earliest `passIntervalHours` after the previous one began.
- *
- * An object is one unit of work: its fills are inserted (idempotent), then
- * cursor + coverage + transfer accounting commit in one transaction. A
- * restart resumes at the stored cursor and re-reads at most that object.
- * Spend is bounded twice: bytes per tick (`maxBytesPerMinute`) and dollars
- * per UTC day (`maxDailyUsd` at `usdPerGb`); an object that would cross the
- * daily cap is not downloaded. A malformed object stops its cursor
- * (`parse_error`) rather than storing guesses; a missing backfill object
- * leaves its participants' spans where they are, so they stay "partial".
- * No address is dropped for trading a lot unless `maxFillsPerAddressHour`
- * is set; the heaviest are named in the log instead.
+ * Keeps the tracked set's fills from Hyperliquid's public node archive (hourly,
+ * whole-market files) in `history_fills`. Two cursors over the hourly keys:
+ * - live, forward: the next hour once settled; every active address's span grows;
+ * - backfill, backward: from the latest span start to the window's floor; an
+ *   address joins at the hour just before its own span, so spans stay contiguous.
+ *   Passes start at most every `passIntervalHours`.
+ * One object = one unit: fills inserted (idempotent), then cursor, coverage and
+ * spend commit in one transaction, so a restart re-reads at most that object.
+ * Spend is capped per tick (`maxBytesPerMinute`) and per UTC day (`maxDailyUsd`).
+ * A malformed object stops its cursor (`parse_error`) rather than storing guesses.
  */
 @Injectable()
 export class ArchiveIngestService {
@@ -86,11 +71,8 @@ export class ArchiveIngestService {
   onTick(): Promise<void> {
     if (!this.enabled || this.jobs.stopping) return Promise.resolve();
     this.running ??= this.jobs.run(async () => {
-      // A run cut short by its time budget goes straight on: an object that
-      // takes longer than the budget would otherwise be the only one of its
-      // minute, and the rest of that minute idle. A run that stopped for
-      // any other reason (byte pace, daily cap, nothing due) waits for the
-      // next cron tick.
+      // A run cut short by its time budget goes straight on (else a slow object
+      // leaves the rest of its minute idle); any other stop waits for the next tick.
       for (;;) {
         const started = Date.now();
         const outcomes = await this.tick();
@@ -155,9 +137,8 @@ export class ArchiveIngestService {
         continue;
       }
       if (outcome.result === "missing") {
-        // A hole below the participants' spans: they stay partial. End the
-        // pass; the next one starts from the latest span and retries it
-        // (without waiting out the pass interval: nothing was downloaded).
+        // A hole: participants stay partial. End the pass; the next one retries
+        // without waiting out the pass interval (nothing was downloaded).
         await this.repository.moveCursor(await this.repository.state(), { backfillCursorHour: null, backfillPassStartedAt: null });
         await this.repository.note("missing_object");
       }

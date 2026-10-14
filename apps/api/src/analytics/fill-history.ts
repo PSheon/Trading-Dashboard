@@ -41,15 +41,12 @@ export interface History {
 }
 
 /**
- * The newest fills of one list, read backwards from now: the latest page,
- * then windows ending where the covered span begins. `…ByTime` answers a
- * window with its *earliest* 2,000 fills, so a full answer is continued
- * forward inside the window until it is complete; the next window's
- * length is sized from the density just seen (aiming at one page), and
- * grows 8× across empty stretches. `target` and `lookbackStart` bound our
- * work. Upstream may retain less: its docs promise only the latest 10,000
- * fills, even though earlier samples returned more. Completing pagination
- * proves coverage of available responses, not the account's lifetime.
+ * The newest fills of one list, read backwards: the latest page, then
+ * windows ending where the covered span begins. A full `…ByTime` answer
+ * (earliest 2,000) is continued forward until the window completes; the
+ * next window is sized from the density seen (grows 8× when empty).
+ * Upstream promises only the latest 10,000 fills, so complete pagination
+ * proves coverage of what is available, not the account's lifetime.
  */
 export async function readRecentHistory(source: FillSource, options: HistoryOptions): Promise<History> {
   const byTid = new Map<number, HlUserFill>();
@@ -71,9 +68,8 @@ export async function readRecentHistory(source: FillSource, options: HistoryOpti
   // The oldest millisecond of a full latest page may itself be split.
   // Only the suffix strictly after it is certified until range reads cover it.
   let end = Math.min(options.now + 1, Math.min(...latest.map((f) => f.time)) + 1);
-  // The latest page's own span holds one page of fills: the first window
-  // aims at the same (not at "now − end", which counts idle time since the
-  // last fill and made a first window of a bursty trader tens of pages).
+  // First window aims at the latest page's own span (not "now − end", which
+  // counts idle time and overshoots for bursty traders).
   let span = Math.max(60_000, Math.max(...latest.map((f) => f.time)) - end);
   let reachedStart = false;
   while (calls < options.maxCalls) {
@@ -97,10 +93,8 @@ export async function readRecentHistory(source: FillSource, options: HistoryOpti
         break;
       }
       const last = batch[batch.length - 1].time;
-      // A full page ending exactly at `end` is not proof of completion:
-      // reread its final millisecond as well. A saturated millisecond stalls
-      // conservatively instead of claiming that a partial page is complete.
-      // Inclusive: fills sharing `last` may straddle the page boundary.
+      // Continue from `last` inclusive (its fills may straddle the page); a
+      // saturated millisecond stalls rather than claim completeness.
       if (last <= cursor) break;
       cursor = last;
     }

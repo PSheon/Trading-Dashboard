@@ -18,25 +18,13 @@ export interface RoundTrip {
 }
 
 /**
- * Reconstructs realized round trips from `actions` + `fills` and derives
- * win rate / realized PnL / average hold time from them (§2 of the M2 task,
- * §11 "勝率與 PnL 單位"). Hyperliquid already computes `closed_pnl` per
- * fill — this service never re-derives PnL from entry/exit prices itself,
- * it only sums the field Hyperliquid already gives us.
+ * Realized round trips from `actions` + `fills` (§11 "勝率與 PnL 單位"); PnL
+ * is only the sum of Hyperliquid's `closed_pnl`, never re-derived.
  *
- * A round trip runs from an `open` action to the next `close` **or `flip`**
- * action for that (address, coin) — a flip is terminal for the side that
- * closed and, in the same instant, the opening leg of a new round trip for
- * the side it flipped into. `add`/`reduce` are non-terminal (they don't
- * start or end a round trip), but every fill from the `open` through the
- * terminal `close`/`flip` (inclusive) — including any `reduce` fills along
- * the way — is summed into the round trip's PnL: `reduce` fills can carry
- * real realized `closed_pnl` too, not just the final closing fill.
- *
- * A `close`/`flip`/`liquidation` seen with no matching prior `open` in our
- * data (the position was opened before this address's recorded history
- * began) cannot be reconstructed as a complete round trip — it is skipped
- * rather than guessed at.
+ * A round trip runs from `open` to the next `close`/`flip`/`liquidation` per
+ * (address, coin); a flip also opens the next one. Every fill from open
+ * through the terminal action counts (`reduce` fills realize PnL too). A
+ * terminal action with no prior `open` in our data is skipped.
  */
 @Injectable()
 export class RoundTripService {
@@ -61,9 +49,7 @@ export class RoundTripService {
       byCoin.set(key, list);
     }
 
-    // Collect every terminal action's fill_ids first so the closed_pnl sums
-    // can be fetched in one batched query instead of one round trip per
-    // closing action.
+    // Collect fill_ids first so closed_pnl is fetched in one query.
     interface PendingTrip {
       address: string;
       coin: string;
@@ -77,12 +63,7 @@ export class RoundTripService {
     for (const coinActions of byCoin.values()) {
       const { address, coin: coinName } = coinActions[0]!;
       let openAction: ActionRow | undefined;
-      // Every fill from the `open` through the terminal `close`/`flip`
-      // (inclusive) contributes to the round trip's PnL — opens/adds
-      // realize ~0 but `reduce` fills can carry real realized PnL too, not
-      // just the final closing fill (correction from the original M2 brief:
-      // §11 "直接加總平倉 fill 的 closed_pnl" means every closing fill along
-      // the way, not only the last one).
+      // Every fill from `open` through the terminal action, inclusive.
       let accumulatedFillIds: bigint[] = [];
 
       for (const action of coinActions) {
@@ -102,12 +83,8 @@ export class RoundTripService {
               fillIds: [...accumulatedFillIds, ...action.fillIds],
             });
           }
-          // A flip is terminal for the old side and immediately opens a new
-          // round trip for the side it flipped into. The flip's own fills
-          // already had their closed_pnl counted against the OLD round
-          // trip above — starting the new round trip's fill list empty
-          // (rather than re-including them) avoids double-counting that
-          // same closed_pnl into the new position's PnL too.
+          // A flip opens the next round trip with an empty fill list: its
+          // fills' closed_pnl already counted for the old one.
           openAction = action.kind === "flip" ? action : undefined;
           accumulatedFillIds = [];
         }
@@ -135,10 +112,8 @@ export class RoundTripService {
       .sort((a, b) => a.closeTs.getTime() - b.closeTs.getTime());
   }
 
-  /** Fraction of complete round trips closed within [sinceTs, now] that were
-   * wins (`pnl > 0`). `coin` narrows to one coin (N1 usage); omit it for the
-   * address-wide rate (D2 usage). Returns `null` if there were zero round
-   * trips in the window — never divides by zero / reports a bogus 0%. */
+  /** Share of round trips closed since `sinceTs` with `pnl > 0`; null when
+   * there are none (never a bogus 0%). */
   async winRate(address: string, coin: string | undefined, sinceTs: Date): Promise<number | null> {
     const trips = await this.reconstructRoundTrips(address, coin);
     const windowed = trips.filter((t) => t.closeTs >= sinceTs);
@@ -153,9 +128,7 @@ export class RoundTripService {
     return trips.filter((t) => t.closeTs >= sinceTs).reduce((sum, t) => sum + t.pnl, 0);
   }
 
-  /** Average hold time across every reconstructed round trip (all-time —
-   * the PRD doesn't specify a window for this D2 column, judgment call).
-   * `null` if there are no complete round trips yet. */
+  /** All-time average hold (the PRD names no window); null with no trips. */
   async avgHoldTimeSeconds(address: string): Promise<number | null> {
     const trips = await this.reconstructRoundTrips(address);
     if (trips.length === 0) return null;

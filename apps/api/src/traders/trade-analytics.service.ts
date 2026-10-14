@@ -66,9 +66,7 @@ export const MAX_WAITING = 20;
  * (background lane, behind first paint and the chart, ahead of sweeps);
  * funding, the heavy tail, goes unranked, behind everything page-driven. */
 const LANE = "background" as const;
-/** A job a page started: after the pages' own calls (a cold trader's up to
- * 32 history reads used to queue level with the next page's profile and
- * fills), ahead of every periodic job. */
+/** A job a page started: after the pages' own calls, ahead of every periodic job. */
 const RANK = PAGE_RANK.analytics;
 
 const WINDOWS: TradeWindow[] = ["all", "30d", "7d", "1d"];
@@ -116,21 +114,16 @@ type Stored = Pick<AnalyticsRow, "summary" | "classification" | "source" | "cove
  * Round-trip analytics for any address (the trader page's win rate, 表現 and
  * 交易 tabs, 分組 and 最佳與最差).
  *
- * - Tracked addresses: rebuilt from our `fills` table (no fill weight).
- * - Other addresses: Hyperliquid's fill and TWAP-slice history, newest
- *   first, up to `COLD_TARGET_FILLS`; later refreshes read only fills after
- *   the stored cursor and continue the open trades.
- * - Addresses the S3 archive covers: the first build reads the stored
- *   fills of the certified span and asks REST only for what follows it
- *   (and for TWAP slices, until the archive is trusted for those); what
- *   precedes the span arrives with the durable history job.
+ * - Tracked: rebuilt from our `fills` table (no fill weight).
+ * - Others: Hyperliquid fills + TWAP slices, newest first, up to
+ *   `COLD_TARGET_FILLS`; refreshes read only fills after the stored cursor.
+ * - S3-archive-covered: first build reads the certified span's stored fills,
+ *   REST only for what follows it.
  * - Funding: a second, lower-priority step after the trades are stored.
  *
- * Everything is stored (`trader_trades`, `trader_analytics`) and served
- * from there; an answer older than `ANALYTICS_STALE_MS` is served while a refresh
- * runs. Work runs as background jobs, outside any request, so a 503 busy
- * answer doesn't cancel it: the retry finds it stored. Per address one
- * step at a time; at most `MAX_CONCURRENT` addresses compute at once.
+ * Served from storage (stale served while a refresh runs). Work runs as
+ * background jobs, so a 503 busy doesn't cancel it. One step per address at
+ * a time; at most `MAX_CONCURRENT` addresses at once.
  */
 @Injectable()
 export class TradeAnalyticsService {
@@ -213,40 +206,29 @@ export class TradeAnalyticsService {
   }
 
   /**
-   * The stored row. A watched address's figures are the worker's to keep
-   * fresh (`refreshTracked`, every minute, and after a backfill revises its
-   * fills), so a read leaves a stale one to the worker, unless the figures
-   * are older than `TRACKED_FALLBACK_MS`: then no worker is refreshing them
-   * and the read refreshes them in the background, as it does any other
-   * address once stale (nothing else would). A cold address is computed
-   * (the caller's deadline turns a long one into 503 busy, and it carries on).
+   * The stored row. A watched address's stale figures are left to the worker
+   * unless older than `TRACKED_FALLBACK_MS` (no worker running); any other
+   * stale row is refreshed in the background. A cold address is computed.
    */
   private async current(address: string, caller: HistoryCaller): Promise<{ row: Stored; watched: boolean }> {
     const row = await this.repository.state(address);
     if (!row) return { row: await this.compute(address, true, { caller }), watched: false };
     const watched = await this.traders.isTracked(address);
     const age = Date.now() - row.computedAt.getTime();
-    // Nobody waits for a stale row's refresh (the stored answer goes out
-    // now), so it goes behind every page's own calls: at the analytics rank
-    // its list and state reads drained the main bucket the next cold page's
-    // first paint and fill lists needed (Stage, 2026-10-05).
+    // Nobody waits for a stale row's refresh, so it runs unranked, behind
+    // every page's own calls (Stage, 2026-10-05).
     if (age > (watched ? TRACKED_FALLBACK_MS : ANALYTICS_STALE_MS)) this.compute(address, false, { caller, rank: UNRANKED_BASE }).catch(() => undefined);
     return { row, watched };
   }
 
   /**
-   * The worker's turn, every minute: the watched addresses whose figures
-   * are due (none yet, older than `ANALYTICS_STALE_MS`, or a backfill that just ended),
-   * oldest first, `TRACKED_REFRESH_PER_TICK` at most, one after another. A
-   * tracked rebuild reads our fills (no fill weight) and the account's state;
-   * funding is read at most once an hour per address. Returns the addresses
-   * refreshed.
+   * The worker's turn, every minute: due watched addresses, oldest first,
+   * `TRACKED_REFRESH_PER_TICK` at most, one after another; funding at most
+   * once per `TRACKED_FUNDING_EVERY_MS`. Returns the addresses refreshed.
    */
   refreshTracked(now = Date.now()): Promise<string[]> {
-    // One turn at a time: a turn can wait minutes for the budget, and the
-    // minute cron would otherwise start dozens of turns over the same due
-    // addresses, each counting the same failure again (seen 2026-10-04:
-    // "46 in a row" logged in one millisecond for one address).
+    // One turn at a time: a turn can wait minutes for budget, and overlapping
+    // turns counted the same failure many times (2026-10-04).
     if (this.trackedTurn) return Promise.resolve([]);
     this.trackedTurn = this.refreshTrackedTurn(now).finally(() => { this.trackedTurn = undefined; });
     return this.trackedTurn;
@@ -262,10 +244,8 @@ export class TradeAnalyticsService {
       if (this.jobs.stopping) break;
       const funding = fundingCursor === null || now - fundingCursor.getTime() >= TRACKED_FUNDING_EVERY_MS;
       try {
-        // At the tracked rank (behind pages, ahead of the pool, history and
-        // backfill): unranked, these refreshes queued behind every other
-        // background job and timed out ("budget not available to tracked
-        // within 120 s", gap audit 2026-10-05).
+        // Tracked rank (behind pages, ahead of pool/history/backfill):
+        // unranked they timed out (gap audit 2026-10-05).
         await this.compute(address, false, { rank: ESSENTIAL_RANK.tracked, funding: false });
         // Awaited here, so a failed funding read backs the address off like
         // a failed rebuild instead of being retried every minute.
@@ -296,13 +276,9 @@ export class TradeAnalyticsService {
     this.compute(event.address, false).catch(() => undefined);
   }
 
-  /** One computation per address at a time; callers share it. A caller
-   * with a better rank than the computation in flight (a page request
-   * joining the discovery pool's unranked build) promotes it: its calls
-   * from then on go at the page's rank instead of waiting behind every
-   * other page's. `rank` defaults to the trader page's fills rank;
-   * `funding: false` (the discovery pool) skips the funding step that
-   * normally follows. */
+  /** One computation per address at a time; callers share it. A joiner with
+   * a better rank promotes the one in flight. `rank` defaults to the trader
+   * page's fills rank; `funding: false` skips the funding step. */
   compute(address: string, _cold: boolean, options: { rank?: number; funding?: boolean; caller?: HistoryCaller } = {}): Promise<AnalyticsRow> {
     const { rank, funding = true, caller = "product" } = options;
     const existing = this.inflight.get(address);
@@ -394,11 +370,9 @@ export class TradeAnalyticsService {
     // REST read below describes the account better.
     const coverage = watched ? await this.repository.fillCoverage(address) : undefined;
     const tracked = Boolean(coverage?.verifiedFrom && coverage.verifiedThrough && coverage.backfillStatus !== "pending");
-    // Figures stored before raw fills were kept get a job over exactly the
-    // range they claim, so that range becomes auditable first.
-    // Only for an address that may have a durable job (anyone can ask for
-    // any address): without one the answer is computed from Hyperliquid as
-    // before, and nothing is stored for a background scan.
+    // Legacy figures get a job over exactly the range they claim. Only an
+    // address allowed a durable job keeps its fills; others are computed
+    // from Hyperliquid and nothing is stored for a background scan.
     cost.keep = !watched && (await this.history?.ensure(address, state?.source === "hyperliquid" ? state.coverageFrom?.getTime() : undefined, cost.caller)) === true;
     const snapshot = cost.keep ? await this.history?.snapshot(address) : null;
     // Never replace a newer legacy ledger with an older archive snapshot.
@@ -508,20 +482,14 @@ export class TradeAnalyticsService {
   }
 
   /**
-   * From our own fills, and only from the span proven complete: fills
-   * stored outside `[verified_from, verified_through]` (live confirms
-   * ahead of the cursor, rows on the far side of a hole) are not counted,
-   * so the figures never run across a gap. Where the S3 archive's
-   * certified span reaches the verified one, the history starts at the
-   * archive's first hour instead (the REST backfill reaches only as far as
-   * REST retains, a week or two of a 10,000-fills-a-day account). Both the
-   * archive and our span are walked page by page, so the depth is not
-   * bounded by memory, and the span keeps growing with every fill the
-   * watcher stores.
+   * From our own fills, only inside `[verified_from, verified_through]`, so
+   * figures never run across a gap. Where the S3 archive's certified span
+   * reaches the verified one, history starts at the archive's first hour
+   * (REST retains only a week or two of a busy account). Both are walked
+   * page by page, so depth is not bounded by memory.
    *
-   * Once built, a later refresh only applies the fills after the cursor to
-   * the open trades, unless the depth or the history below the cursor
-   * changed (a longer archive span, a backfill, a repaired hole).
+   * Once built, a refresh only extends the open trades, unless the depth or
+   * the history below the cursor changed.
    */
   private async rebuildTracked(address: string, state: AnalyticsRow | undefined, coverage: FillCoverage) {
     const through = coverage.verifiedThrough!;
@@ -562,8 +530,7 @@ export class TradeAnalyticsService {
     if (archiveFrom !== null) {
       for await (const page of this.history!.archivedFillPages(address, archiveFrom, verifiedFrom)) consume(page);
     }
-    // Our own span, page by page: it grows with every fill stored and is no
-    // longer held to a 50,000-fill backfill cap.
+    // Our own span, page by page.
     for await (const page of this.repository.trackedFillPages(address, new Date(Math.max(start, verifiedFrom)), through)) consume(dedupe(page));
     const trades = [...touched.values()];
     const persist = async (tx: TradeAnalyticsTx) => {
@@ -834,15 +801,10 @@ export class TradeAnalyticsService {
   }
 
   /**
-   * The tiers' inputs, one definition each (audit A4, A5): the PnL tier on
-   * all-time perp PnL (the portfolio's `perpAllTime`, as the trader page's
-   * 表現 and the cohorts; Hyperliquid's leaderboard PnL includes spot), the
-   * size tier on the whole account's value (as the trader page's 帳戶價值;
-   * CopyDog tiers on perp equity and calls a unified account holding its
-   * funds in spot small). A source that fails keeps the figures stored
-   * from it last time (`previous`); with none stored the tier is null
-   * rather than failing the trades. (Until 2026-10-05 a failed read wrote
-   * null over good tiers: 0x469e showed null/null for hours.)
+   * Tier inputs (audit A4, A5): PnL tier on all-time perp PnL (leaderboard
+   * PnL includes spot), size tier on the whole account's value (帳戶價值).
+   * A failed source keeps its `previous` figures; with none the tier is null
+   * rather than failing the trades.
    */
   private async classify(address: string, live: LiveAccount | null, cost: Cost, previous?: unknown): Promise<Omit<TraderClassification, "style">> {
     const parsed = previous === undefined ? undefined : traderClassificationSchema.safeParse(previous);

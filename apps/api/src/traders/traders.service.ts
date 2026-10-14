@@ -67,11 +67,8 @@ export const TRANSFERS_MAX_ROWS = 500;
 /** … in at most this many calls. */
 const TRANSFERS_MAX_PAGES = 3;
 const SPARKLINE_MAX_POINTS = 40;
-/** Entry caps for the caches holding whole Hyperliquid payloads. A fill or
- * TWAP-slice list is up to 2 000 fills and a portfolio carries every
- * window's history, so 5 000 of them (TtlCache's default) is gigabytes;
- * these caches only need the traders being looked at right now. The
- * sparkline cache holds a leaderboard page's worth of portfolios. */
+/** Entry caps for caches holding whole Hyperliquid payloads (a fill list is
+ * up to 2 000 fills): TtlCache's default 5 000 would be gigabytes. */
 export const HEAVY_CACHE_MAX_ENTRIES = 200;
 export const SPARKLINE_CACHE_MAX_ENTRIES = 500;
 /** These caches also sweep expired entries on a timer, not only on writes. */
@@ -91,11 +88,9 @@ function poolSeries(values: number[], endMs: number, spanMs: number): SeriesPoin
 type SharedProfile = Omit<TraderProfileResponse, "favorite">;
 
 /**
- * Discovery (Stage 2 §4, §10): the leaderboard table, and trader pages for
- * any address — live positions across dexes, sample size, portfolio history
- * with drawdown and Sharpe, recent fills. Every Hyperliquid call goes
- * through the budgeter and an in-process cache with in-flight
- * de-duplication.
+ * Discovery (Stage 2 §4, §10): the leaderboard table and trader pages for any
+ * address. Every Hyperliquid call goes through the budgeter and an
+ * in-process cache with in-flight de-duplication.
  */
 @Injectable()
 export class TradersService {
@@ -105,9 +100,8 @@ export class TradersService {
   /** How long an optional profile source may take before the profile is
    * answered without it. */
   profileSourceDeadlineMs = 4_000;
-  /** The perps snapshot's own deadline: the account reader's whole bound
-   * (its turn on the socket plus the 5 s read), so the race never gives up
-   * on a read the reader would still answer. */
+  /** The account reader's whole bound plus margin, so the race never gives
+   * up on a read the reader would still answer. */
   perpsSourceDeadlineMs = ACCOUNT_READ_DEADLINE_MS + 500;
 
   readonly profileCache = new TtlCache<SharedProfile>(PROFILE_TTL_MS);
@@ -179,24 +173,16 @@ export class TradersService {
         stale: source.asOf !== null && Date.now() - Date.parse(source.asOf) > source.maxAgeMs,
       }]),
     ) };
-    // The KOL entry is read per request (one indexed row), so an admin's
-    // edit or a newly cached avatar shows without waiting for the profile TTL.
+    // KOL entry read per request so admin edits skip the profile TTL.
     const card = kol ? { displayName: kol.displayName, xHandle: kol.xHandle, verified: kol.verified, avatarUrl: kolAvatarPath(address, kol.avatarEtag) } : null;
     return { ...shared, displayName: kol?.displayName ?? shared.displayName, dataQuality, favorite: favorites.has(address), kol: card };
   }
 
   /**
-   * Account value = perp (every dex) + spot + staked HYPE, except that a
-   * unified or portfolio-margin account's spot balance already holds its
-   * perp collateral (`totalAccountValue`). A vault's account value is its
-   * TVL: the latest whole-account value of Hyperliquid's `portfolio` (the
-   * figure Hyperliquid's own vault page, its leaderboard and CopyDog show).
-   * A parent vault's clearinghouse state holds only its own perp equity,
-   * not what it has in its child vaults (HLP: $43.5M against a $183M TVL,
-   * 2026-10-02), so the sum above is wrong for vaults. Costs, per cold
-   * profile: one all-venue state subscription and 2 for spot; account mode and staking (20
-   * each) are kept 10 min, the spot price book (22) 30 s app-wide; a
-   * vault's `portfolio` (20) is the chart's own 60 s copy.
+   * Account value = perp (every dex) + spot + staked HYPE, except a unified
+   * or portfolio-margin account's spot already holds its perp collateral
+   * (`totalAccountValue`). A vault's is its TVL from `portfolio`: a parent
+   * vault's clearinghouse state omits its child vaults (HLP, 2026-10-02).
    */
   private async loadProfile(address: string): Promise<SharedProfile> {
     const since = new Date(Date.now() - TRADER_THIRTY_DAYS_MS);
@@ -220,11 +206,9 @@ export class TradersService {
       } finally { clearTimeout(timer); }
     };
     // Identity/tracking, the dex universe, spot valuation and account mode are
-    // required. Without them the accounting scope itself would be a guess.
-    // The dex list comes first and everything else waits on it, so it goes
-    // at the first-paint rank: at the fills rank (the orders tab's) a cold
-    // profile queued behind the page's own fill lists (Stage, 2026-10-05:
-    // profiles of cold Top 100 traders answered in 10–30 s).
+    // required: without them the accounting scope would be a guess. The dex
+    // list gates everything else, so it goes at the first-paint rank
+    // (Stage, 2026-10-05).
     const [dexes, tracked, vault] = await Promise.all([this.accountReader ? this.allDexes(PAGE_RANK.profile) : this.perpDexes(), this.isTracked(address), this.isVault(address)]);
     sources.dexes = { status: "available", asOf: new Date((this.accountReader ? this.ordersDexCache : this.dexCache).observedAt("dexes") ?? Date.now()).toISOString(), stale: false,
       maxAgeMs: this.accountReader ? 60000 : DEX_LIST_TTL_MS };
@@ -322,11 +306,9 @@ export class TradersService {
   private async trackedSample(address: string, since: Date, lowSampleThreshold: number): Promise<FillSample> {
     const [{ n, last }, verifiedFrom] = await Promise.all([this.repository.fillSample(address, since), this.repository.verifiedFrom(address)]);
     const ours = last ? new Date(last).getTime() : null;
-    // Ours verified over the whole window and not a low sample: Hyperliquid's
-    // lists (≈ 240 weight) could only confirm it, since they hold at most
-    // the window's newest 2,000 of each kind (ours wins the max below
-    // unless ours has holes, and a verified window has none). A low count
-    // still asks Hyperliquid, so a hole can't make the flag wrong.
+    // Verified over the whole window and not a low sample: Hyperliquid's
+    // capped lists (≈ 240 weight) could only confirm it. A low count still
+    // asks Hyperliquid, so a hole can't make the flag wrong.
     if (verifiedFrom !== null && verifiedFrom.getTime() <= since.getTime() && n >= lowSampleThreshold) {
       return { fills30d: n, capped: false, lastTradeAt: ours };
     }
@@ -357,12 +339,9 @@ export class TradersService {
   }
 
   /**
-   * The newest `FILL_PAGE` fills of one stream from the archive's span and
-   * REST's tail after it, newest first as Hyperliquid lists them; null
-   * when REST has to answer: the stream is not trusted to the archive
-   * (`S3_ARCHIVE_TRUST`), the address has no span, the span holds less
-   * than a page (REST's page reaches further back), or the tail does not
-   * fit two calls.
+   * The newest `FILL_PAGE` fills of one stream from the archive's span plus
+   * REST's tail, newest first; null when REST must answer (stream not
+   * trusted, no span, span under a page, or tail over two calls).
    */
   private async archivedLatest(address: string, source: "regular" | "twap"): Promise<HlUserFill[] | null> {
     if (!this.history?.trusts(source)) return null;
@@ -371,9 +350,8 @@ export class TradersService {
     const stored = await this.history.recentFills(address, source, span, FILL_PAGE);
     if (stored.length < FILL_PAGE) return null;
     const now = Date.now();
-    // An account that fills a page faster than the archive lags (thousands
-    // of fills an hour) has its whole page after the span: REST's one list
-    // is the answer, and reading the tail first would cost two more.
+    // A page filled faster than the archive lags lies wholly after the span:
+    // REST's one list is cheaper than reading the tail.
     const times = stored.map((fill) => fill.time);
     const pageMs = Math.max(...times) - Math.min(...times);
     if (pageMs <= now - span.through) return null;
@@ -385,11 +363,7 @@ export class TradersService {
     return [...byTid.values()].sort((a, b) => b.time - a.time || b.tid - a.tid).slice(0, FILL_PAGE);
   }
 
-  /**
-   * Dexes to query for an address we know nothing about: the main dex ("")
-   * plus every HIP-3 dex with at least one listed market. Cached for an
-   * hour.
-   */
+  /** The main dex ("") plus every HIP-3 dex with a listed market. */
   perpDexes(): Promise<string[]> {
     return this.dexCache.get("dexes", async () => activePerpDexes(await this.info.perpDexs(LANE, PAGE_RANK.profile)));
   }
@@ -409,9 +383,7 @@ export class TradersService {
     return toPortfolioResponse(await this.rawPortfolio(address), query.window, query.market);
   }
 
-  /** Hyperliquid's `portfolio`, through the page's 60 s cache, at the
-   * chart's rank: a sparkline batch's read of the same address (rank 2) is
-   * not joined, a fresh read goes out ahead of it. */
+  /** Hyperliquid's `portfolio` through the page cache, at the chart's rank. */
   rawPortfolio(address: string): Promise<HlPortfolioResponse> {
     return this.portfolioCache.get(address, () => this.info.portfolio(address, LANE, PAGE_RANK.portfolio), PORTFOLIO_TTL_MS, PAGE_RANK.portfolio);
   }
@@ -419,27 +391,15 @@ export class TradersService {
   // --- GET /traders/sparklines ---------------------------------------------
 
   /**
-   * Whole-account PnL series per address (≤ 40 points). An address whose
-   * fetch fails gets an empty series rather than failing the whole row of
-   * cards. Answers within `sparklineDeadlineMs` with the addresses that are
-   * ready and leaves the others out: a cold page of 25 untracked traders
-   * costs 500 weight, more than the budget spends inside the 20 s request
-   * deadline, and waiting for all of them used to time the whole column out
-   * (the explore page's empty 走勢 column). Calls already sent keep loading
-   * into the cache, so the client's retry for the missing ones is fast;
-   * calls still queued are dropped with the answer. A fetch that
-   * times out in the budget queue is left out too (asked for again); only a
-   * real failure answers [].
+   * Whole-account PnL series per address (≤ 40 points). Answers within
+   * `sparklineDeadlineMs` with what is ready; the rest are left out for the
+   * client to ask again (sent calls keep filling the cache). A budget
+   * timeout is left out too; only a real failure answers [].
    *
-   * Hyperliquid is the last resort. An address not in the in-process caches
-   * is served from the discovery pool's stored sparkline when the window
-   * is one the pool keeps (month, all-time): its perp PnL series, the
-   * points spread evenly over the window (the pool keeps values, not
-   * times). An anonymous caller (`known: "listed"`) only makes us fetch
-   * addresses the site lists (leaderboard or pool); any other address
-   * answers [] without a call. Fetches count as page work: past the
-   * budget's page caps they are left out (asked for again), and once the
-   * answer is sent those still queued are dropped.
+   * Uncached addresses are served first from the discovery pool's stored
+   * sparkline (month, all-time; points spread evenly, the pool keeps no
+   * times). `fetch: "listed"` (anonymous) fetches only addresses the site
+   * lists; others answer [] without a call.
    */
   async sparklines(addresses: string[], window: TraderWindowInput, { fetch = "any" }: { fetch?: "any" | "listed" } = {}): Promise<SparklinesResponse> {
     const ready: SparklinesResponse = {};
@@ -515,14 +475,8 @@ export class TradersService {
    * their `twapId`): Hyperliquid's latest fills and TWAP slices merged, as
    * CopyDog's 成交 tab lists them.
    *
-   * A tracked address gets the same list, with our stored fills merged in
-   * (by tid). Its tab used to be read from the watcher's table alone, which
-   * holds perp fills only and, right after a favourite, only the last hour:
-   * tracking a trader made its page emptier and dropped its spot fills
-   * (review 43). The stored rows add what the feed has confirmed since
-   * Hyperliquid's list was cached, and when Hyperliquid cannot be read
-   * (busy, timeout) they are the answer on their own, so a tracked trader's
-   * tab still loads where an untracked one's would be 503.
+   * A tracked address also gets our stored fills merged in by tid (review
+   * 43); when Hyperliquid cannot be read they are the answer on their own.
    */
   async fills(address: string, limit: number): Promise<TraderFill[]> {
     const stored = (await this.isTracked(address)) ? (await this.repository.recentFills(address, limit)).map(dbFillToTraderFill) : [];
@@ -567,11 +521,9 @@ export class TradersService {
   // --- GET /traders/:address/twap -------------------------------------------
 
   /**
-   * Running TWAP orders, CopyDog's TWAP tab: the official retained
-   * userTwapHistory WebSocket snapshot reduced to those whose latest
-   * status is "activated". Their progress comes from the latest TWAP slice
-   * fills, the list the fills tab already caches, read only when a TWAP is
-   * running. Kept 60 s.
+   * Running TWAP orders (CopyDog's TWAP tab): the userTwapHistory WebSocket
+   * snapshot reduced to latest status "activated"; progress from the cached
+   * TWAP slice fills, read only when one is running.
    */
   twaps(address: string): Promise<TraderTwapsResponse> {
     return this.twapCache.get(address, async () => {
@@ -586,12 +538,10 @@ export class TradersService {
   // --- GET /traders/:address/transfers ----------------------------------------
 
   /**
-   * Deposits, withdrawals, transfers, vault and staking movements of the
-   * last 90 days, newest first, CopyDog's 轉帳 tab. Hyperliquid answers a
-   * window with its *oldest* 2,000 updates, so a full page means a busy
-   * account (a vault's deposits): the read then skips ahead to the span its
-   * density says holds the newest `TRANSFERS_MAX_ROWS`, at most
-   * `TRANSFERS_MAX_PAGES` calls, and reports `truncated`. Kept 5 min.
+   * Non-funding ledger movements of the last `TRANSFERS_WINDOW_MS`, newest
+   * first (CopyDog's 轉帳 tab). Hyperliquid answers with the *oldest* 2,000
+   * updates, so a full page skips ahead to the span its density says holds
+   * the newest `TRANSFERS_MAX_ROWS` and reports `truncated`.
    */
   transfers(address: string): Promise<TraderTransfersResponse> {
     return this.transfersCache.get(address, async () => {

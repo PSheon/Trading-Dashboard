@@ -8,8 +8,8 @@ export const COHORT_TIERS: CohortTier[] = [
   "extremely_profitable", "very_profitable", "profitable", "break_even", "unprofitable", "very_unprofitable", "rekt",
 ];
 
-/** All-time PnL bounds of each tier (CopyDog's cohorts; `pnlTier`):
- * `min` inclusive / exclusive as named, null = unbounded. */
+/** All-time PnL bounds of each tier (CopyDog's cohorts; `pnlTier`); a missing
+ * bound is unbounded. */
 export const TIER_BOUNDS: Record<PnlTier, { gte?: number; gt?: number; lt?: number; lte?: number; eq?: number }> = {
   extremely_profitable: { gte: 1_000_000 },
   very_profitable: { gte: 100_000, lt: 1_000_000 },
@@ -21,24 +21,10 @@ export const TIER_BOUNDS: Record<PnlTier, { gte?: number; gt?: number; lt?: numb
 };
 
 /**
- * Member eligibility, from CopyDog's 極度盈利 cohort as its public API serves it
- * (`api.copydog.xyz/api/hyperliquid/discover/cohorts/extremely_profitable`,
- * 2026-10-04: 353 members, 312 listed; checked against
- * `/traders/<address>/summary` of members and of the tier's largest absent
- * wallets):
- *
- * - the tier is all-time **perp** PnL ≥ $1M: absent wallets whose combined
- *   PnL is ≥ $1M but perp PnL is not are non-members;
- * - no member holds more than $30.4M perp equity, while every tier wallet at
- *   $56.5M–$170.6M is absent (isMM false, copy scores 81–96): a perp-equity
- *   ceiling, here $50M (CopyDog does not publish the number; any value in
- *   $30.4M–$56.5M fits what it serves);
- * - vaults are not traders.
- *
- * Rows are sorted by perp equity, largest first, as CopyDog's are. Other
- * absent wallets (e.g. $24.9M with 1,744 trades) are not explained by a
- * figure Orbie has; no trade-count or fill-rate rule separates CopyDog's
- * members (one has 4,235 trades) from them, so none is applied.
+ * Perp-equity ceiling for cohort members, inferred from CopyDog's 極度盈利 cohort
+ * (2026-10-04): no member above $30.4M, every tier wallet at $56.5M+ absent; any
+ * value in between fits (CopyDog does not publish it). Tiers are by all-time perp
+ * PnL; vaults are excluded. No trade-count or fill-rate rule matched CopyDog's set.
  */
 export const COHORT_MAX_PERP_EQUITY = 50_000_000;
 
@@ -56,17 +42,14 @@ export function cohortEligible(c: CohortEligibilityInput): boolean {
   return c.perpEquity === null || c.perpEquity <= COHORT_MAX_PERP_EQUITY;
 }
 
-/** History rows drawn on the chart need this share of the tier's members
- * fresh. At the headline's 80 % one missing whale still moved the long share
- * by 30 points (dev, 2026-10-01 15:45Z: 133 of 150 read, 71.6 % long between
- * 40.8 % and 40.9 %). */
+/** Share of the tier's members that must be fresh for a history row. At the
+ * headline's 80 % one missing whale moved the long share 30 points (dev, 2026-10-01). */
 export const COHORT_HISTORY_MIN_COVERAGE = 0.95;
 /** …and fresh members must hold this share of the tier's known perp equity. */
 const COHORT_HISTORY_MIN_EQUITY_COVERAGE = 0.95;
 
-/** Whether a history row may be written from these members: enough of them
- * fresh by count and by perp equity (`COHORT_HISTORY_MIN_*`). Members whose
- * equity is not known yet count by number only. */
+/** Enough members fresh by count and by perp equity (`COHORT_HISTORY_MIN_*`);
+ * unknown equity counts by number only. */
 export function cohortHistoryReady(members: Array<Pick<MemberSnapshot, "fetchedAt" | "perpEquity">>, freshSince: Date): boolean {
   if (members.length === 0) return false;
   const fresh = (m: Pick<MemberSnapshot, "fetchedAt">) => m.fetchedAt !== null && m.fetchedAt >= freshSince;

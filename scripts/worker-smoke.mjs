@@ -4,6 +4,7 @@ const require = createRequire(new URL('../apps/api/package.json',import.meta.url
 const {Pool}=require('pg');
 import { spawn } from 'node:child_process';
 import { createHmac } from 'node:crypto';
+import { createServer } from 'node:http';
 import { existsSync, openSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
@@ -23,6 +24,19 @@ const egressLog=port=>logDir+'/'+port+'-egress.log';
 const launch=(port,worker,extra={})=>{const child=spawn(process.execPath,['--import',root+'/scripts/worker-smoke-egress.mjs',entry],{cwd:root+'/apps/api',env:{...env,...(worker?{IS_WORKER:'true'}:{}),PORT:String(port),WORKER_URL:'http://127.0.0.1:3311',WORKER_SMOKE_EGRESS_LOG:egressLog(port),...extra},stdio:['ignore',openSync(logDir+'/'+port+'.log','w'),openSync(logDir+'/'+port+'-err.log','w')]}); children.push(child);return child;};
 const egress=port=>existsSync(egressLog(port))?readFileSync(egressLog(port),'utf8').split('\n').filter(Boolean):[];
 const monitorOf=async port=>workerMonitorSchema.parse(await (await probe(port,'/health/monitor')).json());
+// A stand-in for Hyperliquid's info API on loopback, for the role hand-off.
+// With an egress key (the shared meter requires one) an active worker reads
+// the market catalog on start (MarketCatalogService: perpDexs, then meta);
+// worker-smoke-egress.mjs records each Hyperliquid request and answers it
+// from here (WORKER_SMOKE_HL_STUB), so nothing leaves the host. "No request
+// from a standby" is then measured against processes that do make requests
+// once they hold their lease.
+const HL_STUB_PORT=3330;
+const hlEnv={HYPERLIQUID_EGRESS_KEY:'worker-smoke',WORKER_SMOKE_HL_STUB:`http://127.0.0.1:${HL_STUB_PORT}`};
+const hlServer=createServer((req,res)=>{let body='';req.on('data',c=>{body+=c;});req.on('end',()=>{let type;try{type=JSON.parse(body).type;}catch{}
+ res.setHeader('Content-Type','application/json');
+ res.end(JSON.stringify(type==='perpDexs'?[null]:type==='meta'?{universe:[{name:'BTC',szDecimals:5,maxLeverage:40}]}:[]));});});
+hlServer.on('upgrade',(_req,socket)=>socket.destroy());
 // The first active monitor sample reads the discovery pool's freshness, which can wait
 // up to 2 s for the market catalog on a cold start.
 // /health/monitor answers only the api's key (apps/api/src/runtime/worker-calls.ts).
@@ -30,6 +44,9 @@ const monitorKey=createHmac('sha256',databaseUrl).update('orbie:worker-monitor:v
 async function probe(port,path){const monitor=path==='/health/monitor';return fetch(`http://127.0.0.1:${port}${path}`,{headers:monitor?{Authorization:`Bearer ${monitorKey}`}:{},signal:AbortSignal.timeout(monitor?5000:1000)});}
 async function until(port,path,status){for(let i=0;i<100;i++){try{if((await probe(port,path)).status===status)return;}catch{}await new Promise(r=>setTimeout(r,100));}throw Error(`${port}${path} not ${status}`);}
 async function stop(c){if(c.exitCode!==null || c.signalCode!==null)return;await new Promise(r=>{c.once('exit',r);c.kill('SIGTERM');});}
+await new Promise((r,j)=>{hlServer.once('error',j);hlServer.listen(HL_STUB_PORT,'127.0.0.1',r);});
+/** Waits until `port`'s worker has made a Hyperliquid request at or after `since`. */
+async function requestedSince(port,since){for(let i=0;i<100;i++){if(egress(port).some(line=>Number(line.split(' ')[0])>=since))return;await new Promise(r=>setTimeout(r,100));}throw Error(`${port} made no Hyperliquid request once active`);}
 try {
  const a=launch(3311,true);await until(3311,'/health/ready',200);
  const b=launch(3312,true);await until(3312,'/health/live',200);
@@ -52,10 +69,12 @@ try {
  // WORKER_ROLE: an `all` worker (unset, both leases) hands off to a `copy`
  // and a `read` worker, which wait on standby without a Hyperliquid call.
  await stop(c);
- const all=launch(3321,true);await until(3321,'/health/ready',200);
+ const allStartedAt=Date.now(),all=launch(3321,true,hlEnv);await until(3321,'/health/ready',200);
+ // The active worker does reach (the stand-in for) Hyperliquid: the standbys' silence below means something.
+ await requestedSince(3321,allStartedAt);
  const allBeat=(await monitorOf(3321)).heartbeat?.worker;
  if(allBeat?.role!=='all'||allBeat.leases.join()!=='1,2')throw Error(`all worker reports ${JSON.stringify(allBeat)}`);
- launch(3322,true,{WORKER_ROLE:'copy'});launch(3323,true,{WORKER_ROLE:'read'});
+ launch(3322,true,{...hlEnv,WORKER_ROLE:'copy'});launch(3323,true,{...hlEnv,WORKER_ROLE:'read'});
  await until(3322,'/health/live',200);await until(3323,'/health/live',200);
  // Three lease polls on standby: neither takes over, neither reaches Hyperliquid.
  await new Promise(r=>setTimeout(r,3000));
@@ -68,7 +87,9 @@ try {
  // Whatever reached Hyperliquid (worker-smoke-egress.mjs) did so only after the hand-off.
  const early=[...egress(3322),...egress(3323)].filter(line=>Number(line.split(' ')[0])<handoffAt);
  if(early.length)throw Error(`Hyperliquid called before the lease: ${early.join(', ')}`);
+ // …and each did once it held its lease.
+ await requestedSince(3322,handoffAt);await requestedSince(3323,handoffAt);
  console.log('Hyperliquid requests: all',egress(3321).length,'copy',egress(3322).length,'read',egress(3323).length);
  console.log('Smoke logs:',logDir);
- console.log(JSON.stringify({ownershipLossFailStop:true,workerReady:true,standbyExcluded:true,noBusinessRoutes:true,apiStopDoesNotStopWorker:true,handoffPassed:true,roleHandoffPassed:true,standbyMadeNoHyperliquidCall:true}));
-}finally{for(const c of children)await stop(c);}
+ console.log(JSON.stringify({ownershipLossFailStop:true,workerReady:true,standbyExcluded:true,noBusinessRoutes:true,apiStopDoesNotStopWorker:true,handoffPassed:true,roleHandoffPassed:true,activeMadeHyperliquidCall:true,standbyMadeNoHyperliquidCall:true}));
+}finally{for(const c of children)await stop(c);hlServer.close();}

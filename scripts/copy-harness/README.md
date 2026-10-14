@@ -160,3 +160,29 @@ Nothing in the block names the database URL or a key; psql's errors are reduced 
 The leader must be funded (`run.mjs` stops with exit 3 and says how much otherwise): at least 20 testnet
 USDC in its perp account for its legs, plus the follower's top-up while the follower's main wallet holds
 less than the 50 USDC budget.
+
+## Mainnet evidence probe (read-only)
+
+`mainnet-evidence-probe.mjs` runs `apps/api/test/manual-mainnet-evidence-probe.e2e-spec.ts` (e2e config and
+`HL_MAINNET_PROBE=1`: never in CI) through the isolated api test runner. It runs the order path's real provider epoch
+(`LiveProviderReadEpoch.collect` with the shared reads, the account observer and its WS account source, the market
+resolver and the risk provider) on an original `PostgresLiveRiskScope` session, every read metered by
+`PostgresHyperliquidQuota` on that session, every SQL statement 8 ms late (`db-rtt.mjs`), against Hyperliquid
+**mainnet**; then the exchange boundary's provider reads (`extraAgents` twice, `maxBuilderFee`). Only the SQL
+authority's content is a double. Its fetch and socket wrappers refuse anything but mainnet info POSTs and WS
+subscribe / unsubscribe / ping: nothing is signed or sent to `/exchange`. It also measures the fill index lag
+(`userFillsByTime` of a busy public address polled every 4 s; a current-status isotonic estimate and per-fill brackets).
+
+```sh
+node scripts/copy-harness/mainnet-evidence-probe.mjs run --runner <wrapper supplying TEST_DATABASE_ADMIN_URL> \
+  --runs 20 --close-runs 6 --fill-lag-min 10        # ~40 min, under ~450 weight/min
+node scripts/copy-harness/mainnet-evidence-probe.mjs report <json>
+```
+
+First run, 2026-10-14 (`docs/evidence/mainnet-evidence-probe-2026-10-14.txt`): follower-like `0x13d2…d43c` (role
+user, abstraction disabled, one HYPE position), leader `0x2e30…4cb5`, coin ETH, 11 perp dexes. Ratio open (leader
+included, leverage checked), 18/20 ok (2 × `live_account_observation_changed`): evidence age at collect's return
+p50 / p95 / max 1441 / 1793 / 1793 ms, 1821 / 2515 / 2515 ms with the boundary reads; meter SQL inside the clock
+11 requests, Σ tx 625 / 681 / 681 ms (wall 628 / 688 / 688); REST weight 168 warm, 388 cold; 2 sockets, 24
+subscriptions, 48 messages. Close (no leader), 6/6: 1208 / 1455 / 1455 ms; meter 6 requests, 372 / 401 / 401 ms.
+Fill index lag (819 fills): p50 37, p90 722, p99 3752 ms; the oldest fill a poll missed was 6.3 s old.

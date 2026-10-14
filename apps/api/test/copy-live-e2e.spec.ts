@@ -204,6 +204,20 @@ async function leaderTrades(tid: number, dir: 'Open Long' | 'Close Long', sz: st
   await db.insert(schema.fills).values({ address: leader, tid: BigInt(tid), coin: 'BTC', side, dir, px: '100', sz, fee: '0.01', hash: rawFill.hash, ts: new Date(time), raw: rawFill });
 }
 
+/** Runs passes until `done` (bounded); the timeout names what was awaited, the legs and the engine's log. */
+async function passesUntil(e: CopyLiveEngine, done: () => boolean, what: string, timeoutMs = 15_000) {
+  const deadline = Date.now() + timeoutMs;
+  for (let passes = 1; ; passes++) {
+    await e.tick();
+    if (done()) return;
+    if (Date.now() >= deadline) {
+      const legs = (await db.select().from(schema.copyLiveDispatches)).map(row => `${row.sourceFillId}|${row.leg}: ${row.state} ${row.reason ?? ''}`);
+      throw new Error(`Timed out after ${timeoutMs} ms (${passes} passes) waiting for ${what}; legs ${JSON.stringify(legs)}; log ${JSON.stringify(logs)}`);
+    }
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+}
+
 describe('testnet copy of a mainnet leader, end to end against provider doubles', { timeout: 30_000 }, () => {
   it('settles terminal proof within five seconds despite slow independent metadata and status reads', async () => {
     const e = engine();
@@ -850,7 +864,9 @@ describe('testnet copy of a mainnet leader, end to end against provider doubles'
     e = engine('100', new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(new UnitOfWork(drizzle(pool, { schema }))), { egressKey: `e2e-${refusal}`, ownerId: `e2e-${refusal}` }, raw));
     await leaderTrades(1002, 'Open Long', '1', '1');
     await leaderTrades(1003, 'Close Long', '2', '2');
-    await e.tick();
+    // The close may need a later pass: a leg whose attempt does not go out is
+    // kept for the next pass (after its retry delay), as in production.
+    await passesUntil(e, () => exchangeBodies.length >= 2, 'the close to be sent');
     const rows = await db.select().from(schema.copyLiveDispatches);
     expect(rows.find(row => row.sourceFillId.endsWith(':1002'))).toMatchObject({ leg: 'open', state: 'refused', reason: refusal });
     expect(exchangeBodies).toHaveLength(2);

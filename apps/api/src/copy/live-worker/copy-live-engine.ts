@@ -19,6 +19,7 @@ import { HyperliquidBudgetWait } from '../../hyperliquid/hyperliquid-budget-wait
 import { classify, liveRetryDelayMs } from '../live/error-class.js';
 import { budgetConsumer } from '../../hyperliquid/request-budgeter.service.js';
 import { LiveReadComparisonError } from '../live/live-shared-reads.js';
+import { LiveRiskBusyError, liveRiskBusyDetail } from '../live/postgres-live-risk-scope.js';
 import { liveDeploymentPolicy } from '../live-deployment.js';
 
 /** One source read's result, for the logs. */
@@ -629,7 +630,8 @@ export class CopyLiveEngine {
       this.deps.log?.(`leg ${row.id} attempt ${row.attempts + 1} failed: ${reason}; ` +
         `elapsed ${Math.max(0, this.now() - attemptedAt)} ms, source age ${Math.max(0, this.now() - row.leaderTime.getTime())} ms, ` +
         `exchange started ${timing.sentAt !== undefined}` +
-        (error instanceof LiveReadComparisonError ? `, changed reads ${error.changedReads.join(',')}` : ''));
+        (error instanceof LiveReadComparisonError ? `, changed reads ${error.changedReads.join(',')}` : '') +
+        (error instanceof LiveRiskBusyError ? `, held by ${liveRiskBusyDetail(error)}` : ''));
       if (error instanceof HyperliquidBudgetWait) this.deps.log?.(`leg ${row.id} budget unavailable: ${error.reason}, retry ${error.retryMs} ms`);
       // Stored as live_execution_failed: say what it really was (Stage 2026-10-06).
       const unexpected = describeUnexpected(error);

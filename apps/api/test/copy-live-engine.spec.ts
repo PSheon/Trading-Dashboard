@@ -11,6 +11,7 @@ import { liveSourceExecutionCloid } from '../src/copy/live/postgres-live-prepara
 
 import { CopyLiveApiSettlementRepository } from '../src/copy/live-worker/copy-live-api-settlement.repository.js';
 import { LiveBoundaryError } from '../src/copy/live/wallet-authorization.js';
+import { LiveRiskBusyError } from '../src/copy/live/postgres-live-risk-scope.js';
 import { HyperliquidRestCapacityError } from '../src/hyperliquid/hyperliquid-capacity-error.js';
 import { NEVER_PLACED, type LiveExecutionRecord } from '../src/copy/live/live-execution.js';
 import { buildOrderAction } from '../src/copy/live/live-order.js';
@@ -580,7 +581,8 @@ describe('testnet copy execution engine', () => {
     const open = await leaderFill(81, now + 100, 'B', '1', '0', 'BTC');
     // Attempts 1 and 2 of the gate: the follower observation's socket connect
     // refused by the shared meter (it said: in 4 s); attempt 3: the risk lock busy.
-    const refusals = [unavailable(new HyperliquidRestCapacityError(4_000)), unavailable(new HyperliquidRestCapacityError(4_000)), new LiveBoundaryError('live_risk_busy')];
+    const refusals = [unavailable(new HyperliquidRestCapacityError(4_000)), unavailable(new HyperliquidRestCapacityError(4_000)),
+      new LiveRiskBusyError({ lock: 'account', holders: [{ kind: 'order', id: 'testnet:0xabc:0x01', heldMs: 11_800 }], sessions: [] })];
     runtimeImpl = async request => { runtimeCalls.push(request); throw refusals.shift() ?? new LiveBoundaryError('live_risk_busy'); };
     const worker = engine(), logs: string[] = [];
     (worker as unknown as { deps: { log?: (m: string) => void } }).deps.log = message => { logs.push(message); };
@@ -593,6 +595,9 @@ describe('testnet copy execution engine', () => {
     expect(runtimeCalls).toHaveLength(2);
     clock = now + 9600; await worker.tick();
     expect((await dispatches()).find(r => r.sourceFillId === open)).toMatchObject({ state: 'pending', reason: 'live_risk_busy', attempts: 0 });
+    // Gate run 9: the busy line names the lock and who held it, for how long.
+    expect(logs.some(m => m.includes('failed: live_risk_busy;') &&
+      m.includes('held by {"lock":"account","holders":[{"kind":"order","id":"testnet:0xabc:0x01","heldMs":11800}],"sessions":[]}'))).toBe(true);
     // A busy lock is tried again a second later.
     clock = now + 10_700; await worker.tick();
     expect(runtimeCalls).toHaveLength(4);

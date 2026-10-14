@@ -64,7 +64,7 @@ export class CopyLiveSettler {
     // the original locks, which re-check the marker and that no oid, receipt
     // or exchange evidence exists (releaseUnsent).
     if (isDefinitelyUnsent(record)) {
-      const released = await new PostgresLiveRiskScope(this.pool, this.now, claim).run({ userId: request.userId, network: this.network, accountAddress: request.accountAddress,
+      const released = await new PostgresLiveRiskScope(this.pool, this.now, claim, { kind: 'settlement_release_unsent', id: request.key }).run({ userId: request.userId, network: this.network, accountAddress: request.accountAddress,
         source: { network: request.sourceNetwork, leaderAddress: request.leaderAddress } }, async (_scope, session) =>
         new PostgresLiveSettlement(this.now).releaseUnsent(session, { accountId: request.accountId, key: request.key }));
       return released.kind === 'released' ? { kind: 'unplaced', unsent: true } : released;
@@ -97,7 +97,7 @@ export class CopyLiveSettler {
       const [hint] = await drizzle(claim ? settlementFencedPool(this.pool, claim) : this.pool).select({ state: copyLiveRiskReservations.state, revision: copyLiveRiskReservations.revision,
         releaseReason: copyLiveRiskReservations.releaseReason }).from(copyLiveRiskReservations).where(eq(copyLiveRiskReservations.key, request.key));
       if (hint?.state === 'released' && hint.releaseReason === 'verified_settlement') {
-        const scope = new PostgresLiveRiskScope(this.pool, this.now, claim);
+        const scope = new PostgresLiveRiskScope(this.pool, this.now, claim, { kind: 'settlement_replay', id: request.key });
         return scope.run({ userId: request.userId, network: this.network, accountAddress: request.accountAddress,
           source: { network: request.sourceNetwork, leaderAddress: request.leaderAddress } }, async (_scope, session) => {
           const decision = await new PostgresLiveSettlement(this.now).replaySettlement(session, { accountId: request.accountId, key: request.key,
@@ -126,7 +126,7 @@ export class CopyLiveSettler {
       try { if (weight > credit) await reserveLive(this.budget, weight - credit, { maxWaitMs: 5000, ...(claim ? { signal: claim.signal } : {}) }); }
       catch (error) { prepaid += credit; throw error; }
     };
-    const scope = new PostgresLiveRiskScope(this.pool, this.now, claim);
+    const scope = new PostgresLiveRiskScope(this.pool, this.now, claim, { kind: 'settlement', id: request.key });
     try { return await scope.run({ userId: request.userId, network: this.network, accountAddress: request.accountAddress,
       source: { network: request.sourceNetwork, leaderAddress: request.leaderAddress } }, async (_scope, session) => this.global.runOriginal(session, async () => {
       this.global.currentQuota();

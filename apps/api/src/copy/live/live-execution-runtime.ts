@@ -190,7 +190,7 @@ export class LiveExecutionRuntime {
     // current authority under the original locks; a resumed hint grants
     // nothing, and an existing journal always stays on historical recovery.
     if (request.leg === 'open' && !routing.journalExists && routing.blockedOpenHint) {
-      await new PostgresLiveRiskScope(this.pool, this.now).run({ userId: request.userId, network: this.network, accountAddress,
+      await new PostgresLiveRiskScope(this.pool, this.now, undefined, { kind: 'order_control_check', id: key }).run({ userId: request.userId, network: this.network, accountAddress,
         source: { network: routing.mandate.sourceNetwork, leaderAddress } }, async (_scope, session) => {
         await session.read(async db => {
           const [existing] = await db.select({ key: copyLiveExecutions.key }).from(copyLiveExecutions).where(eq(copyLiveExecutions.key, key));
@@ -238,7 +238,7 @@ export class LiveExecutionRuntime {
     }
     let prepaid = credit.weight;
     credit.weight = 0;
-    const scope = new PostgresLiveRiskScope(this.pool, this.now);
+    const scope = new PostgresLiveRiskScope(this.pool, this.now, undefined, { kind: 'order', id: key });
     let metadataClient: BoundaryPrivyOrderSigningClient | undefined;
     const timings: Readonly<LiveExecutionTiming>[] = [];
     let completionDiagnostic: Readonly<{ event: 'live_execution_completion_stale'; network: HyperliquidNetwork;

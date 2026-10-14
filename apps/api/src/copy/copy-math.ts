@@ -108,13 +108,6 @@ export function openNotional(args: {
  * this only absorbs the 18th decimal of a product of fractions. */
 const FULL = Dec.from("0.999999999999");
 
-/** Size to reduce when the leader closes `fraction` of their position:
- * the same fraction of the follower's own strategy position (never more). */
-export function reduceSize(followerAbsSize: Dec, fraction: Dec): Dec {
-  if (!followerAbsSize.isPositive || !fraction.isPositive) return Dec.ZERO;
-  return fraction.gte(FULL) ? followerAbsSize : followerAbsSize.mul(fraction);
-}
-
 /**
  * A proportional reduction that keeps what rounding would lose (review 42).
  * `carry` is the size earlier reductions called for that was below one lot

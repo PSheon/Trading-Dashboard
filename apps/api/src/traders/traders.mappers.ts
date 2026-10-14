@@ -393,11 +393,7 @@ export interface FillSample {
   lastTradeAt: number | null;
 }
 
-export function sampleFromUserFills(raw: HlUserFill[], since: number): FillSample {
-  return sampleFromLists([raw], since);
-}
-
-/** The same over several capped lists (`userFills` and the latest TWAP
+/** A `FillSample` over several capped lists (`userFills` and the latest TWAP
  * slices, which it doesn't include): counts every perp fill once, and is
  * `capped` if any one list is. */
 export function sampleFromLists(lists: HlUserFill[][], since: number): FillSample {

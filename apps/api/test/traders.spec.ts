@@ -57,7 +57,7 @@ import { ChartSnapshotsService } from "../src/traders/chart-snapshots.service.js
 import {
   downsample,
   portfolioKey,
-  sampleFromUserFills,
+  sampleFromLists,
 } from "../src/traders/traders.mappers.js";
 import { TradersService } from '../src/traders/traders.service.js';
 import { PageBusyError } from "../src/hyperliquid/request-budgeter.service.js";
@@ -1162,7 +1162,7 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
     it("uses Hyperliquid's count for a tracked address when ours has holes, and ours if Hyperliquid fails", async () => {
       await db.insert(leaders).values({ address: C });
       // No fills of ours at all (e.g. imported today): the upstream sample wins.
-      const upstream = sampleFromUserFills(userFillsFixture, Date.now() - 30 * 86_400_000);
+      const upstream = sampleFromLists([userFillsFixture], Date.now() - 30 * 86_400_000);
       expect(upstream.fills30d).toBeGreaterThan(0);
       expect((await controller.activity(C)).sample).toMatchObject({ fills30d: upstream.fills30d });
 

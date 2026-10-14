@@ -4,7 +4,7 @@ import { currentRequestSignal } from "../runtime/request-context.js";
 import { Optional } from "@nestjs/common";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { Injectable, Logger } from "@nestjs/common";
-import { ANALYTICS_CAPACITY_WAIT_MS, ESSENTIAL_CAPACITY_WAIT_MS, HyperliquidGlobalTransport, settleListAnswer } from './hyperliquid-global-transport.js';
+import { HyperliquidGlobalTransport, settleListAnswer } from './hyperliquid-global-transport.js';
 import { LiveBoundaryError } from '../copy/live/wallet-authorization.js';
 
 import { CONSUMER_ANALYTICS, currentBudgetConsumer, isPageWork, PAGE_WORK_MAX_RANK, RequestBudgeterService, type RequestPriority } from "./request-budgeter.service.js";
@@ -31,6 +31,7 @@ import type {
   HlCandle,
 } from "./types.js";
 import { infoListSurcharge, infoWeight, MAX_INFO_LIST_ITEMS } from "./info-weights.js";
+import { ANALYTICS_CAPACITY_WAIT_MS, ESSENTIAL_CAPACITY_WAIT_MS, REQUEST_TIMEOUT_MS } from '../config/constants/hyperliquid.js';
 
 /** Hyperliquid `info` request weights, from the one table (info-weights.ts,
  * the docs' rate-limits page). */
@@ -85,9 +86,6 @@ export const MAX_LIST_ITEMS = MAX_INFO_LIST_ITEMS;
 /** Items a recent-window fills read prepays (`userFillsSince`). */
 const RECENT_FILLS_ITEMS = 200;
 export const MAX_LIST_SURCHARGE = infoListSurcharge("userFills", MAX_LIST_ITEMS);
-/** A dead connection must not hold a caller (and its per-address sync
- * chain) forever. */
-const REQUEST_TIMEOUT_MS = 20_000;
 /** Budget consumers whose calls wait for room in the shared background lane:
  * snapshots and sweeps of watched leaders, and the confirms that store the
  * fills the trade feed alerted on (they used to fail at once whenever the

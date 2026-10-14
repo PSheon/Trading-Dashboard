@@ -5,13 +5,14 @@ import { Pool } from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { UnitOfWork } from '../src/db/unit-of-work.js';
 import { CopyLiveFlatCarry } from '../src/copy/live-worker/copy-live-flat-carry.js';
-import { CopyLiveManualCloser, FLAT_CARRY_RETRY_MS } from '../src/copy/live-worker/copy-live-stopper.js';
+import { CopyLiveManualCloser } from '../src/copy/live-worker/copy-live-stopper.js';
 import { CopyLiveStopWorkerRepository } from '../src/copy/live-worker/copy-live-stop-worker.repository.js';
 import type { ReduceOnlyCloser } from '../src/copy/live-worker/reduce-only-closer.js';
 import { PostgresLiveRiskScope } from '../src/copy/live/postgres-live-risk-scope.js';
 import { preparationFixture } from './copy-live-preparation-test-utils.js';
 import { now } from './copy-live-risk-test-utils.js';
 import { closeTestDb, getTestDb, type TestDb } from './db-test-utils.js';
+import { FLAT_CARRY_RETRY_MS } from '../src/config/constants/timings.js';
 
 // 2c-B: a single-position close that left the follower flat in a coin resets
 // that coin's reduction carry, but never while a leg of it is in flight.

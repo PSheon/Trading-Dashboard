@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { RETURN_CONSENT_WINDOW_MS } from './copy-live-return.repository.js';
+
 import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { MERGED_REASON } from './live-worker/copy-live-worker.repository.js';
 import { copyAgentSetups, copyExecutionAccounts, copyFundingOperations, copyLiveActivations, copyLiveDispatches, copyLiveMandates, copyLiveStopOperations,
@@ -7,6 +7,7 @@ import { copyAgentSetups, copyExecutionAccounts, copyFundingOperations, copyLive
 import { ACTUAL_STRATEGY_MODE, liveCopySetupIntentSchema, type LiveCopyPortfolioItem, type LiveCopyStage } from '@trading-dashboard/shared/contracts';
 import { DRIZZLE_CLIENT } from '../db/db.constants.js';
 import type { DrizzleDb } from '../db/drizzle.provider.js';
+import { RETURN_CONSENT_WINDOW_MS } from '../config/constants/timings.js';
 
 /** The setup's consent while the owner can still sign it (as GET setups/:id shows it). */
 function consentOf(setup: typeof copyLiveSetups.$inferSelect, now: number) {

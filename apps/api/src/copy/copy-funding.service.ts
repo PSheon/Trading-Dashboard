@@ -21,7 +21,8 @@ import { CopyFundingExchangeClient } from "./copy-funding-exchange.client.js";
 import { fundingCreditEvidence, fundingOtherOperation } from "./copy-funding-evidence.js";
 import { classify } from "./live/error-class.js";
 import { privyIdentityFresh } from "./live/privy-identity-freshness.js";
-import { FUNDING_NONCE_SKEW_MS, FUNDING_NONCE_EXPIRY_MS, fundingBackoffMs, fundingScanSchema, fundingDetailBatch, type FundingScan } from "./copy-funding-scan.js";
+import { fundingBackoffMs, fundingScanSchema, fundingDetailBatch, type FundingScan } from './copy-funding-scan.js';
+import { FUNDING_NONCE_EXPIRY_MS, FUNDING_NONCE_SKEW_MS } from '../config/constants/timings.js';
 
 const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 /** An operator's ledger read: a full page reads on (oldest first), at most

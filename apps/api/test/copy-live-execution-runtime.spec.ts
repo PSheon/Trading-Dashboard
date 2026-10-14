@@ -43,7 +43,8 @@ import { PostgresLiveSettlement } from '../src/copy/live/postgres-live-settlemen
 import { PostgresLivePreparation } from '../src/copy/live/postgres-live-preparation.js';
 import { LiveLeverageUpdateRequired } from '../src/copy/live/live-leverage-update.js';
 import { ScopedLiveExecutionJournal } from '../src/copy/live/scoped-live-journal.js';
-import { liveSourceExecutionCloid, MAX_LIVE_LEG_ATTEMPTS } from '../src/copy/live/copy-live-leg-attempt.js';
+import { liveSourceExecutionCloid } from '../src/copy/live/copy-live-leg-attempt.js';
+import { MAX_LIVE_LEG_ATTEMPTS } from '../src/config/constants/limits.js';
 
 // Native network endpoints alone are replaced. Every provider decoder, private
 // quota capability, SQL authority and SDK request boundary remains concrete.

@@ -23,7 +23,7 @@ import { CopyLiveSetupAbortReturnRepository, SETUP_ABORT_RESIDUAL_RETURNS } from
 import { classify } from '../src/copy/live/error-class.js';
 import { CopyLiveReturnRepository } from '../src/copy/copy-live-return.repository.js';
 import type { SetupAbortFlatObservation } from '../src/copy/live/live-account-observer.js';
-import { CopyLiveSetupAbortService, SETUP_ABORT_ALERT_EVERY_MS, SETUP_ABORT_BLOCKED_RECHECK_MS, SETUP_ABORT_NOT_FLAT_ESCALATE_MS } from '../src/copy/copy-live-setup-abort.service.js';
+import { CopyLiveSetupAbortService } from '../src/copy/copy-live-setup-abort.service.js';
 import { BackgroundJobs } from '../src/runtime/background-jobs.service.js';
 import { requestContext } from '../src/runtime/request-middleware.js';
 import { CopyLiveSetupController } from '../src/copy/copy-live-setup.controller.js';
@@ -38,6 +38,8 @@ import type { AppConfig } from '../src/config/app-config.js';
 import { AccountRepository } from '../src/users/account.repository.js';
 import { testConfig as baseTestConfig } from './config-test-utils.js';
 import { closeTestDb, getTestDb, insertUser, openCopyTrading, truncateAll, type TestDb } from './db-test-utils.js';
+import { ALERT_EVERY_MS } from '../src/config/constants/alerts.js';
+import { SETUP_ABORT_BLOCKED_RECHECK_MS, SETUP_ABORT_NOT_FLAT_ESCALATE_MS } from '../src/config/constants/timings.js';
 
 // The setup service and its SQL are real (Postgres); the providers behind the
 // wallet, agent, mode and deposit steps are doubles that keep the same rows
@@ -844,7 +846,6 @@ describe('one-click testnet copy setup', () => {
   });
 });
 
-
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>(done => { resolve = done; });
@@ -1367,7 +1368,6 @@ it('request recovery review: cancel checks deposit admission under the same user
   expect(fakes.funding.submit).not.toHaveBeenCalled();
 });
 
-
 it('request recovery review: a slow explicit retry cannot reuse the previous unsent funding evidence', async () => {
   const prepared = await start(), signatures = await sign(prepared.consent!);
   const rows = new CopyFundingRepository(db);
@@ -1393,7 +1393,6 @@ it('request recovery review: a slow explicit retry cannot reuse the previous uns
   expect(await db.select().from(copyFundingOperations)).toHaveLength(1);
   expect(fakes.funding.submit).toHaveBeenCalledTimes(2);
 });
-
 
 it('mainnet recovery fences setup, reserves one original refund, and rejects wrong-network or stale proof before signing', async () => {
   testNetwork = 'mainnet';
@@ -1656,7 +1655,7 @@ describe('cancel and refund a confirmed setup awaiting its credit (funding_submi
     later(30_000);
     expect(await w.pass(setup.id)).toMatchObject({ state: 'blocked', issue: 'setup_abort_residual_balance' });
     expect(alerts(errors, 'residual_cap')).toBe(1);
-    later(SETUP_ABORT_ALERT_EVERY_MS);
+    later(ALERT_EVERY_MS);
     await w.pass(setup.id);
     expect(alerts(errors, 'residual_cap')).toBe(2);
     expect(w.exchange.send).toHaveBeenCalledTimes(SETUP_ABORT_RESIDUAL_RETURNS + 1);

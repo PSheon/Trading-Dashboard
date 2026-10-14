@@ -1,10 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ACCOUNT_MODE_ABSENCE_REST_WEIGHT } from '../src/copy/copy-account-mode-evidence.js';
-import { ATTEMPT_REST_WEIGHT, ATTEMPT_STEP_REST_WEIGHT, EXCHANGE_POST_WEIGHT, PREFLIGHT_REST_WEIGHT } from '../src/copy/copy-account-mode.service.js';
-import { ACCOUNT_MODE_OBSERVE_WEIGHT } from '../src/copy/live/privy-account-mode-client.js';
+
 import { infoWeight } from '../src/hyperliquid/info-weights.js';
 import { Meter, T0, Testnet, database, setupIntent, worker } from './copy-setup-capacity-test-utils.js';
+import { ACCOUNT_MODE_ABSENCE_REST_WEIGHT, ACCOUNT_MODE_OBSERVE_WEIGHT, ATTEMPT_REST_WEIGHT, ATTEMPT_STEP_REST_WEIGHT, EXCHANGE_POST_WEIGHT, PREFLIGHT_REST_WEIGHT } from '../src/config/constants/weights.js';
 
 /**
  * The account-mode step claims what it really charges the shared meter

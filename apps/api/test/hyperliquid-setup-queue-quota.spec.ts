@@ -1,6 +1,7 @@
 import {describe,expect,it} from 'vitest';
 import {HyperliquidRestCapacityError} from '../src/hyperliquid/hyperliquid-capacity-error.js';
-import {HYPERLIQUID_PAGE_FLOOR,HYPERLIQUID_PAGE_HOLD_MS,HYPERLIQUID_SETUP_PENDING_HOLD_MS,planHyperliquidQuota,setupDemandTicket,type HyperliquidQuotaEvent,type HyperliquidQuotaRequest,type HyperliquidQuotaState} from '../src/hyperliquid/hyperliquid-global-quota.js';
+import { planHyperliquidQuota, setupDemandTicket, type HyperliquidQuotaEvent, type HyperliquidQuotaRequest, type HyperliquidQuotaState } from '../src/hyperliquid/hyperliquid-global-quota.js';
+import { HYPERLIQUID_PAGE_FLOOR, HYPERLIQUID_PAGE_HOLD_MS, HYPERLIQUID_SETUP_PENDING_HOLD_MS } from '../src/config/constants/hyperliquid.js';
 
 /**
  * The shared meter as a queue (2026-10-13 08:18 gate: a setup at `funded`

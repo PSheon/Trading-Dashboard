@@ -1,4 +1,6 @@
 import { integerValue } from "./parse-env.js";
+import { AGENT_EXPIRY_STOP_MARGIN_MS, SETUP_ANSWER_MS, SETUP_CONFIRM_LEASE_WAIT_MS, SETUP_LEASE_MS, SETUP_POST_MS, SETUP_RESERVE_WAIT_MS, SETUP_RETRY_BACKOFF_BASE_MS, SETUP_RETRY_BACKOFF_MAX_MS,
+  SETUP_RETRY_NEEDS_OWNER_MS, SETUP_RETRY_PENDING_MS, SETUP_RETRY_SIGNER_UNAVAILABLE_MS, SETUP_RETRY_TRANSIENT_ATTEMPTS, SETUP_SIGN_MS, STOP_CANCEL_ATTEMPTS, STOP_CLOSE_ATTEMPTS, STOP_SYSTEM_CHECK_MS } from "./constants/timings.js";
 import type { RetryPolicy } from "../copy/live/error-class.js";
 
 type Environment = Record<string, string | undefined>;
@@ -61,17 +63,18 @@ export interface LiveStopTimings {
 }
 
 export const DEFAULT_LIVE_SETUP_TIMINGS: LiveSetupTimings = Object.freeze({
-  leaseMs: 60_000,
-  stepBudgetMs: Object.freeze({ reserveWaitMs: 15_000, signMs: 30_000, postMs: 10_000 }),
-  answerMs: 10_000,
-  confirmLeaseWaitMs: 30_000,
-  retry: Object.freeze({ pendingMs: 3_000, signerUnavailableMs: 15_000, backoffBaseMs: 3_000, backoffMaxMs: 60_000, transientAttempts: 8, needsOwnerMs: 15_000 }),
+  leaseMs: SETUP_LEASE_MS,
+  stepBudgetMs: Object.freeze({ reserveWaitMs: SETUP_RESERVE_WAIT_MS, signMs: SETUP_SIGN_MS, postMs: SETUP_POST_MS }),
+  answerMs: SETUP_ANSWER_MS,
+  confirmLeaseWaitMs: SETUP_CONFIRM_LEASE_WAIT_MS,
+  retry: Object.freeze({ pendingMs: SETUP_RETRY_PENDING_MS, signerUnavailableMs: SETUP_RETRY_SIGNER_UNAVAILABLE_MS, backoffBaseMs: SETUP_RETRY_BACKOFF_BASE_MS,
+    backoffMaxMs: SETUP_RETRY_BACKOFF_MAX_MS, transientAttempts: SETUP_RETRY_TRANSIENT_ATTEMPTS, needsOwnerMs: SETUP_RETRY_NEEDS_OWNER_MS }),
 });
 
 export const DEFAULT_LIVE_STOP_TIMINGS: LiveStopTimings = Object.freeze({
-  systemCheckMs: 60_000,
-  agentExpiryMarginMs: 24 * 3_600_000,
-  retry: Object.freeze({ closeAttempts: 10, cancelAttempts: 3 }),
+  systemCheckMs: STOP_SYSTEM_CHECK_MS,
+  agentExpiryMarginMs: AGENT_EXPIRY_STOP_MARGIN_MS,
+  retry: Object.freeze({ closeAttempts: STOP_CLOSE_ATTEMPTS, cancelAttempts: STOP_CANCEL_ATTEMPTS }),
 });
 
 /** A setup step's retry policy (decideRetry): its transient back-off, the

@@ -3,7 +3,6 @@ import { z } from 'zod';
 import { WALLET_NETWORKS, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { Dec } from '../common/decimal/dec.js';
 import { readInfoJson } from '../hyperliquid/response-validation.js';
-import { infoWeight } from '../hyperliquid/info-weights.js';
 import { safeErrorText } from '../runtime/safe-error-text.js';
 import { extraAgentsSchema } from '../hyperliquid/info-schemas.js';
 import { HyperliquidAllDexsAccountSource, type LiveAllDexsAccountEvidence, type LiveAllDexsAccountSource } from './live/live-account-ws-source.js';
@@ -12,7 +11,10 @@ import { address, LiveBoundaryError } from './live/wallet-authorization.js';
 import { accountModeDigest } from './copy-account-mode.repository.js';
 import type { AccountModeAbsenceOptions, AccountModeAbsenceProof, AccountModeAbsenceReader, AccountModeAbsenceTurn } from './copy-account-mode.service.js';
 import type { HyperliquidGlobalTransport } from '../hyperliquid/hyperliquid-global-transport.js';
-import { HyperliquidBudgetWait, LIVE_RESERVE_WAIT_MS, sharedCapacityWait, type LiveBudget, type LiveReserveOptions } from '../hyperliquid/hyperliquid-budget-wait.js';
+import { HyperliquidBudgetWait, sharedCapacityWait, type LiveBudget, type LiveReserveOptions } from '../hyperliquid/hyperliquid-budget-wait.js';
+import { LIVE_RESERVE_WAIT_MS } from '../config/constants/hyperliquid.js';
+import { LIVE_EVIDENCE_MAX_AGE_MS, SOURCE_SPACING_MS } from '../config/constants/timings.js';
+import { ACCOUNT_MODE_ABSENCE_WEIGHT } from '../config/constants/weights.js';
 
 const integer = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const decimal = z.string().max(80).regex(/^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/);
@@ -40,18 +42,8 @@ const SOCKET_REFUSALS = new Set(['hyperliquid_quota_exhausted', 'hyperliquid_quo
 const causeOf = (error: unknown): string => error instanceof LiveBoundaryError ? error.code : error instanceof z.ZodError ? 'schema' :
   error instanceof Error ? (error.name === 'Error' ? 'error' : error.name) : 'unknown';
 function unique(values: readonly string[]) { if (new Set(values).size !== values.length) fail(); }
-function fresh(at: number, now: number) { if (!Number.isSafeInteger(at) || at <= 0 || at > now || now - at > 5000) fail(); }
+function fresh(at: number, now: number) { if (!Number.isSafeInteger(at) || at <= 0 || at > now || now - at > LIVE_EVIDENCE_MAX_AGE_MS) fail(); }
 
-/** Provider weight of one absence proof: perpDexs 20, spotClearinghouseState
- * 2, extraAgents 20, the all-venue WS read 40 (local scheduling only), and
- * the final perpDexs 20. */
-export const ACCOUNT_MODE_ABSENCE_WEIGHT = 102;
-/** What one absence proof charges the shared per-IP REST meter: its first
- * batch (perpDexs, spotClearinghouseState, extraAgents) and the final
- * perpDexs (62). The all-venue read is socket units, another meter's. */
-export const ACCOUNT_MODE_ABSENCE_REST_WEIGHT = 2 * infoWeight({ type: 'perpDexs' }) + infoWeight({ type: 'spotClearinghouseState' }) + infoWeight({ type: 'extraAgents' });
-/** The shared all-venue source serves one read at a time, at most one a second. */
-const SOURCE_SPACING_MS = 1_000;
 
 /** Bootstrap evidence proves empty exposure only; default balances never
  * become standard equity/margin. Every actual perp venue must be observed.

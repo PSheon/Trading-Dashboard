@@ -43,7 +43,7 @@ import { CopyFollowerController } from "./copy-follower.controller.js";
 import { CopyFollowerStatementService } from "./copy-follower-statement.service.js";
 import { CopyAccountModeController } from "./copy-account-mode.controller.js";
 import { CopyAccountModeRepository } from "./copy-account-mode.repository.js";
-import { CopyAccountModeService, ACCOUNT_MODE_CLIENT, ACCOUNT_MODE_ABSENCE_READER, ATTEMPT_STEP_WEIGHT } from "./copy-account-mode.service.js";
+import { CopyAccountModeService, ACCOUNT_MODE_CLIENT, ACCOUNT_MODE_ABSENCE_READER } from './copy-account-mode.service.js';
 import { PrivyAccountModeClient } from "./live/privy-account-mode-client.js";
 import { HyperliquidAccountModeAbsenceReader } from "./copy-account-mode-evidence.js";
 import { CopyFollowerActivityRepository } from "./copy-follower-activity.repository.js";
@@ -88,6 +88,7 @@ import { HyperliquidLiveAccountObserver } from './live/live-account-observer.js'
 // The wallet network's budget, transport and info client: one per process,
 // provided by HyperliquidModule (re-exported here for existing imports).
 export { WALLET_NETWORK_HL, walletNetworkHyperliquid, type WalletNetworkHyperliquid } from "../hyperliquid/wallet-network-hyperliquid.js";
+import { ATTEMPT_STEP_WEIGHT } from '../config/constants/weights.js';
 /** A setup step's clients' reservations, on the setup bucket
  * (WalletNetworkHyperliquid.setupBudget: never the order bucket): queued
  * (never refused at once on the estimate) for at most the setup step's

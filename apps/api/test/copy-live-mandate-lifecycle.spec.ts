@@ -185,7 +185,6 @@ describe('server-filled consent generations', () => {
   });
 });
 
-
 describe('complete current local admission evidence', () => {
   it.each(['platformMissing', 'userMissing', 'platformWrong', 'platformDuplicate', 'userWrong', 'strategyRunning', 'strategyUnpaused'] as const)('rejects %s before preparing consent', async change => {
     if (change === 'platformMissing' || change === 'platformWrong') await db.delete(copyControls).where(eq(copyControls.scope, 'platform'));
@@ -205,7 +204,6 @@ describe('complete current local admission evidence', () => {
     await expect(create({ ...draft(), idempotencyKey: 'another-draft-key-0001', leader: `0x${'66'.repeat(20)}` })).rejects.toMatchObject({ status: 409 });
   });
 });
-
 
 describe('original generation evidence and durable barriers', () => {
   it.each(['intentMirror', 'columnMirror', 'digest'] as const)('refuses internally contradictory %s evidence even with a shape-valid hash', async change => {

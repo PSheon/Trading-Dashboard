@@ -3,11 +3,12 @@ import { infoListSurcharge, infoPrepaidWeight, infoWeight } from '../src/hyperli
 import { TRANSPORT_INFO_TYPES } from '../src/hyperliquid/hyperliquid-global-transport.js';
 import { HyperliquidInfoClient } from '../src/hyperliquid/hyperliquid-info.client.js';
 import type { RequestBudgeterService } from '../src/hyperliquid/request-budgeter.service.js';
-import { LIVE_ORDER_BOUNDARY_WEIGHT, liveInfoWeight } from '../src/copy/live/live-shared-reads.js';
+import { liveInfoWeight } from '../src/copy/live/live-shared-reads.js';
 import { HyperliquidAgentApprovalVerifier } from '../src/copy/live/hyperliquid-agent-approval.js';
 import type { WalletAuthorization } from '../src/copy/live/wallet-authorization.js';
 import { offlineGlobalTransport } from './hyperliquid-quota-test-utils.js';
 import { testConfig } from './config-test-utils.js';
+import { LIVE_ORDER_BOUNDARY_WEIGHT } from '../src/config/constants/weights.js';
 
 const info = 'https://api.hyperliquid-testnet.xyz/info', user = `0x${'12'.repeat(20)}`;
 const metered = async (type: string) => {

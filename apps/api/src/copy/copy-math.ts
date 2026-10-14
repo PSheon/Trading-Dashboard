@@ -19,6 +19,7 @@ import { createHash } from "node:crypto";
 import type { CopyDirection, CopySizingMode } from "@trading-dashboard/shared/contracts";
 
 import { Dec, PX_DP, USD_DP, type DecInput } from "../common/decimal/dec.js";
+import { HOUR_MS } from '../config/constants/time.js';
 
 /** A verified leader fill, as stored in `fills.raw`. */
 export interface LeaderFill {
@@ -201,7 +202,6 @@ export function leaderPositionPx(position: { szi: string; positionValue?: string
   return Dec.parse(position.entryPx) ?? Dec.ZERO;
 }
 
-const HOUR_MS = 3_600_000;
 /**
  * Hourly funding payments a position owes at `hour` (a whole hour): one for
  * every hour boundary after `fundingThrough` up to and including `hour`.

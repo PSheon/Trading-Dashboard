@@ -11,13 +11,13 @@ import { CopyAdminLiveService } from '../src/copy/copy-admin-live.service.js';
 import { findCurrentWalletAuthorization } from '../src/copy/live/postgres-wallet-authorizations.js';
 import { CopyLiveCloseService } from '../src/copy/copy-live-close.service.js';
 import { CopyLiveCloseRepository } from '../src/copy/copy-live-close.repository.js';
-import { AGENT_EXPIRY_STOP_MARGIN_MS, CopyLiveStopper, type StopCanceller } from '../src/copy/live-worker/copy-live-stopper.js';
+import { CopyLiveStopper, type StopCanceller } from '../src/copy/live-worker/copy-live-stopper.js';
 import { CopyLiveSystemStops } from '../src/copy/copy-live-stop-system.js';
 import { CopyLiveAutoReturn } from '../src/copy/live-worker/copy-live-auto-return.js';
 import { CopyFundingExchangeClient } from '../src/copy/copy-funding-exchange.client.js';
 import { HyperliquidGlobalTransport } from '../src/hyperliquid/hyperliquid-global-transport.js';
 import type { RequestBudgeterService } from '../src/hyperliquid/request-budgeter.service.js';
-import { CopyLiveReturnRepository, expireStaleReturns, SYSTEM_SWEEP_ATTEMPTS, sweepRetryDelayMs } from '../src/copy/copy-live-return.repository.js';
+import { CopyLiveReturnRepository, expireStaleReturns, sweepRetryDelayMs } from '../src/copy/copy-live-return.repository.js';
 import { CopyLiveStopWorkerRepository } from '../src/copy/live-worker/copy-live-stop-worker.repository.js';
 import { CLOSE_NEVER_SENT, closeCloid, closeRetryDelayMs, closeSlippageBps, type CloseRequest, type ReduceOnlyCloser } from '../src/copy/live-worker/reduce-only-closer.js';
 import type { LiveAccountSnapshot } from '../src/copy/live/live-account-observer.js';
@@ -25,6 +25,8 @@ import type { LiveExecutionRecord } from '../src/copy/live/live-execution.js';
 import { preparationFixture } from './copy-live-preparation-test-utils.js';
 import { now } from './copy-live-risk-test-utils.js';
 import { closeTestDb, getTestDb, type TestDb } from './db-test-utils.js';
+import { SYSTEM_SWEEP_ATTEMPTS } from '../src/config/constants/limits.js';
+import { AGENT_EXPIRY_STOP_MARGIN_MS } from '../src/config/constants/timings.js';
 
 // Real SQL for stop rows, generations, strategy and journals; the closer
 // (observation + reduce-only orders) and canceller are doubles.

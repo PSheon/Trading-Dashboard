@@ -4,13 +4,15 @@ import { AdminSystemService } from '../src/admin/admin-system.service.js';
 import { WorkerFleetService } from '../src/api/health/worker-fleet.service.js';
 import { UnitOfWork } from '../src/db/unit-of-work.js';
 import type { DrizzleDb } from '../src/db/drizzle.provider.js';
-import { FOREIGN_USAGE_SHARE, ForeignUsageCounter, WS_ERROR_TEXT_MAX, WS_ERROR_UNMATCHED_EVERY_MS, foreignUsage, isWsRateLimit, sanitizeWsErrorText } from '../src/hyperliquid/foreign-usage.js';
+import { ForeignUsageCounter, WS_ERROR_TEXT_MAX, foreignUsage, isWsRateLimit, sanitizeWsErrorText } from '../src/hyperliquid/foreign-usage.js';
 import { HyperliquidGlobalTransport } from '../src/hyperliquid/hyperliquid-global-transport.js';
 import type { HyperliquidMeterComposition } from '../src/hyperliquid/hyperliquid-global-quota.js';
 import { PostgresHyperliquidQuota, type HyperliquidMeterSnapshot } from '../src/hyperliquid/postgres-hyperliquid-quota.js';
 import { RequestBudgeterService } from '../src/hyperliquid/request-budgeter.service.js';
 import { WorkerHeartbeatService } from '../src/worker/worker-heartbeat.service.js';
 import { testConfig } from './config-test-utils.js';
+import { ALERT_EVERY_MS } from '../src/config/constants/alerts.js';
+import { FOREIGN_USAGE_SHARE } from '../src/config/constants/hyperliquid.js';
 
 // foreign_usage_suspected (design §8 I-12): Hyperliquid answers a REST 429
 // (or a WebSocket rate-limit error) while our own shared meter for that
@@ -114,7 +116,7 @@ describe('a WebSocket error the rate-limit pattern does not match is logged, san
     expect(lines()).toHaveLength(3);
     expect(text(lines()[2]!)).toHaveLength(WS_ERROR_TEXT_MAX);
     // After 10 minutes the first text is logged again.
-    clock.now += WS_ERROR_UNMATCHED_EVERY_MS;
+    clock.now += ALERT_EVERY_MS;
     f.transport.noteWsError(`Invalid subscription for user ${address} tx ${hash} auth ${token}`);
     expect(lines()).toHaveLength(4);
     // A matched rate limit is counted, never logged as unmatched; nothing here is a rate limit.

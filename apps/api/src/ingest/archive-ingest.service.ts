@@ -3,10 +3,11 @@ import type { HeartbeatResponse } from "@trading-dashboard/shared/contracts";
 
 import { AppConfig } from "../config/app-config.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
-import { archiveKeys, backfillFloor, floorHour, HOUR_MS, parseArchiveLine, type ArchiveFill } from "./archive-format.js";
+import { archiveKeys, backfillFloor, floorHour, parseArchiveLine, type ArchiveFill } from './archive-format.js';
 import { ArchiveIngestRepository, type ArchiveState, type IngestDirection } from "./archive-ingest.repository.js";
 import { LocalArchiveStore, S3ArchiveStore, type ArchiveObject, type ArchiveStore } from "./archive-store.js";
 import { decodeLz4Frames, splitLines } from "./lz4-frame.js";
+import { HOUR_MS } from '../config/constants/time.js';
 
 const GB = 1_000_000_000;
 /** A tick stops starting objects after this long (the cron fires each minute). */

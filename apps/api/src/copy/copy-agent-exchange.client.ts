@@ -1,18 +1,18 @@
 import {HyperliquidGlobalTransport} from '../hyperliquid/hyperliquid-global-transport.js';
 import {boundedLiveRead} from './live/live-market-resolver.js';
-import { LIVE_RESERVE_WAIT_MS, sharedCapacityWait, type LiveBudget, type LiveBudgetReservation } from "../hyperliquid/hyperliquid-budget-wait.js";
+import { sharedCapacityWait, type LiveBudget, type LiveBudgetReservation } from '../hyperliquid/hyperliquid-budget-wait.js';
 import { WALLET_NETWORKS, splitSignature } from "@trading-dashboard/shared/contracts";
 import { readInfoJson } from "../hyperliquid/response-validation.js";
-import { infoWeight } from "../hyperliquid/info-weights.js";
 import { extraAgentsSchema } from "../hyperliquid/info-schemas.js";
 import { agentApprovalTypedData, type AgentConsentIntent } from "./copy-agent-consent.js";
 import { LiveBoundaryError } from "./live/wallet-authorization.js";
 import { Logger } from "@nestjs/common";
 import { safeErrorText } from "../runtime/safe-error-text.js";
+import { LIVE_RESERVE_WAIT_MS } from '../config/constants/hyperliquid.js';
+import { AGENT_OBSERVE_WEIGHT } from '../config/constants/weights.js';
+import { LIVE_EVIDENCE_MAX_AGE_MS } from '../config/constants/timings.js';
 
 export const AGENT_APPROVAL_CLIENT = Symbol("AGENT_APPROVAL_CLIENT");
-/** Provider weight of one agent observation: userRole 60 + extraAgents 20. */
-export const AGENT_OBSERVE_WEIGHT = infoWeight({ type: "userRole" }) + infoWeight({ type: "extraAgents" });
 export interface AgentApprovalClient {
   readonly available: boolean;
   acquire(): Promise<unknown>;
@@ -97,7 +97,7 @@ export class PrivyAgentApprovalClient implements AgentApprovalClient {
       if (!role || typeof role !== "object" || !("role" in role) || role.role !== "user") throw new Error();
       const list = extraAgentsSchema.parse(listed);
       const matches = list.filter(a => a.address.toLowerCase() === data.message.agentAddress);
-      if (this.now() < checkedAt || this.now() - checkedAt > 5_000) throw new Error();
+      if (this.now() < checkedAt || this.now() - checkedAt > LIVE_EVIDENCE_MAX_AGE_MS) throw new Error();
       if (!matches.length) return null;
       if (matches.length !== 1 || (matches[0].name !== `copy${intent.strategyId}` && matches[0].name !== data.message.agentName) ||
         matches[0].validUntil !== intent.expiresAt || intent.expiresAt <= this.now()) throw new Error();

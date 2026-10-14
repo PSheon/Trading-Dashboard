@@ -34,8 +34,12 @@ import { SETUP_LOCAL_BUDGET, SETUP_REST_CAPACITY, SetupSteps, type SetupRestCapa
 
 // What this file exported before it was split (2026-10-15): its callers' imports stay.
 export { setupFundingKey, type SetupSigner } from './copy-live-setup-shared.js';
-export { SETUP_CLAIM_LOG_EVERY_MS, SETUP_CLAIM_RENEW_MS, SETUP_LOCAL_BUDGET, SETUP_REST_CAPACITY, type SetupRestCapacity } from './copy-live-setup-steps.js';
-export { AWAITING_CREDIT_ALERT_AFTER_MS, AWAITING_CREDIT_ALERT_EVERY_MS, AWAITING_CREDIT_MAX_WAIT_MS } from './copy-live-setup-driver.js';
+export { SETUP_LOCAL_BUDGET, SETUP_REST_CAPACITY, type SetupRestCapacity } from './copy-live-setup-steps.js';
+export { SETUP_CLAIM_RENEW_MS } from '../config/constants/hyperliquid.js';
+export { SETUP_CLAIM_LOG_EVERY_MS } from '../config/constants/timings.js';
+export { ALERT_EVERY_MS } from '../config/constants/alerts.js';
+export { AWAITING_CREDIT_ALERT_AFTER_MS } from '../config/constants/alerts.js';
+export { AWAITING_CREDIT_MAX_WAIT_MS } from '../config/constants/timings.js';
 
 const THROTTLED_STAGES: readonly SetupStage[] = ['funded', 'mode_set', 'agent_active'];
 /** Stages a confirmed start reaches after its deposit's credit: the copy is

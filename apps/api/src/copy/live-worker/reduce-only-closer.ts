@@ -24,6 +24,7 @@ import { BoundaryPrivyOrderSigningClient } from '../live/privy-order-client.js';
 import { PrivyOrderSigner } from '../live/privy-order-signer.js';
 import { address, LiveBoundaryError, WalletAuthorizationService } from '../live/wallet-authorization.js';
 import { liveReadCache } from '../live/live-read-cache.js';
+import { LIVE_EVIDENCE_MAX_AGE_MS, SNAPSHOT_MAX_AGE_MS } from '../../config/constants/timings.js';
 
 /** A close must reduce the observed position: opposite side, no larger
  * than it (never open, enlarge or flip). */
@@ -52,7 +53,6 @@ export interface CloseRequest {
 /** A close journaled but never sent (see ReduceOnlyCloser.neverSent). */
 export const CLOSE_NEVER_SENT = 'close_never_sent';
 export const closeCloid = (seed: string): `0x${string}` => `0x${createHash('sha256').update(JSON.stringify(['live-close-v1', seed])).digest('hex').slice(0, 32)}`;
-const SNAPSHOT_MAX_AGE_MS = 4000;
 /** The widest a retried close's limit may stray from the mid (5 %), unless
  * the configured close slippage is already wider. */
 export const MAX_CLOSE_SLIPPAGE_BPS = 500;
@@ -130,7 +130,7 @@ export class ReduceOnlyCloser {
       const observedAt = held.at;
       const permit: LiveExecutionPermit = { phase, key: record.key, fingerprint: record.fingerprint, assertFresh: () => {
         const now = this.now();
-        if (!Number.isSafeInteger(now) || now - observedAt > 5000) throw new LiveBoundaryError('close_evidence_expired');
+        if (!Number.isSafeInteger(now) || now - observedAt > LIVE_EVIDENCE_MAX_AGE_MS) throw new LiveBoundaryError('close_evidence_expired');
       } };
       return permit;
     } };

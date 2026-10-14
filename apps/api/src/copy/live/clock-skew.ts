@@ -1,21 +1,6 @@
 import { Logger } from '@nestjs/common';
+import { CLOCK_SKEW_WARN_MS, PROVIDER_CLOCK_SKEW_MS } from '../../config/constants/timings.js';
 
-/**
- * How far our clock and Hyperliquid's may disagree before a comparison of a
- * provider timestamp with our clock fails. Every such comparison names it:
- *
- * - a provider time "not after now" (account state `time`, a resting order's
- *   `timestamp`) may be up to this far ahead of our clock (ours runs behind);
- * - a follower fill's exchange `time` may be up to this far before the order
- *   journal's `createdAt` on our clock (ours runs ahead by more than the
- *   sign-to-send latency).
- *
- * Above it the comparison still fails (closed); the skew monitor warns from
- * 1 s on, before it matters, and alerts above it.
- */
-export const PROVIDER_CLOCK_SKEW_MS = 2000;
-/** The monitor warns when the measured skew is larger than this. */
-export const CLOCK_SKEW_WARN_MS = 1000;
 
 /** Whether provider time `at` is not after `now` on our clock, within the tolerance. */
 export function providerTimeNotAfter(at: number, now: number): boolean {

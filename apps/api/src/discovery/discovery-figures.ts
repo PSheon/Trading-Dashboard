@@ -3,10 +3,10 @@ import type { DiscoveryCoinStat } from "@trading-dashboard/shared/database";
 import type { HlPortfolioResponse } from "../hyperliquid/types.js";
 import { downsample, portfolioSeries, returnMetrics, riskMetrics } from "../traders/traders.mappers.js";
 import type { CoinAggregate, DiscoveryFigures } from "./discovery.repository.js";
+import { DAY_MS } from '../config/constants/time.js';
 
 /** Sparkline points kept per trader (CopyDog sends ~90 all-time, ~48 30D). */
 export const SPARKLINE_POINTS = 60;
-const DAY_MS = 86_400_000;
 
 /** HIP-3 dexes that list crypto, not stocks or commodities. Every other
  * HIP-3 market (xyz:TSLA, flx:GOLD, km:US500, …) counts as 股票. */

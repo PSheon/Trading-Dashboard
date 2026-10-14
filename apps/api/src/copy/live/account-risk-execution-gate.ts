@@ -3,6 +3,7 @@ import { assessLiveAccountRisk, type LiveAccountRiskInput } from './live-account
 import { LiveBoundaryError, assertWalletAuthorization } from './wallet-authorization.js';
 import { buildOrderAction, executionKey, intentFingerprint } from './live-order.js';
 import { isDeepStrictEqual } from 'node:util';
+import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
 
 export interface LiveAccountRiskProofSource {
   /** The per-read callback belongs to the original account/user serialization
@@ -78,7 +79,7 @@ export class AccountRiskExecutionGate implements LiveExecutionGate {
         // earlier time supplied to the pure assessor.
         const completed = this.now();
         if (!Number.isSafeInteger(completed) || completed < now || !Number.isSafeInteger(oldest) ||
-            completed < oldest || completed - oldest > 5000) throw new LiveBoundaryError('live_risk_stale');
+            completed < oldest || completed - oldest > LIVE_EVIDENCE_MAX_AGE_MS) throw new LiveBoundaryError('live_risk_stale');
         if (record.expiresAfter <= completed) throw new LiveBoundaryError('signing_order_expired');
         if (record.authorization.expiresAt <= completed) throw new LiveBoundaryError('wallet_authorization_expired');
         if (heldUntil <= completed) throw new LiveBoundaryError('live_risk_reservation');

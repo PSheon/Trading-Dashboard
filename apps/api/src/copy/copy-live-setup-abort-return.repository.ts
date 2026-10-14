@@ -15,6 +15,7 @@ import { allocateSignerNonce } from './signer-nonce.js';
 import { abortDepositSettled } from './copy-live-setup-abort-deposit.js';
 import { AppConfig } from '../config/app-config.js';
 import { deploymentNetwork } from './live-deployment.js';
+import { LIVE_EVIDENCE_MAX_AGE_MS } from '../config/constants/timings.js';
 
 const hash = (v: unknown) => createHash('sha256').update(JSON.stringify(v)).digest('hex');
 /** Follow-up refunds of a setup abort at most: money that landed in the copy
@@ -115,7 +116,7 @@ export class CopyLiveSetupAbortReturnRepository {
   private proof(abort: SetupAbortRow, proof: SetupAbortFlatObservation, now: number) {
     const s = proof.snapshot;
     if (proof.purpose !== 'setup-abort-return' || !Number.isSafeInteger(now) || !Number.isSafeInteger(s.observedAt) || !Number.isSafeInteger(s.completedAt) ||
-      s.observedAt > s.completedAt || s.completedAt > now || now - s.observedAt > 5000 || now - s.coverage.earliestProviderTime > 5000 || s.coverage.earliestProviderTime > now)
+      s.observedAt > s.completedAt || s.completedAt > now || now - s.observedAt > LIVE_EVIDENCE_MAX_AGE_MS || now - s.coverage.earliestProviderTime > LIVE_EVIDENCE_MAX_AGE_MS || s.coverage.earliestProviderTime > now)
       refuse('setup_abort_proof_stale');
     const zero = (v: string) => Dec.from(v).isZero;
     const primary = s.dexes.find(d => d.dex === '');
@@ -124,7 +125,7 @@ export class CopyLiveSetupAbortReturnRepository {
       s.positions.length || s.restingOrders.length || !zero(s.exposureUsd) || !zero(s.totalMarginUsed) || !zero(s.grossRestingExposureUsd) || !zero(s.restingExposureUsd) ||
       new Set(s.dexes.map(d => d.dex)).size !== s.dexes.length || JSON.stringify([...s.coverage.listedDexes].sort()) !== JSON.stringify(s.dexes.map(d => d.dex).sort()) ||
       JSON.stringify([...s.coverage.observedOrderDexes].sort()) !== JSON.stringify([...s.coverage.listedDexes].sort()) ||
-      s.dexes.some(d => !Number.isSafeInteger(d.providerTime) || d.providerTime > now || now - d.providerTime > 5000 || !zero(d.marginUsed) || !zero(d.exposureUsd) ||
+      s.dexes.some(d => !Number.isSafeInteger(d.providerTime) || d.providerTime > now || now - d.providerTime > LIVE_EVIDENCE_MAX_AGE_MS || !zero(d.marginUsed) || !zero(d.exposureUsd) ||
         !zero(d.crossMarginUsed) || !zero(d.crossExposureUsd) || !zero(d.crossMaintenanceMarginUsed) || (d.dex !== '' && (!zero(d.equity) || !zero(d.rawUsd) || !zero(d.withdrawable)))) ||
       !primary || primary.collateralCoin !== 'USDC' || s.collateralCoin !== 'USDC' || !Dec.from(primary.withdrawable).eq(primary.equity) || !Dec.from(primary.withdrawable).eq(primary.rawUsd) ||
       !Dec.from(primary.withdrawable).eq(primary.crossEquity) || !Dec.from(primary.withdrawable).eq(s.withdrawable) || !Dec.from(primary.withdrawable).eq(s.perpEquity)) refuse('setup_abort_proof_not_flat');

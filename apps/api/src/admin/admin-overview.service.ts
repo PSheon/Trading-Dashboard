@@ -3,8 +3,8 @@ import { type AdminOverview } from "@trading-dashboard/shared/contracts";
 
 import { AdminOverviewRepository } from "./admin-overview.repository.js";
 import { RevenueService } from "./revenue.service.js";
+import { DAY_MS } from '../config/constants/time.js';
 
-const DAY_MS = 86_400_000;
 
 /** GET /admin/overview — the admin home's KPI row. */
 @Injectable()

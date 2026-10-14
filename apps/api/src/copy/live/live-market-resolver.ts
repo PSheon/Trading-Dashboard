@@ -3,6 +3,7 @@ import { isHyperliquidNetwork, WALLET_NETWORKS } from '@trading-dashboard/shared
 import { readInfoJson } from '../../hyperliquid/response-validation.js';
 import { LiveBoundaryError, type LiveNetwork } from './wallet-authorization.js';
 import type { LiveSharedReads } from './live-shared-reads.js';
+import { LIVE_EVIDENCE_MAX_AGE_MS, RESERVE_BOUND_MS } from '../../config/constants/timings.js';
 
 export interface LiveMarketIdentity {
   network: LiveNetwork;
@@ -47,9 +48,6 @@ const marketSchema = z.object({ name: z.string().min(1).max(80), szDecimals: z.n
   maxLeverage: z.number().int().positive(), isDelisted: z.boolean().optional() });
 const metaSchema = z.object({ universe: z.array(marketSchema).max(10_000) });
 export const MAX_LIVE_PERP_DEXES = 1000;
-/** Longest an up-front weight reservation (before any evidence clock) may
- * take when the budget itself sets no bound. */
-export const RESERVE_BOUND_MS = 10_000;
 // Provider-listed names are opaque identifiers (testnet includes i<3fl).
 // Separators, spot formats, whitespace and control characters stay unsupported.
 export const LIVE_DEX_NAME = /^[^:\s/@\p{Cc}\p{Cf}]{1,40}$/u;
@@ -86,7 +84,7 @@ export class HyperliquidLiveMarketResolver implements LiveMarketResolver {
   constructor(readonly network: LiveNetwork, private readonly acquire: (weight: number) => Promise<unknown>,
     private readonly fetcher: typeof fetch = fetch, private readonly now = Date.now, private readonly maxAgeMs = 5_000) {
     if (!isHyperliquidNetwork(network) || typeof acquire !== 'function' ||
-        !Number.isSafeInteger(maxAgeMs) || maxAgeMs < 1 || maxAgeMs > 5_000) throw new LiveBoundaryError('invalid_market_resolver');
+        !Number.isSafeInteger(maxAgeMs) || maxAgeMs < 1 || maxAgeMs > LIVE_EVIDENCE_MAX_AGE_MS) throw new LiveBoundaryError('invalid_market_resolver');
     this.endpoint = WALLET_NETWORKS[network].infoUrl;
   }
   /** With an order epoch's `shared` reads (on this network), its paid, memoised

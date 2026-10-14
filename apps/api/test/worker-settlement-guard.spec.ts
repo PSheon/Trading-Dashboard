@@ -2,12 +2,13 @@ import { Logger } from '@nestjs/common';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { adminSystemSchema } from '@trading-dashboard/shared/contracts';
 import { AdminSystemService } from '../src/admin/admin-system.service.js';
-import { SETTLEMENT_OWNER_WINDOW_MS, WORKER_ALERT_EVERY_MS, WorkerFleetService } from '../src/api/health/worker-fleet.service.js';
+import { SETTLEMENT_OWNER_WINDOW_MS, WorkerFleetService } from '../src/api/health/worker-fleet.service.js';
 import { AppConfig } from '../src/config/app-config.js';
 import { RequestBudgeterService } from '../src/hyperliquid/request-budgeter.service.js';
 import type { WorkerRole } from '../src/runtime/worker-role.js';
 import { WorkerHeartbeatService } from '../src/worker/worker-heartbeat.service.js';
 import { testConfig } from './config-test-utils.js';
+import { ALERT_EVERY_MS } from '../src/config/constants/alerts.js';
 
 // Cross-process settlement guard: with the api's terminal settlement loop
 // off (API_TERMINAL_SETTLEMENT=off) on a testnet copy deployment, a copy
@@ -72,10 +73,10 @@ describe('the api alerts when no process settles terminal copies (WorkerFleetSer
     expect(await service.check()).toEqual([{ code: 'terminal_settlement_unowned', lastOkAt: new Date(T0).toISOString() }]);
     expect(alerts(error)).toHaveLength(1);
     expect(alerts(error)[0]).toMatch(/^ALERT terminal_settlement_unowned .*API_TERMINAL_SETTLEMENT=off/);
-    // Rate-limited: once per WORKER_ALERT_EVERY_MS while it lasts.
+    // Rate-limited: once per ALERT_EVERY_MS while it lasts.
     later(60_000); await service.check();
     expect(alerts(error)).toHaveLength(1);
-    later(WORKER_ALERT_EVERY_MS); await service.check();
+    later(ALERT_EVERY_MS); await service.check();
     expect(alerts(error)).toHaveLength(2);
     // The admin overview shows it.
     const repository = { probe: vi.fn().mockResolvedValue(3), data: vi.fn().mockResolvedValue(null), outbox: vi.fn().mockResolvedValue([]), retention: vi.fn().mockResolvedValue(null) };

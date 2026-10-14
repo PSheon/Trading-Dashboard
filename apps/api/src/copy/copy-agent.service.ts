@@ -5,23 +5,19 @@ import { AppConfig } from "../config/app-config.js";
 import { UnitOfWork } from "../db/unit-of-work.js";
 import { CopyWalletService } from "./copy-wallet.service.js";
 import { CopyAgentRepository, type AgentSetupRow } from "./copy-agent.repository.js";
-import { AGENT_APPROVAL_CLIENT, AGENT_OBSERVE_WEIGHT, type AgentApprovalClient } from "./copy-agent-exchange.client.js";
+import { AGENT_APPROVAL_CLIENT, type AgentApprovalClient } from './copy-agent-exchange.client.js';
 import { agentApprovalTypedData, type AgentConsentIntent } from "./copy-agent-consent.js";
 import { AgentProvisioningConflict, USER_AGENT_PROVISIONER, type UserAgentProvisioner } from "./live/privy-agent-provisioner.js";
 import { LiveBoundaryError } from "./live/wallet-authorization.js";
 import { errorLogFields, safeErrorText } from "../runtime/safe-error-text.js";
 import { deploymentNetwork } from "./live-deployment.js";
-import { FUNDING_NONCE_EXPIRY_MS } from "./copy-funding-scan.js";
+
 import { takeReserved, type LiveBudgetReservation } from "../hyperliquid/hyperliquid-budget-wait.js";
 import { allInOrder, IdentitySpans, privyIdentityFresh, type IdentitySpan } from "./live/privy-identity-freshness.js";
+import { AGENT_APPROVED_UNRECORDED_ALERT_MS, ALERT_EVERY_MS } from '../config/constants/alerts.js';
+import { FUNDING_NONCE_EXPIRY_MS, LIVE_EVIDENCE_MAX_AGE_MS, SLOW_IDENTITY_PROOF_MS } from '../config/constants/timings.js';
+import { AGENT_OBSERVE_WEIGHT } from '../config/constants/weights.js';
 
-/** An identity proof slower than this is logged with its spans (the bound it
- * had before 2026-10-13, copied from the exchange's evidence checks). */
-const SLOW_IDENTITY_PROOF_MS = 5_000;
-/** The exchange lists an agent whose grant still isn't recorded: an ALERT
- * past this long, and again every AGENT_APPROVED_UNRECORDED_ALERT_EVERY_MS. */
-export const AGENT_APPROVED_UNRECORDED_ALERT_MS = 5 * 60_000;
-export const AGENT_APPROVED_UNRECORDED_ALERT_EVERY_MS = 10 * 60_000;
 /** The agent's identity proof aged past PRIVY_IDENTITY_MAX_AGE_MS: a wait
  * (transient), never a block. Carries the proof's read spans. */
 export class AgentIdentityEvidenceExpired extends ConflictException {
@@ -295,7 +291,7 @@ export class CopyAgentService {
       const ended = await this.repository.transition(row, { state: "blocked", issue: "agent_approval_not_executed" });
       return wire(ended ?? await this.repository.find(userId, row.id));
     }
-    if (!evidence || evidence.validUntil !== intent.expiresAt || !Number.isSafeInteger(evidence.checkedAt) || evidence.checkedAt > Date.now() || Date.now() - evidence.checkedAt > 5_000) return wire(row);
+    if (!evidence || evidence.validUntil !== intent.expiresAt || !Number.isSafeInteger(evidence.checkedAt) || evidence.checkedAt > Date.now() || Date.now() - evidence.checkedAt > LIVE_EVIDENCE_MAX_AGE_MS) return wire(row);
     // The exchange's evidence is carried through the transaction and its SQL
     // lock waits (5 s); the database state (owner, account, strategy) is
     // checked again inside it.
@@ -313,7 +309,7 @@ export class CopyAgentService {
   private readonly approvedUnrecorded = new Map<string, { since: number; alertedAt?: number }>();
   /** The exchange lists the agent but recording it failed: both facts in one
    * line, and an ALERT once that has lasted AGENT_APPROVED_UNRECORDED_ALERT_MS
-   * (again every AGENT_APPROVED_UNRECORDED_ALERT_EVERY_MS). */
+   * (again every ALERT_EVERY_MS). */
   private reportApprovedUnrecorded(row: AgentSetupRow, observedAt: number, error: unknown) {
     const now = Date.now();
     for (const [id, seen] of this.approvedUnrecorded) if (now - seen.since > 86_400_000) this.approvedUnrecorded.delete(id);
@@ -321,7 +317,7 @@ export class CopyAgentService {
     this.approvedUnrecorded.set(row.id, seen);
     const fields = { agentSetupId: row.id, agentAddress: row.agentAddress, accountAddress: row.accountAddress, exchangeListsAgent: true,
       observedAt: new Date(observedAt).toISOString(), unrecordedSince: new Date(seen.since).toISOString(), state: row.state, issue: row.issue, ...errorLogFields(error) };
-    if (now - seen.since >= AGENT_APPROVED_UNRECORDED_ALERT_MS && (seen.alertedAt === undefined || now - seen.alertedAt >= AGENT_APPROVED_UNRECORDED_ALERT_EVERY_MS)) {
+    if (now - seen.since >= AGENT_APPROVED_UNRECORDED_ALERT_MS && (seen.alertedAt === undefined || now - seen.alertedAt >= ALERT_EVERY_MS)) {
       seen.alertedAt = now;
       this.logger.error(`ALERT agent approved on exchange but not recorded ${JSON.stringify({ ...fields, minutes: Math.floor((now - seen.since) / 60_000) })}`);
     } else this.logger.warn(`agent ${row.id} approved on exchange, not recorded yet ${JSON.stringify(fields)}`);

@@ -1,6 +1,6 @@
 import { maxUnits, toUnits, unitsToNumber, type Units } from "./decimal.js";
+import { DAY_MS } from '../config/constants/time.js';
 
-const DAY_MS = 86_400_000;
 
 export type RevenueRange = "7d" | "30d" | "90d" | "all";
 

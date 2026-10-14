@@ -12,8 +12,9 @@ import { followerReceiptKey, followerReceiptDigestV1, liquidatesFollower, parseF
 import type { LiveExecutionRecord } from "./live-execution.js";
 import { captureLiveOrderIdentity, liveOrderIdentityBinding, parseLiveOrderEvidence, parseLiveIocAcknowledgement, type LiveOrderEvidence, type LiveIocAcknowledgement } from "./live-order-evidence.js";
 import { LiveBoundaryError } from "./wallet-authorization.js";
-import { PROVIDER_CLOCK_SKEW_MS } from "./clock-skew.js";
+
 import { lockCopyUser } from "../copy-user-lock.js";
+import { PROVIDER_CLOCK_SKEW_MS } from '../../config/constants/timings.js';
 
 type Booking = { inserted: boolean; quarantined: boolean };
 type ReceiptAccountIdentity = { network: HyperliquidNetwork; accountAddress: string };

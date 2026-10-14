@@ -7,6 +7,7 @@ import { terminalSettlementApplies } from "../../copy/live-worker/copy-live-api-
 import { EgressIdentityMonitor, egressIdentity, sharedIps } from "../../runtime/egress-identity.js";
 import { workerCallHeaders, workerMonitorKey } from "../../runtime/worker-calls.js";
 import { runsCopy, runsRead } from "../../runtime/worker-role.js";
+import { ALERT_EVERY_MS } from '../../config/constants/alerts.js';
 
 /** How long the api waits for a copy worker heartbeat that reports the
  * terminal settlement loop on, while its own loop is off. */
@@ -16,8 +17,6 @@ export const SETTLEMENT_OWNER_WINDOW_MS = 2 * 60_000;
 export const SNAPSHOT_STALE_MS = 15 * 60_000;
 /** How often the api reads the workers on its own for its guards. */
 export const WORKER_GUARD_CHECK_MS = 30_000;
-/** One ALERT log line per condition at most this often. */
-export const WORKER_ALERT_EVERY_MS = 10 * 60_000;
 
 /**
  * What the `read` worker owns in a heartbeat once the roles are split: the
@@ -67,7 +66,7 @@ export function mergeHeartbeats<T extends HeartbeatResponse | WireHeartbeat>(mai
  *   a static egress gateway has several. Until the copy worker reports an
  *   address the api's start counts as fine.
  *
- * Each is an ALERT log line at most every WORKER_ALERT_EVERY_MS and the
+ * Each is an ALERT log line at most every ALERT_EVERY_MS and the
  * admin overview's `alerts`. Every heartbeat the api reads counts (an admin
  * page, /health), and while a guard applies the api reads the workers
  * itself every WORKER_GUARD_CHECK_MS (not under NODE_ENV=test: tests call
@@ -205,7 +204,7 @@ export class WorkerFleetService implements OnApplicationBootstrap, OnModuleDestr
     const alerts = this.alerts(), now = this.now();
     for (const alert of alerts) {
       const last = this.alertedAt.get(alert.code);
-      if (last !== undefined && now - last < WORKER_ALERT_EVERY_MS) continue;
+      if (last !== undefined && now - last < ALERT_EVERY_MS) continue;
       this.alertedAt.set(alert.code, now);
       this.logger.error(`ALERT ${alert.code} ${JSON.stringify({ ...alert, ...ALERT_CONTEXT[alert.code] })}`);
     }

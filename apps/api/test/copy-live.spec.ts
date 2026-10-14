@@ -1,9 +1,10 @@
 import { exchangeApprovalFixture, executionGateFixture } from "./copy-live-test-utils.js";
 import { LiveSubmissionBlockedError, type LiveExecutionGate, type LiveExecutionLease } from "../src/copy/live/live-execution-gate.js";
 import { describe, expect, it, vi } from "vitest";
-import { LIVE_REQUEST_NEVER_BEGAN, LiveOrderExecutor, NEVER_PLACED, NEVER_PLACED_GRACE_MS, type LiveExecutionJournal, type LiveExecutionRecord, type LiveExchangeTransport } from "../src/copy/live/live-execution.js";
+import { LIVE_REQUEST_NEVER_BEGAN, LiveOrderExecutor, NEVER_PLACED, type LiveExecutionJournal, type LiveExecutionRecord, type LiveExchangeTransport } from '../src/copy/live/live-execution.js';
 import { buildOrderAction, executionKey, wireDecimal, type LiveOrderIntent } from "../src/copy/live/live-order.js";
 import { LiveBoundaryError, assertWalletAuthorization, WalletAuthorizationService, type WalletAuthorization } from "../src/copy/live/wallet-authorization.js";
+import { NEVER_PLACED_GRACE_MS } from '../src/config/constants/timings.js';
 
 const now = 1_790_000_000_000;
 export const grant: WalletAuthorization = { id: "grant", version: 1, userId: 1, strategyId: 2, walletId: "wallet", privyOwnerId: "quorum",

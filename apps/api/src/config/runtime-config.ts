@@ -5,6 +5,8 @@ import { WALLET_NETWORKS } from "@trading-dashboard/shared/contracts";
 import { booleanValue, databaseUrl, integerValue, servicePermissions } from "./parse-env.js";
 import { runsCopy, workerRoleValue } from "../runtime/worker-role.js";
 import { liveSetupTimings, liveStopTimings, type LiveSetupTimings, type LiveStopTimings } from "./live-timings.js";
+import { HYPERLIQUID_BACKGROUND_REST_CAP, MAINNET_WORKER_WEIGHT } from './constants/hyperliquid.js';
+
 
 type Environment = Record<string, string | undefined>;
 const optional = (value: string | undefined) => value?.trim() || undefined;
@@ -234,9 +236,6 @@ function copyTrading(source: Environment, wallet: "mainnet" | "testnet", egressK
   };
 }
 
-/** A mainnet worker's own Hyperliquid budget by default (rate, burst): see
- * `hyperliquid.budgetPerMin`. */
-export const MAINNET_WORKER_WEIGHT = { perMin: 360, burst: 840 } as const;
 
 function decimalValue(key: string, raw: string | undefined, fallback: number, min: number, max: number): number {
   if (raw === undefined) return fallback;
@@ -500,7 +499,7 @@ export function validateEnvironment(source: Environment = process.env) {
      * orders. Default 840. On a mainnet copy canary lower it (e.g. 400, the same
      * value on the api and the worker) so one order's evidence (≤ 772 a minute)
      * always finds room. */
-    backgroundRestCap: integerValue("HYPERLIQUID_BACKGROUND_REST_CAP", source.HYPERLIQUID_BACKGROUND_REST_CAP, 840, 0, 1200),
+    backgroundRestCap: integerValue("HYPERLIQUID_BACKGROUND_REST_CAP", source.HYPERLIQUID_BACKGROUND_REST_CAP, HYPERLIQUID_BACKGROUND_REST_CAP, 0, 1200),
     wallet,
   };
   const alert = { maxActionAgeSeconds: integerValue("ALERT_MAX_ACTION_AGE_SECONDS", source.ALERT_MAX_ACTION_AGE_SECONDS, 120, 1, 86400) };

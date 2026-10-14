@@ -8,7 +8,7 @@ import { RequestBudgeterService } from "../src/hyperliquid/request-budgeter.serv
 import { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
 import { walletNetworkHyperliquid } from "../src/hyperliquid/wallet-network-hyperliquid.js";
 import { assertBucketHolds, HyperliquidBudgetWait, liveBudget, reserveLive } from "../src/hyperliquid/hyperliquid-budget-wait.js";
-import { ATTEMPT_WEIGHT } from "../src/copy/copy-account-mode.service.js";
+
 import { CopyFundingExchangeClient } from "../src/copy/copy-funding-exchange.client.js";
 import { assertLiveEvidenceCapacity, evidenceFinalCheck, evidenceFirstWave, liveEvidencePrepaidWeight, liveInfoWeights, LiveSharedReads,
   MAX_EVIDENCE_CHARGE } from "../src/copy/live/live-shared-reads.js";
@@ -16,6 +16,7 @@ import { LiveBoundaryError } from "../src/copy/live/wallet-authorization.js";
 import { errorCode } from "../src/runtime/safe-error-text.js";
 import { planHyperliquidQuota, type HyperliquidQuotaState } from "../src/hyperliquid/hyperliquid-global-quota.js";
 import { followerSnapshotReader } from '../src/copy/copy-worker.module.js';
+import { ATTEMPT_WEIGHT } from '../src/config/constants/weights.js';
 
 const base = { DATABASE_URL: "postgres://u:p@localhost:5432/db", NODE_ENV: "test", HYPERLIQUID_EGRESS_KEY: "egress", HYPERLIQUID_STARTUP_PACE_SECONDS: "0" };
 /** COPY_LIVE_WEIGHT_PER_MIN is read with COPY_TRADING_MODE=testnet (and its signing keys): set it on the parsed config. */

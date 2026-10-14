@@ -24,7 +24,7 @@ import { closeTestDb, getTestDb } from './db-test-utils.js';
  * refused charge failed the attempt, and its retry waited a fixed 65 s.
  */
 const ATTEMPT = [102, 42, 102, 102, 42, 102, 1], AGENT = [80, 1];
-const DEADLINE_MS = 40_000;
+const LIVE_EVIDENCE_MAX_AGE_MS = 40_000;
 let db: ReturnType<typeof getTestDb>;
 beforeAll(() => { db = getTestDb(); });
 afterAll(async () => { await closeTestDb(); });
@@ -77,16 +77,16 @@ describe('a copy setup on the shared Postgres meter beside a full background lan
         const run = <T>(work: () => Promise<T>) => capacity.runSetup ? capacity.runSetup(work) : work();
         setupsRunning++;
         try {
-          while (Date.now() - started < DEADLINE_MS) {
+          while (Date.now() - started < LIVE_EVIDENCE_MAX_AGE_MS) {
             const waitMs = await claim();
-            if (waitMs > 0) { await wait(Math.min(waitMs + 250, DEADLINE_MS)); continue; }
+            if (waitMs > 0) { await wait(Math.min(waitMs + 250, LIVE_EVIDENCE_MAX_AGE_MS)); continue; }
             try {
               await run(async () => { for (const weight of weights) (await transport.currentQuota().acquireRest(weight, Date.now() + 5000)).dispatch(() => undefined); });
               return Date.now() - started;
             } catch (error) {
               const retry = sharedCapacityWait(error);
               if (!retry) throw error;
-              await wait(Math.min(retry.retryMs, DEADLINE_MS));
+              await wait(Math.min(retry.retryMs, LIVE_EVIDENCE_MAX_AGE_MS));
             }
           }
           return Infinity;

@@ -1,9 +1,10 @@
 import type { HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 
-import { LIVE_ORDER_BOUNDARY_WEIGHT, liveEvidenceWeight } from '../live/live-shared-reads.js';
+import { liveEvidenceWeight } from '../live/live-shared-reads.js';
 import { liveReadCache, type LiveReadCache } from '../live/live-read-cache.js';
 import { mirrorsLeader } from './copy-live-engine.js';
 import type { LiveMandateWork } from './copy-live-worker.repository.js';
+import { LIVE_ORDER_BOUNDARY_WEIGHT } from '../../config/constants/weights.js';
 
 /**
  * What the shared meter's live standby keeps free (design §8 I-14): the

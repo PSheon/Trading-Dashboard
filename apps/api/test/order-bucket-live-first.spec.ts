@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { AppConfig } from '../src/config/app-config.js';
 import { reserveLive } from '../src/hyperliquid/hyperliquid-budget-wait.js';
 import { RequestBudgeterService } from '../src/hyperliquid/request-budgeter.service.js';
-import { LIVE_HEADROOM_SHARE } from '../src/hyperliquid/wallet-network-hyperliquid.js';
+import { LIVE_HEADROOM_SHARE } from '../src/config/constants/hyperliquid.js';
 
 /**
  * The wallet network's order bucket (wallet-network-hyperliquid: rate 300,

@@ -15,6 +15,7 @@ import {captureLiveUnattemptedRelease,decodeLiveUnattemptedRelease,assertLiveUna
 import type {LiveGenerationJournalV1,LiveGenerationProjectionIdentity} from './copy-live-generation-projection.js';
 import type {LiveExecutionRecord} from './live-execution.js';
 import type {LiveOrderIntent} from './live-order.js';
+import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
 function check(value:unknown):asserts value{if(!value)throw new LiveBoundaryError('live_unattempted_release_unproven');}
 const canonical=<T>(value:unknown):T=>JSON.parse(JSON.stringify(value)) as T;
 /** Unregistered zero-effect recovery. It uses one original account/user/source
@@ -22,7 +23,7 @@ const canonical=<T>(value:unknown):T=>JSON.parse(JSON.stringify(value)) as T;
 export class PostgresLiveUnattemptedRecovery {
  constructor(private readonly now=Date.now){}
  private async query<T>(session:LiveRiskDatabaseSession,work:PromiseLike<T>):Promise<T>{const result=await work;await session.scope.assertHeld();return result;}
- private fresh(at:number){const now=this.now();check(Number.isSafeInteger(now)&&now>=at&&now-at<=5000);}
+ private fresh(at:number){const now=this.now();check(Number.isSafeInteger(now)&&now>=at&&now-at<=LIVE_EVIDENCE_MAX_AGE_MS);}
  private async load(session:LiveRiskDatabaseSession,tx:DbTransaction,input:{accountId:string;key:string}){
   const [account]=await this.query(session,tx.select().from(copyExecutionAccounts).where(eq(copyExecutionAccounts.id,input.accountId)).for('update'));
   check(account&&account.network===session.scope.identity.network&&account.address===session.scope.identity.accountAddress&&account.userId===session.scope.identity.userId&&isHyperliquidNetwork(session.scope.identity.network));

@@ -4,12 +4,12 @@ import { AppConfig } from "../config/app-config.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { CopyExecutionService } from "./copy-execution.service.js";
 import { CopySignalService } from "./copy-signal.service.js";
-import { COPY_SNAPSHOT_INTERVAL_MS, CopyPerformanceService } from "./copy-performance.service.js";
+import { CopyPerformanceService } from './copy-performance.service.js';
 import { safeErrorText } from "../runtime/safe-error-text.js";
+import { COPY_SNAPSHOT_INTERVAL_MS, FUNDING_CHECK_MS } from '../config/constants/cache-ttls.js';
 
 /** Consumer passes per tick before yielding (each pass ≤ SIGNAL_BATCH rows). */
 const MAX_PASSES = 5;
-const FUNDING_CHECK_MS = 60_000;
 
 /**
  * Drives paper copy trading: every COPY_WORKER_INTERVAL_MS (default 2 s)

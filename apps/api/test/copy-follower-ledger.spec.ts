@@ -91,7 +91,6 @@ describe("actual follower receipt ledger", () => {
     expect(await ledger.bookFill(accountId,fill({sz:'0.005'}))).toEqual({inserted:true,quarantined:false});
   });
 
-
   it('quarantines differing direct and evidence keys for one account OID instead of preferring a candidate',async()=>{
     await evidenceOnly(); await execution('BTC','44');
     expect(await ledger.bookFill(accountId,fill({sz:'0.005'}))).toMatchObject({quarantined:true});

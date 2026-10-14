@@ -1,6 +1,6 @@
 import {describe,expect,it} from 'vitest';
 import {HyperliquidRestCapacityError} from '../src/hyperliquid/hyperliquid-capacity-error.js';
-import * as quota from '../src/hyperliquid/hyperliquid-global-quota.js';
+import { HYPERLIQUID_LIVE_DEMAND_HOLD_MS } from '../src/config/constants/hyperliquid.js';
 import {planHyperliquidQuota,type HyperliquidQuotaEvent,type HyperliquidQuotaRequest,type HyperliquidQuotaState} from '../src/hyperliquid/hyperliquid-global-quota.js';
 
 /**
@@ -111,9 +111,9 @@ describe('live orders come before setups and background on the shared window', (
     // While the order still needs 700, a setup's 613 does not fit beside it.
     const waiting=setupClaim(613,state);
     expect(waiting.waitMs).toBeGreaterThan(0);
-    expect(waiting.waitMs).toBeLessThanOrEqual(quota.HYPERLIQUID_LIVE_DEMAND_HOLD_MS);
+    expect(waiting.waitMs).toBeLessThanOrEqual(HYPERLIQUID_LIVE_DEMAND_HOLD_MS);
     // Its hold over (an order that never sent), the setup fits.
-    expect(setupClaim(613,S(waiting.state.events),now+quota.HYPERLIQUID_LIVE_DEMAND_HOLD_MS).waitMs).toBe(0);
+    expect(setupClaim(613,S(waiting.state.events),now+HYPERLIQUID_LIVE_DEMAND_HOLD_MS).waitMs).toBe(0);
     // Charged in full, the order holds nothing more.
     let sent=state;for(const wave of waves(700))sent=liveCharge(wave,sent).state;
     expect(setupClaim(81,sent).waitMs).toBe(0);

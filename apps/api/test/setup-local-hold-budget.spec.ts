@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppConfig } from '../src/config/app-config.js';
-import { HyperliquidBudgetWait, LOCAL_HOLD_IDLE_MS, LOCAL_HOLD_READY_MS, liveBudget, localHoldKeys, reserveLive, type LiveBudgetReservation } from '../src/hyperliquid/hyperliquid-budget-wait.js';
+import { HyperliquidBudgetWait, liveBudget, localHoldKeys, reserveLive, type LiveBudgetReservation } from '../src/hyperliquid/hyperliquid-budget-wait.js';
 import { RequestBudgeterService } from '../src/hyperliquid/request-budgeter.service.js';
-import { LIVE_HEADROOM_SHARE } from '../src/hyperliquid/wallet-network-hyperliquid.js';
+import { LIVE_HEADROOM_SHARE, LOCAL_HOLD_IDLE_MS, LOCAL_HOLD_READY_MS } from '../src/config/constants/hyperliquid.js';
 
 /**
  * A copy setup's step weight from the worker's testnet bucket (gate

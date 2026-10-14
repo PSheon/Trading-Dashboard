@@ -11,11 +11,10 @@ import { pricedCoins, symbolRefusal } from "./copy-risk.js";
 import { CopyRiskPolicyService, type PolicyRead } from "./copy-risk-policy.service.js";
 import { CopyRepository, type OutboxRow } from "./copy.repository.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
+import { MAX_SIGNAL_ATTEMPTS } from '../config/constants/limits.js';
 
 /** Outbox rows per consumer pass. */
 export const SIGNAL_BATCH = 200;
-/** Attempts before an outbox row is parked as `failed` (visible in admin). */
-export const MAX_SIGNAL_ATTEMPTS = 8;
 
 export interface DrainResult {
   /** Outbox rows finished this pass. */

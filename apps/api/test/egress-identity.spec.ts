@@ -3,7 +3,7 @@ import { Logger } from '@nestjs/common';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { adminSystemSchema, egressIdentitySchema, heartbeatResponseSchema, type EgressIdentity } from '@trading-dashboard/shared/contracts';
 import { AdminSystemService } from '../src/admin/admin-system.service.js';
-import { WORKER_ALERT_EVERY_MS, WorkerFleetService } from '../src/api/health/worker-fleet.service.js';
+import { WorkerFleetService } from '../src/api/health/worker-fleet.service.js';
 import { egressLeaseGuard, gatedLeaseAcquire } from '../src/bootstrap/worker.bootstrap.js';
 import { startWorkerHealthServer } from '../src/bootstrap/worker-health-server.js';
 import { AppConfig } from '../src/config/app-config.js';
@@ -14,6 +14,7 @@ import { workerMonitorKey } from '../src/runtime/worker-calls.js';
 import type { WorkerRole } from '../src/runtime/worker-role.js';
 import { WorkerHeartbeatService } from '../src/worker/worker-heartbeat.service.js';
 import { testConfig } from './config-test-utils.js';
+import { ALERT_EVERY_MS } from '../src/config/constants/alerts.js';
 
 // Railway static egress (an HA gateway, three shared IPs) is on the copy
 // worker only (design §8 I-15): the api and the read worker keep the default
@@ -255,7 +256,7 @@ describe('the api compares the copy worker\'s IP set with its own and the read w
     expect(lines()).toHaveLength(1);
     // The read worker now shares one too: both peers.
     read = identity('read', [GATEWAY[0]!]);
-    clock.now += WORKER_ALERT_EVERY_MS; await service.check();
+    clock.now += ALERT_EVERY_MS; await service.check();
     expect(lines()).toHaveLength(2);
     expect(service.alerts()).toEqual([{ code: 'egress_identity_shared', lastOkAt: new Date(T0).toISOString(), ips: [GATEWAY[0], GATEWAY[1]], peers: ['api', 'read'] }]);
     // The admin overview shows it.

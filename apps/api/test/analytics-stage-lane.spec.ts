@@ -7,7 +7,7 @@ import { validateEnvironment } from "../src/config/runtime-config.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
 import type { DrizzleDb } from "../src/db/drizzle.provider.js";
 import { HyperliquidGlobalTransport } from "../src/hyperliquid/hyperliquid-global-transport.js";
-import { HYPERLIQUID_REST_CAP, planHyperliquidQuota, type HyperliquidQuotaState, type HyperliquidRestLane } from "../src/hyperliquid/hyperliquid-global-quota.js";
+import { planHyperliquidQuota, type HyperliquidQuotaState, type HyperliquidRestLane } from '../src/hyperliquid/hyperliquid-global-quota.js';
 import { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
 import { PostgresHyperliquidQuota, type BoundHyperliquidQuota } from "../src/hyperliquid/postgres-hyperliquid-quota.js";
 import { budgetConsumer, PAGE_RANK, RequestBudgeterService, UNRANKED_BASE } from "../src/hyperliquid/request-budgeter.service.js";
@@ -18,6 +18,7 @@ import { COLD_FILL_CALLS, COLD_TARGET_FILLS, LOOKBACK_MS } from "../src/traders/
 import { isBusyError } from "../src/traders/traders.controller.js";
 import { testConfig } from "./config-test-utils.js";
 import { offlineGlobalTransport } from "./hyperliquid-quota-test-utils.js";
+import { HYPERLIQUID_REST_CAP } from '../src/config/constants/hyperliquid.js';
 
 const SECOND = 1_000;
 const MINUTE = 60 * SECOND;

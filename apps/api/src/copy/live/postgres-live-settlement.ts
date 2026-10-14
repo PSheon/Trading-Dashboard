@@ -13,7 +13,7 @@ import { decodeLiveSourceSizingEnvelope, planLiveSourceOrder } from './copy-live
 import { intentFingerprint } from './live-order.js';
 import type { DbTransaction } from '../../db/unit-of-work.js';
 import type { LiveRiskDatabaseSession } from './postgres-live-risk-scope.js';
-import { isDefinitelyUnsent, NEVER_PLACED, NEVER_PLACED_GRACE_MS, type LiveExecutionRecord } from './live-execution.js';
+import { isDefinitelyUnsent, NEVER_PLACED, type LiveExecutionRecord } from './live-execution.js';
 import { captureLiveOrderIdentity, digestLiveEvidence, liveOrderIdentityBinding, parseLiveOrderEvidence, parseLiveIocAcknowledgement,
   type LiveOrderEvidence, type LiveIocAcknowledgement } from './live-order-evidence.js';
 import type { LiveAccountRiskInput } from './live-account-risk.js';
@@ -21,6 +21,7 @@ import { assessLiveReservationSettlement, type LiveReservationSettlementDecision
 import { captureLiveSettlementProof, decodeLiveSettlementProof } from './live-settlement-proof.js';
 import { validateLiveReservationPayload, freezeLiveReservation, type LiveReservationStored } from './live-risk-reservation.js';
 import { LiveBoundaryError } from './wallet-authorization.js';
+import { LIVE_EVIDENCE_MAX_AGE_MS, NEVER_PLACED_GRACE_MS } from '../../config/constants/timings.js';
 
 export interface LiveSettlementObservationInput { readonly accountId: string; readonly key: string; readonly evidence: LiveOrderEvidence; readonly acknowledgement?: LiveIocAcknowledgement; }
 export interface LiveSettlementAcknowledgementInput { readonly accountId:string; readonly key:string; readonly acknowledgement:LiveIocAcknowledgement; }
@@ -36,7 +37,7 @@ const json = (value: object) => value as unknown as Record<string, unknown>;
  * request arrays. Durable receipts/ledger are always loaded by this DAL. */
 export class PostgresLiveSettlement {
   constructor(private readonly now = Date.now) {}
-  private fresh(at: number) { const now = this.now(); check(Number.isSafeInteger(now) && Number.isSafeInteger(at) && at > 0 && now >= at && now - at <= 5000, 'live_settlement_stale'); }
+  private fresh(at: number) { const now = this.now(); check(Number.isSafeInteger(now) && Number.isSafeInteger(at) && at > 0 && now >= at && now - at <= LIVE_EVIDENCE_MAX_AGE_MS, 'live_settlement_stale'); }
   private async query<T>(session: LiveRiskDatabaseSession, promise: PromiseLike<T>): Promise<T> { const value = await promise; await session.scope.assertHeld(); return value; }
   private stored(row: ReservationRow): LiveReservationStored {
     const p = validateLiveReservationPayload(row.payload);
@@ -355,7 +356,7 @@ export class PostgresLiveSettlement {
       const checkedNow = this.now();
       if (sourceTimes.some(at => !Number.isSafeInteger(at) || at <= 0 || at > checkedNow))
         return this.quarantine(session,tx,row,'live_settlement_stored_evidence_conflict');
-      if (sourceTimes.some(at => checkedNow - at > 5000)) return {kind:'pending' as const,reason:'live_settlement_terminal_stale'};
+      if (sourceTimes.some(at => checkedNow - at > LIVE_EVIDENCE_MAX_AGE_MS)) return {kind:'pending' as const,reason:'live_settlement_terminal_stale'};
       try {
         observation = this.observation(record,evidence.statusObservation as unknown as LiveOrderEvidence);
         acknowledgement = evidence.acknowledgement ? this.acknowledgement(record,evidence.acknowledgement as unknown as LiveIocAcknowledgement) : null;

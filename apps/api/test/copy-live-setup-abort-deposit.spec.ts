@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { abortDepositSettled, depositOnLedger } from '../src/copy/copy-live-setup-abort-deposit.js';
-import { FUNDING_NONCE_EXPIRY_MS } from '../src/copy/copy-funding-scan.js';
+import { FUNDING_NONCE_EXPIRY_MS } from '../src/config/constants/timings.js';
 
 const MAIN = `0x${'11'.repeat(20)}`, ACCOUNT = `0x${'22'.repeat(20)}`, HASH = `0x${'aa'.repeat(32)}`, NONCE = 1_760_000_000_000;
 const deposit = (changes: object = {}) => ({ status: 'accepted' as const, attemptedAt: new Date(NONCE), nonce: NONCE, amount: '100', address: MAIN, destination: ACCOUNT, scanState: null, ...changes });

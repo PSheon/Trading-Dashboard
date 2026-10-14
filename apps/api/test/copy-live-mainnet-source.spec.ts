@@ -1,12 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import { HyperliquidLiveSourceClient } from '../src/copy/copy-live-source.client.js';
 import { canonicalLiveSourceLegs, decodeLiveSourceFill, liveSourceDigest, parseLiveSourceFill } from '../src/copy/live/copy-live-source-evidence.js';
-import { assertLiveSourcePrice, liveSourceDeviationBps, planLiveSourceOrder, SOURCE_EQUITY_MAX_AGE_MS, SOURCE_MID_MAX_AGE_MS, type LiveSourcePlanInput } from '../src/copy/live/copy-live-source-planner.js';
+import { assertLiveSourcePrice, liveSourceDeviationBps, planLiveSourceOrder, type LiveSourcePlanInput } from '../src/copy/live/copy-live-source-planner.js';
 import type { LiveSourceSizingEnvelopeV1 } from '../src/copy/live/copy-live-sizing-evidence.js';
 import { MainnetSourceReferenceReader } from '../src/copy/live/live-source-reference.js';
 import { digest } from '../src/copy/copy-live-mandate-evidence.js';
 import { Dec } from '../src/common/decimal/dec.js';
 import { sourceSizingExample } from './copy-live-generation-test-utils.js';
+import { SOURCE_EQUITY_MAX_AGE_MS, SOURCE_MID_MAX_AGE_MS } from '../src/config/constants/timings.js';
 
 const leader = `0x${'44'.repeat(20)}`;
 const raw = { tid: 1, oid: 7, time: 1500, coin: 'BTC', side: 'B', px: '100', sz: '1', startPosition: '0' };

@@ -5,22 +5,19 @@ import { Dec, type DecInput } from "../common/decimal/dec.js";
 import { UnitOfWork, type DbTransaction } from "../db/unit-of-work.js";
 import { NotifyService } from "../notify/notify.service.js";
 import { SettingsService } from "../settings/settings.service.js";
-import { CopyMarketService, MIDS_TTL_MS, maintenanceMargin, type AssetMap, type Mids } from "./copy-market.service.js";
+import { CopyMarketService, maintenanceMargin, type AssetMap, type Mids } from './copy-market.service.js';
 import { applyFill, cloidOf, dec, fillFees, fundingHours, fundingPayment, roundPx, slippedPx } from "./copy-math.js";
 import { evaluateRisk, symbolRefusal } from "./copy-risk.js";
 import { strategyValue } from "./copy-planner.service.js";
 import { CopyRiskPolicyService } from "./copy-risk-policy.service.js";
 import { CopyRepository, type OrderRow, type PositionRow, type StrategyRow } from "./copy.repository.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
+import { MIDS_TTL_MS } from '../config/constants/cache-ttls.js';
+import { SUBMITTING_RECOVERY_MS } from '../config/constants/timings.js';
 
 /** Orders the executor handles per pass. */
 export const EXECUTION_BATCH = 100;
-/** A `submitting` order older than this is resumed (crash or restart). */
-export const SUBMITTING_RECOVERY_MS = 30_000;
 
-/** Failed execution attempts after which an order is reported: one system
- * message, and a row in /admin/copy until it goes through. */
-export const STUCK_ORDER_ATTEMPTS = COPY_STUCK_ORDER_ATTEMPTS;
 
 export interface ExecutionResult {
   filled: number;
@@ -74,7 +71,7 @@ const signalAgeSeconds = (order: Pick<OrderRow, "signalTime">) => (Date.now() - 
  * reduction.
  *
  * An order that keeps failing is not silent: every failure is counted on the
- * order with its error; at STUCK_ORDER_ATTEMPTS the operator gets one system
+ * order with its error; at COPY_STUCK_ORDER_ATTEMPTS the operator gets one system
  * message and /admin/copy lists the order until it goes through. It still
  * holds its strategy's later orders (running an open ahead of its failed
  * close would put the copy on the wrong side).
@@ -141,11 +138,11 @@ export class CopyExecutionService {
     return result;
   }
 
-  /** Counts a failed attempt; at STUCK_ORDER_ATTEMPTS tells the operator once. */
+  /** Counts a failed attempt; at COPY_STUCK_ORDER_ATTEMPTS tells the operator once. */
   private async reportFailure(order: { id: bigint; strategyId: number }, message: string): Promise<void> {
     try {
       const attempts = await this.repository.recordOrderFailure(order.id, message);
-      if (attempts !== STUCK_ORDER_ATTEMPTS) return;
+      if (attempts !== COPY_STUCK_ORDER_ATTEMPTS) return;
       this.logger.error(`Copy order ${order.id} (strategy ${order.strategyId}) has failed ${attempts} times and is holding its strategy's later orders`);
       await this.notify?.sendSystemMessage(
         `⚠️ Copy order ${order.id} (strategy ${order.strategyId}) has failed ${attempts} times: ${message.slice(0, 200)}. The strategy's later orders wait for it. See /admin/copy.`,

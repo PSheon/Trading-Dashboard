@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { BudgetWaitError, budgetConsumer, CAPPED_SHARE, ESSENTIAL_RANK, PAGE_RANK, RequestBudgeterService, UNRANKED_BASE } from "../src/hyperliquid/request-budgeter.service.js";
+import { BudgetWaitError, budgetConsumer, ESSENTIAL_RANK, PAGE_RANK, RequestBudgeterService, UNRANKED_BASE } from '../src/hyperliquid/request-budgeter.service.js';
 import { SNAPSHOT_QUEUE_MS, SWEEP_QUEUE_MS } from "../src/scheduler/scheduler.service.js";
 import { testConfig } from "./config-test-utils.js";
+import { CAPPED_SHARE } from '../src/config/constants/hyperliquid.js';
 
 /** The admin's defaults (`discovery.*WeightPerMinute`): 640 a minute in all. */
 const CAPS = { "pool.performance": 240, "pool.ledgers": 100, history: 120, backfill: 120, cohort: 60 };

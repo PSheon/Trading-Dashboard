@@ -4,12 +4,12 @@ import { WALLET_NETWORKS, usdSendRequest, withdrawalUnits } from "@trading-dashb
 import { RequestBudgeterService } from "../hyperliquid/request-budgeter.service.js";
 import { reserveLive, takeReserved, type LiveBudgetReservation } from "../hyperliquid/hyperliquid-budget-wait.js";
 import { readInfoJson } from "../hyperliquid/response-validation.js";
-import { infoWeight } from "../hyperliquid/info-weights.js";
 import {HyperliquidGlobalTransport} from '../hyperliquid/hyperliquid-global-transport.js';
 import {LiveBoundaryError} from './live/wallet-authorization.js';
 import { networkUnreachable } from './live/error-class.js';
 import { explorerHealth } from './explorer-health.js';
 import type { FundingRow } from "./copy-funding.repository.js";
+import { BUILDER_FEE_READ_WEIGHT } from '../config/constants/weights.js';
 
 /** Process-local evidence only. Never infer dispatch from a serialized code,
  * a balance, a quota charge or a historical operation. The exact private error
@@ -28,8 +28,6 @@ export function consumeFundingNotDispatched(error: unknown, attempt: FundingRow)
   return true;
 }
 
-/** One maxBuilderFee read's provider weight. */
-export const BUILDER_FEE_READ_WEIGHT = infoWeight({ type: "maxBuilderFee" });
 
 @Injectable()
 export class CopyFundingExchangeClient {

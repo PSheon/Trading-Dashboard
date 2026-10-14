@@ -1,6 +1,7 @@
 import {describe,expect,it} from 'vitest';
 import {HyperliquidRestCapacityError} from '../src/hyperliquid/hyperliquid-capacity-error.js';
-import {HYPERLIQUID_LIVE_WS_CONNECT_RESERVE,planHyperliquidQuota,setupDemandTicket,type HyperliquidQuotaEvent,type HyperliquidQuotaRequest,type HyperliquidQuotaState} from '../src/hyperliquid/hyperliquid-global-quota.js';
+import { planHyperliquidQuota, setupDemandTicket, type HyperliquidQuotaEvent, type HyperliquidQuotaRequest, type HyperliquidQuotaState } from '../src/hyperliquid/hyperliquid-global-quota.js';
+import { HYPERLIQUID_LIVE_WS_CONNECT_RESERVE } from '../src/config/constants/hyperliquid.js';
 
 /**
  * A granted setup claim is a reservation, not a priority (gate 2026-10-13

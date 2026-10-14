@@ -18,6 +18,7 @@ import { planLiveReservation, validateLiveReservationPayload, freezeLiveReservat
 import type { LiveRiskDatabaseSession } from './postgres-live-risk-scope.js';
 import { PostgresWalletAuthorizationSource } from './postgres-wallet-authorizations.js';
 import { LiveBoundaryError, assertSameAuthorization, assertWalletAuthorization } from './wallet-authorization.js';
+import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
 
 type Row = typeof copyLiveRiskReservations.$inferSelect;
 type Journal = typeof copyLiveExecutions.$inferSelect;
@@ -31,7 +32,7 @@ function check(value: unknown, code?: string): asserts value { if (!value) fail(
 export class PostgresLiveReservations {
   private readonly lineage = new WeakMap<LiveRiskDatabaseSession, Map<string, number>>();
   constructor(private readonly now = Date.now) {}
-  private fresh(at: number) { const now = this.now(); check(Number.isSafeInteger(at) && Number.isSafeInteger(now) && now >= at && now - at <= 5000, 'live_risk_stale'); }
+  private fresh(at: number) { const now = this.now(); check(Number.isSafeInteger(at) && Number.isSafeInteger(now) && now >= at && now - at <= LIVE_EVIDENCE_MAX_AGE_MS, 'live_risk_stale'); }
   private scoped(session: LiveRiskDatabaseSession, userId: number, accountAddress: string) {
     const id = session.scope.identity; check(isHyperliquidNetwork(id.network) && id.userId === userId && id.accountAddress === accountAddress, 'live_reservation_scope_mismatch'); session.scope.assertFresh();
   }

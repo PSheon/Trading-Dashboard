@@ -182,7 +182,6 @@ function fakeInfo() {
   };
 }
 
-
 function statsRow(
   address: string,
   o: {

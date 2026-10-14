@@ -56,7 +56,6 @@ it("settings audit captures only changed sections and shares the settings transa
   } finally { await db.execute(sql`alter table admin_audit_logs drop constraint audit_test_reject`); }
 });
 
-
 it.each(["create", "update"] as const)("rolls back rule %s when audit insertion fails", async (operation) => {
   const rules = new AlertRulesService(new AlertRulesRepository(db), new UnitOfWork(db));
   const input = { scope: "address" as const, kind: "R1" as const,

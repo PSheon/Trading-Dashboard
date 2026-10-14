@@ -1,6 +1,7 @@
 import {describe,it,expect} from 'vitest';
 import {LiveBoundaryError} from '../src/copy/live/wallet-authorization.js';
-import {HYPERLIQUID_BACKGROUND_REST_CAP,HYPERLIQUID_STALE_LEASE_RECLAIM_MS,planHyperliquidQuota,quotaSubscription,type HyperliquidQuotaState,type HyperliquidQuotaLease,type HyperliquidQuotaRequest} from '../src/hyperliquid/hyperliquid-global-quota.js';
+import { planHyperliquidQuota, quotaSubscription, type HyperliquidQuotaState, type HyperliquidQuotaLease, type HyperliquidQuotaRequest } from '../src/hyperliquid/hyperliquid-global-quota.js';
+import { HYPERLIQUID_BACKGROUND_REST_CAP, HYPERLIQUID_STALE_LEASE_RECLAIM_MS } from '../src/config/constants/hyperliquid.js';
 const now=1790000000000,egressKey='shared-egress-a',user=`0x${'22'.repeat(20)}`;
 const state=():HyperliquidQuotaState=>({egressKey,revision:1,events:[],updatedAt:now});
 const lease=(id='socket-a'):HyperliquidQuotaLease=>({id,egressKey,socketId:id,fenceToken:`fence-${id}`,ownerId:'api-a',state:'open',revision:1,leaseUntil:now+5000,latestAllowedSendAt:now+5000,subscriptions:[],createdAt:now,updatedAt:now,closedAt:null});

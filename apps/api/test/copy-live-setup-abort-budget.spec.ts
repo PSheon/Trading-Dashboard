@@ -6,12 +6,13 @@ import { AppConfig } from '../src/config/app-config.js';
 import { CopyModule } from '../src/copy/copy.module.js';
 import { CopyLiveSetupAbortService, SETUP_ABORT_OBSERVER } from '../src/copy/copy-live-setup-abort.service.js';
 import { CopyFundingExchangeClient } from '../src/copy/copy-funding-exchange.client.js';
-import { SYSTEM_SWEEP_ATTEMPTS, sweepNotSentEvidence } from '../src/copy/copy-live-return.repository.js';
+import { sweepNotSentEvidence } from '../src/copy/copy-live-return.repository.js';
 import { HyperliquidLiveAccountObserver, HyperliquidAllDexsAccountSource } from '../src/copy/live/live-account-observer.js';
 import { RequestBudgeterService } from '../src/hyperliquid/request-budgeter.service.js';
 import type { WalletNetworkHyperliquid } from '../src/hyperliquid/wallet-network-hyperliquid.js';
 import { testConfig } from './config-test-utils.js';
 import { offlineGlobalTransport } from './hyperliquid-global-test-utils.js';
+import { SYSTEM_SWEEP_ATTEMPTS } from '../src/config/constants/limits.js';
 
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 const address = `0x${'22'.repeat(20)}`;

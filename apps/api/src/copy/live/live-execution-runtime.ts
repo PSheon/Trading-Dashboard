@@ -12,24 +12,24 @@ import { copyExecutionAccounts, copyLiveMandates, copyLiveExecutions, copyLiveIn
 import { AppConfig } from '../../config/app-config.js';
 import { HyperliquidGlobalTransport } from '../../hyperliquid/hyperliquid-global-transport.js';
 import { RequestBudgeterService } from '../../hyperliquid/request-budgeter.service.js';
-import { liveBudget, HyperliquidBudgetWait, LIVE_RESERVE_WAIT_MS } from '../../hyperliquid/hyperliquid-budget-wait.js';
-import { REST_CHARGE_LIFETIME_MS, sharedRestRetryAfterMs } from '../../hyperliquid/hyperliquid-capacity-error.js';
+import { liveBudget, HyperliquidBudgetWait } from '../../hyperliquid/hyperliquid-budget-wait.js';
+import { sharedRestRetryAfterMs } from '../../hyperliquid/hyperliquid-capacity-error.js';
 import { Dec } from '../../common/decimal/dec.js';
 import { decodeLiveCopyMandate } from '../copy-live-mandate-evidence.js';
 import { PostgresLivePreparation, liveSourceExecutionCloid, type LivePreparationOptions } from './postgres-live-preparation.js';
-import { MAX_LIVE_LEG_ATTEMPTS } from './copy-live-leg-attempt.js';
+
 import { LiveOrderExecutor, UNHELD_REJECTED, type LiveExecutionRecord } from './live-execution.js';
 import { errorCode } from '../../runtime/safe-error-text.js';
 import { address, LiveBoundaryError, WalletAuthorizationService } from './wallet-authorization.js';
 import { orderApproval } from './live-order-approval.js';
-export { APPROVAL_REUSE_MS } from './live-order-approval.js';
+export { APPROVAL_REUSE_MS } from '../../config/constants/timings.js';
 import { PostgresLiveRiskScope, type LiveRiskDatabaseSession } from './postgres-live-risk-scope.js';
 import { loadLivePreparationAuthority, riskSourceRequire } from './postgres-live-risk-authority.js';
 import { liveAccountExposureSql } from './live-account-exposure.js';
 import { HyperliquidAllDexsAccountSource, PerReadAllDexsAccountSource } from './live-account-ws-source.js';
 import { HyperliquidLiveAccountObserver } from './live-account-observer.js';
 import { HyperliquidLiveMarketResolver, type LiveMarketResolver } from './live-market-resolver.js';
-import { LIVE_ORDER_BOUNDARY_WEIGHT, liveEvidenceWeight, type LiveSharedReads, type LiveInfoBatch } from './live-shared-reads.js';
+import { liveEvidenceWeight, type LiveSharedReads, type LiveInfoBatch } from './live-shared-reads.js';
 import { liveReadCache } from './live-read-cache.js';
 import { HyperliquidLiveRiskProvider } from './live-risk-provider.js';
 import { LiveProviderReadEpoch } from './live-provider-read-epoch.js';
@@ -52,6 +52,10 @@ import { captureLiveOrderIdentity, parseLiveIocAcknowledgement } from './live-or
 import { PostgresLiveSettlement } from './postgres-live-settlement.js';
 import { LiveLeverageUpdated, LiveLeverageUpdater, LiveLeverageUpdateRequired } from './live-leverage-update.js';
 import { beginLiveExecutionTiming, LiveSpanRecorder, timedLiveSpan, type LiveExecutionTiming, type LiveExecutionTimingHook, type LiveExecutionDiagnosticHook } from './live-execution-diagnostics.js';
+import { LIVE_RESERVE_WAIT_MS, REST_CHARGE_LIFETIME_MS } from '../../config/constants/hyperliquid.js';
+import { MAX_LIVE_LEG_ATTEMPTS } from '../../config/constants/limits.js';
+import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
+import { LIVE_ORDER_BOUNDARY_WEIGHT } from '../../config/constants/weights.js';
 
 /** Leverage updates one order may make before it is sent (its coin's and
  * other positions' above their caps): each costs an exchange action and a
@@ -389,7 +393,7 @@ export class LiveExecutionRuntime {
         const completedAt = this.now(), oldest = input.localSource.checkedAt;
         riskSourceRequire(Number.isSafeInteger(completedAt) && Number.isSafeInteger(oldest) && oldest > 0 &&
           completedAt >= oldest, 'live_risk_stale');
-        if (completedAt - oldest > 5000) completionDiagnostic = Object.freeze({
+        if (completedAt - oldest > LIVE_EVIDENCE_MAX_AGE_MS) completionDiagnostic = Object.freeze({
           event: 'live_execution_completion_stale', network: this.network, oldestCheckedAt: oldest,
           completedAt, evidenceAgeMs: completedAt - oldest, freshnessLimitMs: 5000,
         });

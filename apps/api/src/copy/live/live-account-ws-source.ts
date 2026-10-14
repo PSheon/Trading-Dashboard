@@ -10,6 +10,7 @@ import {quotaSubscription} from '../../hyperliquid/hyperliquid-global-quota.js';
 import type {HyperliquidSocketQuota,HyperliquidCommandPermit} from '../../hyperliquid/postgres-hyperliquid-quota.js';
 import {liveSpan,timedLiveSpan} from './live-execution-diagnostics.js';
 import { clockSkew, type ClockSkewMonitor } from './clock-skew.js';
+import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
 
 export interface LiveAllDexsStateEvidence {
   readonly network: HyperliquidNetwork; readonly accountAddress: string; readonly observedAt: number; readonly data: unknown;
@@ -209,7 +210,7 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
     else await this.terminateAndFlush(socket);
     if(this.socket===socket)this.socket=undefined;
   }
-  private remaining(deadline:number):number{const left=deadline-this.now();if(left<=0||left>5000)fail('live_account_orders_deadline_exceeded');return left;}
+  private remaining(deadline:number):number{const left=deadline-this.now();if(left<=0||left>LIVE_EVIDENCE_MAX_AGE_MS)fail('live_account_orders_deadline_exceeded');return left;}
   /** Reads end with a close of their socket, not with unsubscribes. */
   private closesAfterRead():boolean{return this.global!==undefined&&(this.options.closeAfterRead===true||this.global.isOriginal());}
   private async commands(subscriptions:readonly Record<string,unknown>[],deadline:number,unsubscribe=true):Promise<HyperliquidCommandPermit|undefined>{
@@ -222,7 +223,7 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
     else socket.send(JSON.stringify(command));
   }
   private admit(timeoutMs: number): void {
-    if (this.disposed||this.busy || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 5000) fail('live_account_aggregate_unavailable');
+    if (this.disposed||this.busy || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > LIVE_EVIDENCE_MAX_AGE_MS) fail('live_account_aggregate_unavailable');
   }
 
   async read(accountAddress: string, timeoutMs: number): Promise<LiveAllDexsStateEvidence> {

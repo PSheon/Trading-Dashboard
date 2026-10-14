@@ -220,7 +220,6 @@ it('retains stopping-account reporting even when its last dispatch remains submi
   expect(await reports.claim()).toMatchObject({ accountId: 'account' });
 });
 
-
 async function originalUnreleasedTerminal() {
   const at = new Date(Date.now() - 180_000), cloid = `0x${'02'.repeat(16)}`, accountAddress = `0x${'22'.repeat(20)}`;
   const key = `testnet:${accountAddress}:${cloid}`;
@@ -275,7 +274,6 @@ it.each(['account', 'network', 'strategy', 'cloid', 'unattempted', 'nonterminal'
     expect(await reports.claim()).not.toBeNull();
   },
 );
-
 
 it.each(['active', 'paused', 'expired', 'revoked', 'stopped'] as const)(
   'retains original terminal proof priority after the generation becomes %s, without a new execution permit', async state => {

@@ -6,6 +6,7 @@ import {LIVE_DEX_NAME,LIVE_PERP_COIN} from '../copy/live/live-market-resolver.js
 import {freezeLiveReservation} from '../copy/live/live-risk-reservation.js';
 import {HyperliquidRestCapacityError} from './hyperliquid-capacity-error.js';
 import type { LiveNetwork } from '../copy/live/wallet-authorization.js';
+import { HYPERLIQUID_BACKGROUND_REST_CAP, HYPERLIQUID_LIVE_DEMAND_HOLD_MS, HYPERLIQUID_LIVE_REST_RESERVE, HYPERLIQUID_LIVE_STANDBY_HOLD_MS, HYPERLIQUID_LIVE_WS_CONNECT_RESERVE, HYPERLIQUID_MAX_SETUP_CONNECTS, HYPERLIQUID_PAGE_FLOOR, HYPERLIQUID_PAGE_HOLD_MS, HYPERLIQUID_REST_CAP, HYPERLIQUID_SETUP_GRANT_HOLD_MS, HYPERLIQUID_SETUP_PENDING_HOLD_MS, HYPERLIQUID_SETUP_REST_CAP, HYPERLIQUID_STALE_LEASE_RECLAIM_MS } from '../config/constants/hyperliquid.js';
 export interface HyperliquidQuotaEvent {readonly id:string;readonly kind:'rest'|'ws_message'|'ws_connect';readonly units:number;readonly reservedAt:number;readonly expiresAt:number;}
 export interface HyperliquidQuotaSubscription {readonly id:string;readonly network:LiveNetwork;readonly user:string|null;readonly subscription:Readonly<Record<string,unknown>>;}
 export interface HyperliquidQuotaLease {readonly id:string;readonly egressKey:string;readonly socketId:string;readonly fenceToken:string;readonly ownerId:string;readonly state:'reserved'|'open'|'closing'|'uncertain'|'closed';readonly revision:number;readonly leaseUntil:number;readonly latestAllowedSendAt:number;readonly subscriptions:readonly HyperliquidQuotaSubscription[];readonly createdAt:number;readonly updatedAt:number;readonly closedAt:number|null;}
@@ -64,29 +65,10 @@ export const HYPERLIQUID_MAX_SETTLEMENTS=64;
  * while a setup waits it leaves that setup's need free too, but for at most
  * HYPERLIQUID_PAGE_HOLD_MS, after which it has HYPERLIQUID_PAGE_FLOOR. */
 export type HyperliquidRestLane='background'|'setup'|'live'|'page';
-/** Hyperliquid's REST weight per minute per IP. */
-export const HYPERLIQUID_REST_CAP=1200;
-/** What background work may hold of it. Before this, the worker's and the
- * api's background loops (each budgeted 840 a minute locally; the shared
- * meter prepays list calls at 120) kept the window full, and a cold trader
- * page's /activity and /fills answered 503 within 0.4 s. */
-export const HYPERLIQUID_BACKGROUND_REST_CAP=840;
 /** A deployment's own background cap (HYPERLIQUID_BACKGROUND_REST_CAP): lower
  * it to keep more of the window for copy orders, whose evidence (568–772 a
  * minute for one order) must fit beside whatever background holds. */
 export function backgroundRestCap(value:number|undefined):number{return value===undefined?HYPERLIQUID_BACKGROUND_REST_CAP:Math.max(0,Math.min(HYPERLIQUID_REST_CAP,Math.floor(value)));}
-/** Of the window, what neither setups nor background ever take: live orders,
- * pages and exchange actions (unlabelled) always find at least this. */
-export const HYPERLIQUID_LIVE_REST_RESERVE=240;
-/** What copy setups' charges may hold of the window together: one setup's
- * account-mode attempt (613) and its reconcile, so a burst of setups queues
- * behind it instead of taking the live reserve or every live order's room.
- * While a setup waits (a `setup_demand` marker within the last minute),
- * background may hold only what leaves this share free below the live
- * reserve: background is refused first. On 2026-10-13 a setup's mode step
- * (613 in a minute, beside the 360 that background's 840 left) waited out
- * 65 s windows for 10 minutes beside the Stage-like background load. */
-export const HYPERLIQUID_SETUP_REST_CAP=720;
 /** A setup's charges and demand markers are told apart by their ticket id
  * (the stored event's shape is unchanged: a process on the previous release
  * reads them as ordinary REST charges, which they are). */
@@ -107,30 +89,6 @@ const isSetupEvent=(e:{kind:string;id:string})=>e.kind==='rest'&&(e.id.startsWit
  * 720, and the retry waited the 144 out, ~61 s; the agent's 81 after the
  * mode's 635, ~44 s). */
 export const SETUP_LANE_TOKEN=/^[0-9a-f]{16}$/;
-/** How long a granted setup claim holds its step's weight: the weight is an
- * event of the window (SETUP_HOLD_ID_PREFIX) that ends then, unless the step
- * gives it back first (`setup_release`) or its own charges draw it all. The
- * step's charges up to it are admitted without any other check: they replace
- * held weight one for one (the window's total does not move), so no charge of
- * another lane that came between the claim and the reads can refuse them
- * partway (gate 2026-10-13 09:49: a granted attempt charged 410 and failed,
- * and its retry waited ~45 s for those 410 to expire). Long enough for the
- * attempt's two preflights, its signature and its POST. */
-export const HYPERLIQUID_SETUP_GRANT_HOLD_MS=45_000;
-/** Of the 30 socket connects a minute, what only live sockets (an original
- * live-risk session's, a live order's: its follower and leader account
- * observations, a stop's or a close's) may take: every other socket, and a
- * setup's claim for its step's connects, leaves it free. One order's
- * observations open about six (three per account and the leader's), and a
- * stop or close beside it a few more. Gate 2026-10-13 11:15 (7th run): the
- * harness's two socket loops (one connect every 2 s, as many as the window
- * holds) kept it full, and the order's follower observation was refused its
- * connect, twice (`live_account_observation_unavailable`, cause
- * `hyperliquid_quota_exhausted`), and so was the stop after it, many times
- * a second. */
-export const HYPERLIQUID_LIVE_WS_CONNECT_RESERVE=10;
-/** Socket connects one claim may ask to hold (an account-mode attempt opens two). */
-export const HYPERLIQUID_MAX_SETUP_CONNECTS=9;
 const SETUP_DEMAND_TICKET=/^setup-demand:([1-9][0-9]{0,3}):([0-9a-f]{16}):[0-9a-f-]{1,36}(?::c([1-9]))?(:g)?$/;
 const SETUP_TOKEN_CHARGE=/^setup:([0-9a-f]{16}):/;
 const SETUP_HOLD=/^setup-hold:([0-9a-f]{16}):/;
@@ -207,11 +165,6 @@ function reservations(rest:readonly HyperliquidQuotaEvent[],now:number,ticket:Re
     /** When the last alive claim (but `except`'s) that still needs something ends. */
     until:(except?:string)=>{const ends=holding(except).map(t=>latest.get(t)!.until);return ends.length?Math.max(...ends):undefined;}};
 }
-/** How long a setup's claim that does not fit yet keeps its place in the
- * queue after it was last recorded: the setup claims again at least every
- * 20 s (copy-live-setup SETUP_CLAIM_RENEW_MS), so a setup still waiting never
- * loses it, and one that gave up frees the room within this. */
-export const HYPERLIQUID_SETUP_PENDING_HOLD_MS=30_000;
 /**
  * Setups whose latest claim (by token) is waiting, oldest first (its earliest
  * alive marker; ties by token, the same order in every process). The room
@@ -235,16 +188,6 @@ function pendingSetups(rest:readonly HyperliquidQuotaEvent[],now:number){
 }
 /** Page reads' tickets. */
 export const PAGE_REST_ID_PREFIX='page:';
-/** Longest a page read is held back for a waiting setup: then it is admitted
- * within HYPERLIQUID_PAGE_FLOOR. A page waits for room at most 6 s in all
- * (PAGE_CAPACITY_WAIT_MS, inside its 12 s deadline), so the hold ends with
- * time left for its retry and the call; at 10 s every held page would have
- * answered 503 first. */
-export const HYPERLIQUID_PAGE_HOLD_MS=4_000;
-/** What page reads held back longer than HYPERLIQUID_PAGE_HOLD_MS may hold
- * of the window beside a waiting setup: pages never go dead, and a burst of
- * them delays the setup by at most this much (one cold trader page's reads). */
-export const HYPERLIQUID_PAGE_FLOOR=240;
 /** Live copy work's charges (`live:`; `live:<token>:` for an order that
  * announced its need) and a live order's demand marker
  * (`live-demand:<need>:<token>:<id>`, 1 unit, never sent), told apart by
@@ -254,14 +197,6 @@ export const LIVE_REST_ID_PREFIX='live:';
 export const LIVE_DEMAND_ID_PREFIX='live-demand:';
 /** A live order's demand token (16 hex; its charges carry it). */
 export const LIVE_LANE_TOKEN=/^[0-9a-f]{16}$/;
-/** How long a live order's demand comes first after it is recorded: its
- * wait for its SQL locks, its 5 s evidence window and its exchange POST. An
- * order still waiting for room records it again (the same token); once no
- * order's demand is alive or outstanding, setups and background are as
- * before. A cold order's evidence (589, or 772 with two accounts) is more
- * than the 240 live reserve: beside a setup's share and background's cap it
- * was refused, and then waited out a 65 s window. */
-export const HYPERLIQUID_LIVE_DEMAND_HOLD_MS=15_000;
 /** The most a live order announces: with its marker's unit, the window. */
 export const HYPERLIQUID_MAX_LIVE_DEMAND=HYPERLIQUID_REST_CAP-1;
 const LIVE_DEMAND_TICKET=/^live-demand:([1-9][0-9]{0,3}):([0-9a-f]{16}):[0-9a-f-]{1,36}$/;
@@ -279,8 +214,6 @@ const liveClaims=(rest:readonly HyperliquidQuotaEvent[],now:number)=>reservation
  * live leaves `need` free, as for an announced demand (the larger of the
  * two); background is then held to 1200 − need. */
 export const LIVE_STANDBY_ID_PREFIX='live-standby:';
-/** How long a standby keeps its need free after it is recorded (the worker renews it every LIVE_STANDBY_RENEW_MS). */
-export const HYPERLIQUID_LIVE_STANDBY_HOLD_MS=30_000;
 const LIVE_STANDBY_TICKET=/^live-standby:([1-9][0-9]{0,3}):[0-9a-f-]{1,36}$/;
 /** A live standby's ticket: its need and a fresh id. */
 export function liveStandbyTicket(need:number):string{return `${LIVE_STANDBY_ID_PREFIX}${need}:${randomUUID()}`;}
@@ -399,17 +332,6 @@ export function quotaSubscription(suppliedNetwork:LiveNetwork,suppliedBody:Reado
   }catch{throw new LiveBoundaryError('hyperliquid_quota_invalid');}
 }
 function validateSub(sub:HyperliquidQuotaSubscription){requireQuota(isDeepStrictEqual(quotaSubscription(sub.network,sub.subscription),sub));}
-/** How long after `leaseUntil` an unclosed lease still counts toward the
- * connection, subscription and user limits. An owner cannot send anything but a
- * close frame once its lease has passed (every send permit is bounded by
- * `latestAllowedSendAt <= leaseUntil`, at most 5 s after reservation, and renewals
- * need a live lease), and Hyperliquid closes any connection that has sent it no
- * message for 60 s. Five minutes is well past both, plus the 1 s clock-skew
- * bound, so a lease left by a killed or partitioned process can no longer hold a
- * provider connection. The row, its subscriptions and its cleanup evidence are
- * kept as they are (state stays `uncertain`, never forged to `closed`), and no
- * charged unit is refunded. */
-export const HYPERLIQUID_STALE_LEASE_RECLAIM_MS=300_000;
 /** True when an unclosed lease no longer counts toward provider capacity. */
 export function hyperliquidLeaseReclaimed(lease:Pick<HyperliquidQuotaLease,'state'|'leaseUntil'>,now:number):boolean {
   return lease.state!=='closed'&&lease.leaseUntil+HYPERLIQUID_STALE_LEASE_RECLAIM_MS<=now;

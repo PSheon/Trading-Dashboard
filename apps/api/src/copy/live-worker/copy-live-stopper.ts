@@ -28,15 +28,12 @@ import { CLOSE_NEVER_SENT, closeCloid, closeRetryDelayMs, type CloseAccount, typ
 import type { AutoReturn } from './copy-live-auto-return.js';
 import type { CopyLiveFlatCarry } from './copy-live-flat-carry.js';
 import type { SystemStopOutcome } from '../copy-live-stop-system.js';
+import { FLAT_CARRY_RETRY_MS, LIVE_EVIDENCE_MAX_AGE_MS, REVOKE_DEADLINE_MS } from '../../config/constants/timings.js';
 
 // A single-position close gives up after copy.live.stop.retry.closeAttempts
 // orders (the owner can ask again, or stop the copy); a stop never does (it
 // backs off). A tracked order's cancel after retry.cancelAttempts.
 const TERMINAL: ReadonlySet<string> = new Set(['filled', 'partial', 'cancelled', 'rejected']);
-/** How long a flat close whose carry reset had to wait (a leg of the coin in
- * flight, or the account's risk locks busy) waits before it observes the
- * account again: each observation is a provider read. */
-export const FLAT_CARRY_RETRY_MS = 10_000;
 /** Below this the account holds nothing worth a transfer back (USDC). */
 export const SWEEP_DUST_USD = '0.01';
 export interface StopperDependencies {
@@ -65,11 +62,6 @@ export interface StopperDependencies {
     resumePendingCloseAll(): Promise<Array<{ event: string; liveStops: number; liveUnhandled: readonly { accountId: string; code: string }[] }>>;
   } | null;
 }
-/** A copy is stopped this long before its agent expires (one day: room for
- * the stop's closes, retries and return while the agent still signs). */
-export const AGENT_EXPIRY_STOP_MARGIN_MS = DEFAULT_LIVE_STOP_TIMINGS.agentExpiryMarginMs;
-/** Default bound on a pending admin revoke (COPY_LIVE_REVOKE_DEADLINE_MINUTES). */
-export const REVOKE_DEADLINE_MS = 30 * 60_000;
 /** The stored reason: a boundary code (live/error-class.ts), else
  * stop_step_failed. A stop never gives up, whatever the class: it backs off. */
 const reason = (error: unknown) => { const classified = classify(error);
@@ -313,7 +305,7 @@ export class StopCanceller {
       const exchangeApproval = await verifier.verify(grant), checkedAt = this.now();
       return { phase, operationId: op.operationId, operationFingerprint: op.fingerprint, claimToken: op.claimToken, targetExecutionKey: op.target.record.key,
         targetFingerprint: op.target.record.fingerprint, authorization: op.authorization, ownerConsentDigest: op.ownerConsentDigest, ownerEnabled: true as const, checkedAt, exchangeApproval,
-        assertFresh: () => { if (this.now() - checkedAt > 5000) throw new LiveBoundaryError('cancel_current_authority_stale'); } };
+        assertFresh: () => { if (this.now() - checkedAt > LIVE_EVIDENCE_MAX_AGE_MS) throw new LiveBoundaryError('cancel_current_authority_stale'); } };
     } };
     const { auth, copy } = this.config.value;
     if (!auth.appId || !auth.appSecret || !copy.agent || copy.agent.workerQuorumId !== intent.workerQuorumId) return 'stop_cancellation_signing_unavailable';

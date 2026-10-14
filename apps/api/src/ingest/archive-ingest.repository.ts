@@ -6,7 +6,8 @@ import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import { HistoryFillStore } from "../traders/history-fill.store.js";
-import { fillStream, HOUR_MS, type ArchiveFill } from "./archive-format.js";
+import { fillStream, type ArchiveFill } from './archive-format.js';
+import { HOUR_MS } from '../config/constants/time.js';
 
 export type ArchiveState = typeof archiveIngestState.$inferSelect;
 export type IngestDirection = "live" | "backfill";

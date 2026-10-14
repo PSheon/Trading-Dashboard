@@ -1,7 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { Dec } from '../../common/decimal/dec.js';
-import { LIVE_CLOCK_SKEW_ALLOWANCE_MS, LIVE_HTTP_TIMEOUT_MS, type LiveExecutionRecord } from './live-execution.js';
+import { type LiveExecutionRecord } from './live-execution.js';
 import type { LiveAccountRiskInput } from './live-account-risk.js';
 import { LIVE_DEX_NAME, LIVE_PERP_COIN, marketIdentityKey } from './live-market-resolver.js';
 import { parseFollowerFill, followerReceiptDigestV1, type ParsedFollowerFill } from './actual-fill-accounting.js';
@@ -10,6 +10,7 @@ import { digestLiveEvidence, liveEvidenceDecimal, liveEvidenceOid, liveOrderIden
 import { freezeLiveReservation, validateLiveReservationPayload, type LiveReservationStored } from './live-risk-reservation.js';
 import { address } from './wallet-authorization.js';
 import { providerTimeNotAfter } from './clock-skew.js';
+import { LIVE_EVIDENCE_MAX_AGE_MS, LIVE_FILL_SCAN_MARGIN_MS } from '../../config/constants/timings.js';
 
 export interface LiveSettlementLedgerComponent {
   readonly receiptKey: string; readonly component: string; readonly token: string; readonly amount: string;
@@ -46,23 +47,14 @@ export interface LiveReservationSettlementCertificate {
 }
 export type LiveReservationSettlementDecision = Readonly<{ kind: 'pending'|'quarantine'; reason: string }> |
   Readonly<{ kind: 'release'; certificate: LiveReservationSettlementCertificate }>;
-/** How far past a cancel the account's fill scan must reach before its
- * booked fills stand for an unacknowledged IOC's filled quantity. The scan's
- * horizon is this machine's clock when it asked (`to = now`), the cancel's
- * time the exchange's: the margin covers this machine running ahead of the
- * exchange (LIVE_CLOCK_SKEW_ALLOWANCE_MS) and a request in flight
- * (LIVE_HTTP_TIMEOUT_MS), so every fill of the order (all before its cancel)
- * was committed before the scan read. A fill booked to it after its release
- * still quarantines the account (copy-follower-ledger.ts). */
-export const LIVE_FILL_SCAN_MARGIN_MS = LIVE_CLOCK_SKEW_ALLOWANCE_MS + LIVE_HTTP_TIMEOUT_MS;
 class SettlementIssue extends Error { constructor(readonly kind: 'pending'|'quarantine', readonly reason: string) { super(reason); } }
 function requireProof(value: unknown, reason: string, kind: 'pending'|'quarantine' = 'pending'): asserts value {
   if (!value) throw new SettlementIssue(kind, reason);
 }
 function integer(value: unknown, min = 0): value is number { return Number.isSafeInteger(value) && (value as number) >= min; }
-function fresh(at: number, now: number) { requireProof(integer(at) && at <= now && now - at <= 5000, 'live_settlement_stale'); }
+function fresh(at: number, now: number) { requireProof(integer(at) && at <= now && now - at <= LIVE_EVIDENCE_MAX_AGE_MS, 'live_settlement_stale'); }
 /** Hyperliquid's own time: as `fresh`, up to PROVIDER_CLOCK_SKEW_MS ahead of ours. */
-function freshProvider(at: number, now: number) { requireProof(integer(at) && providerTimeNotAfter(at, now) && now - at <= 5000, 'live_settlement_stale'); }
+function freshProvider(at: number, now: number) { requireProof(integer(at) && providerTimeNotAfter(at, now) && now - at <= LIVE_EVIDENCE_MAX_AGE_MS, 'live_settlement_stale'); }
 function digest(value: unknown) { requireProof(typeof value === 'string' && /^[0-9a-f]{64}$/.test(value), 'live_settlement_source_unproven'); }
 function decimal(value: unknown, signed = false): Dec {
   requireProof(typeof value === 'string' && value.length <= 80 && /^-?(?:0|[1-9]\d*)(?:\.\d{1,18})?$/.test(value), 'live_settlement_account_invalid');

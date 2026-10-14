@@ -8,8 +8,9 @@ import { classifyUsdSendReply } from '../hyperliquid/exchange-reply.js';
 import { safeErrorText } from '../runtime/safe-error-text.js';
 import { CopyFundingExchangeClient } from './copy-funding-exchange.client.js';
 import { wire } from './copy-funding.service.js';
-import { builderOutcome, CopyLiveReturnRepository, RETURN_CONSENT_WINDOW_MS, type BuilderApprovalRow } from './copy-live-return.repository.js';
+import { builderOutcome, CopyLiveReturnRepository, type BuilderApprovalRow } from './copy-live-return.repository.js';
 import { WORKER_MASTER_SIGNER, type WorkerMasterSigner } from './live/privy-policy-master-signer.js';
+import { LIVE_EVIDENCE_MAX_AGE_MS, RETURN_CONSENT_WINDOW_MS } from '../config/constants/timings.js';
 
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 function input<T>(schema: z.ZodType<T>, value: unknown): T {
@@ -84,7 +85,7 @@ export class CopyLiveReturnService {
     }
     if (!Dec.from(await this.exchange.withdrawable(row.network, row.address)).gte(row.amount)) throw new ConflictException({ statusCode: 409, code: 'no_free_collateral', message: 'Not enough transferable USDC' });
     const checkedAt = this.now();
-    const fresh = () => { const at = this.now(); if (!Number.isSafeInteger(at) || at - checkedAt > 5000 || at >= consentExpiresAt) throw new Error('stale'); };
+    const fresh = () => { const at = this.now(); if (!Number.isSafeInteger(at) || at - checkedAt > LIVE_EVIDENCE_MAX_AGE_MS || at >= consentExpiresAt) throw new Error('stale'); };
     const attempt = await this.repository.begin(userId, id);
     if (!attempt) return wire(await this.repository.find(userId, id));
     // Dispatched only once every check passed (this proof, then the quota

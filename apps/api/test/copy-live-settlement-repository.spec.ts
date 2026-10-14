@@ -7,7 +7,7 @@ import { PostgresLiveSettlement } from '../src/copy/live/postgres-live-settlemen
 import { PostgresLiveRiskScope, type LiveRiskDatabaseSession } from '../src/copy/live/postgres-live-risk-scope.js';
 import { CopyFollowerLedger } from '../src/copy/live/copy-follower-ledger.js';
 import { UnitOfWork } from '../src/db/unit-of-work.js';
-import { LIVE_FILL_SCAN_MARGIN_MS, type LiveReservationSettlementInput } from '../src/copy/live/live-reservation-settlement.js';
+import { type LiveReservationSettlementInput } from '../src/copy/live/live-reservation-settlement.js';
 import { parseLiveOrderEvidence, parseLiveIocAcknowledgement, captureLiveOrderIdentity } from '../src/copy/live/live-order-evidence.js';
 import { parseFollowerFill, followerReceiptDigestV1 } from '../src/copy/live/actual-fill-accounting.js';
 import { buildOrderAction, intentFingerprint } from '../src/copy/live/live-order.js';
@@ -18,6 +18,7 @@ import { CopyFollowerSnapshotService } from '../src/copy/copy-follower-snapshot.
 import { testConfig } from './config-test-utils.js';
 import { fixture, now as base } from './copy-live-risk-test-utils.js';
 import { closeTestDb, getTestDb, insertUser, truncateAll, type TestDb } from './db-test-utils.js';
+import { LIVE_FILL_SCAN_MARGIN_MS } from '../src/config/constants/timings.js';
 type Mutable<T> = T extends object ? { -readonly [K in keyof T]: Mutable<T[K]> } : T;
 function input(status = 'filled', size = '1'): Mutable<LiveReservationSettlementInput> {
   const f = fixture(), record = { key: f.reservations.own.key, fingerprint: f.reservations.own.fingerprint, nonce: base,

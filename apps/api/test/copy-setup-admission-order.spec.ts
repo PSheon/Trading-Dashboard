@@ -3,8 +3,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppConfig } from '../src/config/app-config.js';
 import { HyperliquidBudgetWait } from '../src/hyperliquid/hyperliquid-budget-wait.js';
 import { RequestBudgeterService } from '../src/hyperliquid/request-budgeter.service.js';
-import { LIVE_HEADROOM_SHARE } from '../src/hyperliquid/wallet-network-hyperliquid.js';
+
 import { Meter, T0, Testnet, database, setupIntent, worker } from './copy-setup-capacity-test-utils.js';
+import { LIVE_HEADROOM_SHARE } from '../src/config/constants/hyperliquid.js';
 
 /**
  * A setup step's admission comes before its first read, local first (gate

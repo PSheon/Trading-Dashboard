@@ -1,4 +1,5 @@
 import type { HlUserFill } from "../hyperliquid/types.js";
+import { DAY_MS, HOUR_MS } from '../config/constants/time.js';
 
 /**
  * Layout and line formats of Hyperliquid's public node archive
@@ -22,7 +23,6 @@ import type { HlUserFill } from "../hyperliquid/types.js";
  */
 export const ARCHIVE_BUCKET = "hl-mainnet-node-data";
 export const ARCHIVE_REGION = "ap-northeast-1";
-export const HOUR_MS = 3_600_000;
 /** First hour of `node_fills` (legacy, one event per line). */
 export const ARCHIVE_FIRST_HOUR = Date.UTC(2025, 4, 25, 14);
 /** The hour in which the node switched to `node_fills_by_block` (one block
@@ -31,7 +31,6 @@ export const BY_BLOCK_FIRST_HOUR = Date.UTC(2025, 6, 27, 8);
 
 export const floorHour = (time: number) => Math.floor(time / HOUR_MS) * HOUR_MS;
 
-const DAY_MS = 24 * HOUR_MS;
 /** The hour a backfill pass goes down to: the start of the UTC day `days`
  * days before `now`, never before `start` or the archive's first hour. It
  * moves forward a day at a time, so a span that reached it stays covered. */

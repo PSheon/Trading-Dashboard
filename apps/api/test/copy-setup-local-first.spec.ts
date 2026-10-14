@@ -1,12 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { LiveCopySetupIntent } from '@trading-dashboard/shared/contracts';
-import { ATTEMPT_SOCKET_CONNECTS, ATTEMPT_STEP_REST_WEIGHT, ATTEMPT_STEP_WEIGHT } from '../src/copy/copy-account-mode.service.js';
-import { AGENT_OBSERVE_WEIGHT } from '../src/copy/copy-agent-exchange.client.js';
+
 import { infoWeight } from '../src/hyperliquid/info-weights.js';
 import type { SetupRow } from '../src/copy/copy-live-setup.repository.js';
 import type { LiveBudgetReservation } from '../src/hyperliquid/hyperliquid-budget-wait.js';
 import { Meter, Testnet, database, setupIntent, worker } from './copy-setup-capacity-test-utils.js';
+import { AGENT_OBSERVE_WEIGHT, ATTEMPT_SOCKET_CONNECTS, ATTEMPT_STEP_REST_WEIGHT, ATTEMPT_STEP_WEIGHT } from '../src/config/constants/weights.js';
 
 /**
  * Reviewer item (2026-10-13): a setup step's local weight comes before its

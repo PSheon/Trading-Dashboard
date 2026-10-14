@@ -10,22 +10,8 @@ import { coinDex } from "@trading-dashboard/shared/contracts";
 import { Dec } from "../common/decimal/dec.js";
 import { CopyRepository } from "./copy.repository.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
+import { ACCOUNT_MODE_TTL_MS, ASSETS_TTL_MS, DEX_LIST_TTL_MS, LEADER_EQUITY_TTL_MS, MIDS_STALE_OK_MS, MIDS_TTL_MS, SPOT_BOOK_TTL_MS, STAKING_TTL_MS } from '../config/constants/cache-ttls.js';
 
-/** Mid prices are shared by every caller for this long (allMids, weight 2). */
-export const MIDS_TTL_MS = 3_000;
-/** A mids read that fails may fall back to one this recent. */
-const MIDS_STALE_OK_MS = 60_000;
-/** Universe and funding (metaAndAssetCtxs, weight 20): hourly. */
-export const ASSETS_TTL_MS = 3_600_000;
-/** Leader account value for ratio sizing (see `leaderEquity` for the reads). */
-export const LEADER_EQUITY_TTL_MS = 60_000;
-/** Parts of a leader's account value that change slowly or are shared, kept
- * as long as the trader profile keeps them: the account mode and staked
- * HYPE (20 weight each), the spot price book (22) and the dex list. */
-const ACCOUNT_MODE_TTL_MS = 10 * 60_000;
-const STAKING_TTL_MS = 10 * 60_000;
-const SPOT_BOOK_TTL_MS = 30_000;
-const DEX_LIST_TTL_MS = 60 * 60_000;
 
 export interface AssetInfo {
   szDecimals: number;

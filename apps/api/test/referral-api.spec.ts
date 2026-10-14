@@ -118,7 +118,6 @@ it("does not let a disabled owner's code refer anyone (lock() refuses a disabled
   expect(await db.select().from(referralAttributions).where(eq(referralAttributions.referredUserId, fresh.id))).toEqual([]);
 });
 
-
 it('rejects a reverse referral edge while retaining the original binding', async () => {
   const x = await insertUser(db), y = await insertUser(db);
   const xc = (await repository.overview(x.id)).code, yc = (await repository.overview(y.id)).code;

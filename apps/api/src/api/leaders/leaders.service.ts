@@ -19,8 +19,8 @@ import { LeadersRepository } from "./leaders.repository.js";
 import { RoundTripService } from "../../analytics/round-trip.service.js";
 import { TtlCache } from "../../traders/ttl-cache.js";
 import type { AlertsScope } from "../../common/auth/alerts-scope.js";
+import { DAY_MS } from '../../config/constants/time.js';
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 /** GET /leaders reads this much action history per leader: the 30-day
  * figures need trips closed in the last 30 days, and a trip opened up to
  * 60 days before that is still whole. Average hold time is over the same

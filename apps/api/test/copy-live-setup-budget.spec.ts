@@ -3,15 +3,17 @@ import type { FactoryProvider } from '@nestjs/common';
 import { afterEach, expect, it, vi } from 'vitest';
 import { AppConfig } from '../src/config/app-config.js';
 import { CopyModule } from '../src/copy/copy.module.js';
-import { ACCOUNT_MODE_ABSENCE_READER, ACCOUNT_MODE_CLIENT, ATTEMPT_WEIGHT } from '../src/copy/copy-account-mode.service.js';
-import { ACCOUNT_MODE_ABSENCE_WEIGHT } from '../src/copy/copy-account-mode-evidence.js';
-import { AGENT_APPROVAL_CLIENT, AGENT_OBSERVE_WEIGHT } from '../src/copy/copy-agent-exchange.client.js';
+import { ACCOUNT_MODE_ABSENCE_READER, ACCOUNT_MODE_CLIENT } from '../src/copy/copy-account-mode.service.js';
+
+import { AGENT_APPROVAL_CLIENT } from '../src/copy/copy-agent-exchange.client.js';
 import { DEFAULT_LIVE_SETUP_TIMINGS, setupStepBudgetMs } from '../src/config/live-timings.js';
-import { HyperliquidBudgetWait, LIVE_RESERVE_WAIT_MS, type LiveBudget } from '../src/hyperliquid/hyperliquid-budget-wait.js';
+import { HyperliquidBudgetWait, type LiveBudget } from '../src/hyperliquid/hyperliquid-budget-wait.js';
 import { RequestBudgeterService } from '../src/hyperliquid/request-budgeter.service.js';
-import { LIVE_HEADROOM_SHARE, type WalletNetworkHyperliquid } from '../src/hyperliquid/wallet-network-hyperliquid.js';
+import { type WalletNetworkHyperliquid } from '../src/hyperliquid/wallet-network-hyperliquid.js';
 import { testConfig } from './config-test-utils.js';
 import { offlineGlobalTransport } from './hyperliquid-global-test-utils.js';
+import { LIVE_HEADROOM_SHARE, LIVE_RESERVE_WAIT_MS } from '../src/config/constants/hyperliquid.js';
+import { ACCOUNT_MODE_ABSENCE_WEIGHT, AGENT_OBSERVE_WEIGHT, ATTEMPT_WEIGHT } from '../src/config/constants/weights.js';
 
 // The registered setup clients (CopyModule's factories) on a real bucket
 // shaped like mainnet real-money copy's (COPY_LIVE_WEIGHT_PER_MIN 300: burst

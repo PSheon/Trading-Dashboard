@@ -11,6 +11,8 @@ import { explorerHealth } from './explorer-health.js';
 import { SetupPart, type SetupContext, type SetupSigner } from './copy-live-setup-shared.js';
 import type { SetupProvisioning } from './copy-live-setup-provisioning.js';
 import type { SetupRestCapacity, SetupSteps } from './copy-live-setup-steps.js';
+import { ALERT_EVERY_MS, AWAITING_CREDIT_ALERT_AFTER_MS } from '../config/constants/alerts.js';
+import { ABANDONED_APPROVAL_WINDOW_MS, AWAITING_CREDIT_MAX_WAIT_MS } from '../config/constants/timings.js';
 
 /**
  * The worker's side of a live copy setup: its pass over every due setup
@@ -23,18 +25,6 @@ import type { SetupRestCapacity, SetupSteps } from './copy-live-setup-steps.js';
 // POST), the HTTP answer and confirm waits and the retries are
 // AppConfig.copy.live.setup (config/live-timings.ts): startup refuses a step
 // budget that does not fit the lease.
-/** How long after its setup ended an approval left unknown is still looked at. */
-const ABANDONED_APPROVAL_WINDOW_MS = 3 * 86_400_000;
-/** A setup waiting for its deposit's credit looks again after
- * pendingMs × 2^(waits − 1), at most this: an explorer or ledger that can't be
- * reached is not polled every pass (a local setup reached revision 12716 in
- * 14 h, 2026-10-12). Only the credit (the stage moving on) resets it. */
-export const AWAITING_CREDIT_MAX_WAIT_MS = 60_000;
-/** A setup awaiting its credit longer than this (since its confirm sent the
- * deposit) logs `ALERT funding awaiting_credit`… */
-export const AWAITING_CREDIT_ALERT_AFTER_MS = 10 * 60_000;
-/** …at most once per this, per setup (lastWait.alertedAt: across restarts). */
-export const AWAITING_CREDIT_ALERT_EVERY_MS = 10 * 60_000;
 /** Failures that are the deadline passing (the setup ends `expired`). */
 const EXPIRED_ISSUES: readonly string[] = ['setup_expired', 'setup_deposit_uncredited'];
 /** An expired identity proof's timing (AgentIdentityEvidenceExpired), for the log. */
@@ -197,7 +187,7 @@ export class SetupDriver extends SetupPart {
     const retryMs = Math.min(AWAITING_CREDIT_MAX_WAIT_MS, this.timings.retry.pendingMs * 2 ** Math.min(waits - 1, 16));
     let alertedAt = prior?.alertedAt;
     const since = row.confirmedAt?.getTime();
-    if (since !== undefined && now - since > AWAITING_CREDIT_ALERT_AFTER_MS && (!alertedAt || !(now - Date.parse(alertedAt) < AWAITING_CREDIT_ALERT_EVERY_MS))) {
+    if (since !== undefined && now - since > AWAITING_CREDIT_ALERT_AFTER_MS && (!alertedAt || !(now - Date.parse(alertedAt) < ALERT_EVERY_MS))) {
       alertedAt = new Date(now).toISOString();
       const explorer = explorerHealth.status();
       this.logger.error(`ALERT funding awaiting_credit ${JSON.stringify({ setupId: row.id, fundingOperationId: row.fundingOperationId, awaitingCreditSince: new Date(since).toISOString(),

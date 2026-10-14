@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { CLOCK_SKEW_SAMPLES, ClockSkewMonitor, PROVIDER_CLOCK_SKEW_MS, providerTimeNotAfter } from '../src/copy/live/clock-skew.js';
+import { CLOCK_SKEW_SAMPLES, ClockSkewMonitor, providerTimeNotAfter } from '../src/copy/live/clock-skew.js';
+import { PROVIDER_CLOCK_SKEW_MS } from '../src/config/constants/timings.js';
 
 describe('clock skew between our clock and Hyperliquid\'s (O9)', () => {
   it('a provider time up to the tolerance ahead of our clock is "not after now"; beyond it is not', () => {

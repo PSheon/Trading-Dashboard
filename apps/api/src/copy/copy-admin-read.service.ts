@@ -11,12 +11,12 @@ import type {
 } from "@trading-dashboard/shared/contracts";
 
 import { AppConfig } from "../config/app-config.js";
-import { STUCK_ORDER_ATTEMPTS } from "./copy-execution.service.js";
 import { CopyMarketService } from "./copy-market.service.js";
 import { Dec } from "../common/decimal/dec.js";
 import { toCopyOrder, toCopyStrategy, wire } from "./copy.mappers.js";
 import { CopyRiskPolicyService } from "./copy-risk-policy.service.js";
 import { CopyRepository } from "./copy.repository.js";
+import { COPY_STUCK_ORDER_ATTEMPTS } from '@trading-dashboard/shared/contracts';
 
 /**
  * Read models for the copy admin pages (AdminCopyController is built on this
@@ -42,7 +42,7 @@ export class CopyAdminReadService {
       this.repository.checkpoint(),
       this.policies.current(),
       this.repository.recentControlEvents(30),
-      this.repository.stuckOrders(STUCK_ORDER_ATTEMPTS),
+      this.repository.stuckOrders(COPY_STUCK_ORDER_ATTEMPTS),
     ]);
     const pending = outbox.find((r) => r.status === "pending");
     const failed = outbox.find((r) => r.status === "failed");

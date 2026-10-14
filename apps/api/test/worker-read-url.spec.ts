@@ -3,11 +3,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { adminSystemSchema } from '@trading-dashboard/shared/contracts';
 import { AdminSystemService } from '../src/admin/admin-system.service.js';
 import { HealthService } from '../src/api/health/health.service.js';
-import { SNAPSHOT_STALE_MS, WORKER_ALERT_EVERY_MS, WorkerFleetService } from '../src/api/health/worker-fleet.service.js';
+import { SNAPSHOT_STALE_MS, WorkerFleetService } from '../src/api/health/worker-fleet.service.js';
 import { AppConfig } from '../src/config/app-config.js';
 import { validateEnvironment } from '../src/config/runtime-config.js';
 import type { WorkerRole } from '../src/runtime/worker-role.js';
 import { testConfig } from './config-test-utils.js';
+import { ALERT_EVERY_MS } from '../src/config/constants/alerts.js';
 
 // WORKER_READ_URL: once the roles are split, snapshots (lastSnapshotAt) are
 // only in the read worker's heartbeat. The api reads both workers, merges
@@ -135,7 +136,7 @@ describe('WORKER_READ_URL', () => {
     // The read worker goes away: the alert comes back a window after its last snapshot.
     readUp = false;
     const last = snapshotAt;
-    later(SNAPSHOT_STALE_MS + WORKER_ALERT_EVERY_MS);
+    later(SNAPSHOT_STALE_MS + ALERT_EVERY_MS);
     expect(await fleet.check()).toEqual([{ code: 'snapshots_stale', lastOkAt: iso(last) }]);
     expect(alerts()).toHaveLength(2);
   });

@@ -1,7 +1,8 @@
 import { withdrawalUnits } from '@trading-dashboard/shared/contracts';
 import { Dec } from '../common/decimal/dec.js';
-import { FUNDING_NONCE_EXPIRY_MS, fundingScanSchema } from './copy-funding-scan.js';
+import { fundingScanSchema } from './copy-funding-scan.js';
 import type { FundingRow } from './copy-funding.repository.js';
+import { FUNDING_NONCE_EXPIRY_MS } from '../config/constants/timings.js';
 
 type Deposit = Pick<FundingRow, 'status' | 'attemptedAt' | 'nonce' | 'amount' | 'address' | 'destination' | 'scanState'>;
 const PENDING: readonly string[] = ['prepared', 'unknown', 'accepted'];

@@ -52,6 +52,7 @@ import { LeaderActivityService } from "./leader-activity.service.js";
 import { kolAvatarPath } from "../discovery/kol-avatar.js";
 import { KolAvatarRepository } from "../discovery/kol-avatar.repository.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
+import { DAY_MS } from '../config/constants/time.js';
 
 /**
  * Page loads go ahead of backfill and sweeps (lower rank first within the
@@ -101,7 +102,6 @@ const HEAVY = { sweepTimer: true } as const;
 export const SPARKLINE_DEADLINE_MS = 8_000;
 /** A discovery-pool sparkline older than this is fetched instead. */
 export const POOL_SPARKLINE_MAX_AGE_MS = 24 * 3_600_000;
-const DAY_MS = 86_400_000;
 type SeriesPoint = [number, number];
 const THIRTY_DAYS_MS = 30 * 24 * 3_600_000;
 

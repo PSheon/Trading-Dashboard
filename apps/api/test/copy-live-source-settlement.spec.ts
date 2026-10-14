@@ -5,7 +5,7 @@ import { copyLiveExecutions, copyLiveRiskReservations, copyLiveExecutionEvidence
   copyLiveSourceFills, copyLiveSourceStreams, copyStrategyVersions, copyFollowerScans, copyFollowerReceipts, copyFollowerLedger, copyStrategies, users, copyWalletAuthorizations, copyAgentSetups } from '@trading-dashboard/shared/database';
 import { PostgresLivePreparation } from '../src/copy/live/postgres-live-preparation.js';
 import { PostgresLiveSettlement } from '../src/copy/live/postgres-live-settlement.js';
-import { NEVER_PLACED, NEVER_PLACED_GRACE_MS, LIVE_CLOCK_SKEW_ALLOWANCE_MS, LIVE_HTTP_TIMEOUT_MS } from '../src/copy/live/live-execution.js';
+import { NEVER_PLACED } from '../src/copy/live/live-execution.js';
 import { PostgresLiveRiskScope, type LiveRiskDatabaseSession } from '../src/copy/live/postgres-live-risk-scope.js';
 import { HyperliquidLiveAccountObserver } from '../src/copy/live/live-account-observer.js';
 import { HyperliquidLiveMarketResolver } from '../src/copy/live/live-market-resolver.js';
@@ -24,6 +24,7 @@ import { liveCopySettingsDigest } from '../src/copy/copy-live-mandate-consent.js
 import { preparationFixture } from './copy-live-preparation-test-utils.js';
 import { closeTestDb, getTestDb, type TestDb } from './db-test-utils.js';
 import { now } from './copy-live-risk-test-utils.js';
+import { LIVE_CLOCK_SKEW_ALLOWANCE_MS, LIVE_HTTP_TIMEOUT_MS, NEVER_PLACED_GRACE_MS } from '../src/config/constants/timings.js';
 let db: TestDb, pool: Pool, clock:number, scope:PostgresLiveRiskScope, seed:Awaited<ReturnType<typeof preparationFixture>>,
   prep:PostgresLivePreparation, settlement:PostgresLiveSettlement, observer:HyperliquidLiveAccountObserver, resolver:HyperliquidLiveMarketResolver, provider:HyperliquidLiveRiskProvider;
 type Prepared=Awaited<ReturnType<PostgresLivePreparation['prepare']>>;

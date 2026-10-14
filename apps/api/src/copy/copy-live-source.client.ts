@@ -1,8 +1,10 @@
 import { z } from 'zod';
 import { parseLiveSourceFill, liveSourceDigest, reconcileLiveSourceFills, type LiveSourceFillEvidence, type LiveSourceNetwork } from './live/copy-live-source-evidence.js';
 import { address, LiveBoundaryError } from './live/wallet-authorization.js';
-import { boundedLiveRead, RESERVE_BOUND_MS } from './live/live-market-resolver.js';
+import { boundedLiveRead } from './live/live-market-resolver.js';
 import { settleListAnswer } from '../hyperliquid/hyperliquid-global-transport.js';
+import { RESERVE_BOUND_MS } from '../config/constants/timings.js';
+import { SOURCE_READ_WORST_WEIGHT } from '../config/constants/weights.js';
 export interface LiveSourceReadRequest { leaderAddress: string; from: number; to: number; maxRequests: number; maxDepth?: number; maxFills?: number; }
 export interface LiveSourceWindow { kind: 'fills' | 'twap'; from: number; to: number; depth: number; }
 export interface LiveSourceWindowObservation extends LiveSourceWindow { observedAt: number; completedAt: number; count: number; responseDigest: string; saturated: boolean;
@@ -28,9 +30,6 @@ const requestSchema = z.object({ leaderAddress: z.string(), from: integer, to: i
   maxFills: z.number().int().min(1).max(10000).default(10000),
 }).strict();
 const DEADLINE = 5000, ROW_CAP = 2000, POSSIBLE_CAP = 500, BODY_CAP = 2 * 1024 * 1024;
-/** A list read's worst case (base 20 + 1 per 20 of at most 2,000 rows),
- * acquired up front; the answer's real weight is 20 + 1 per 20 rows. */
-export const SOURCE_READ_WORST_WEIGHT = 120;
 const listWeight = (rows: number) => Math.min(SOURCE_READ_WORST_WEIGHT, 20 + Math.ceil(rows / 20));
 function fail(code: string): never { throw new LiveBoundaryError(code); }
 async function json(response: Response, remaining: () => number, signal: AbortSignal) {

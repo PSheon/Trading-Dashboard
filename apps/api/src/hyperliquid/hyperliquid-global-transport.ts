@@ -1,13 +1,14 @@
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {setTimeout as wait} from 'node:timers/promises';
-import {HyperliquidRestCapacityError,REST_CHARGE_LIFETIME_MS,sharedRestRetryAfterMs} from './hyperliquid-capacity-error.js';
-import {HYPERLIQUID_LIVE_DEMAND_HOLD_MS,HYPERLIQUID_MAX_LIVE_DEMAND,type HyperliquidMeterComposition,type HyperliquidRestLane} from './hyperliquid-global-quota.js';
+import { HyperliquidRestCapacityError, sharedRestRetryAfterMs } from './hyperliquid-capacity-error.js';
+import { HYPERLIQUID_MAX_LIVE_DEMAND, type HyperliquidMeterComposition, type HyperliquidRestLane } from './hyperliquid-global-quota.js';
 import {PostgresHyperliquidQuota,newLiveLaneToken,runInBackgroundLane,runInLiveLane,runInSetupLane,setupLaneToken,type BoundHyperliquidQuota,type HyperliquidMeterSnapshot,type HyperliquidSendPermit} from './postgres-hyperliquid-quota.js';
 import {assertOriginalLiveRiskSession,type LiveRiskDatabaseSession} from '../copy/live/postgres-live-risk-scope.js';
 import {LiveBoundaryError} from '../copy/live/wallet-authorization.js';
 import {infoListSurcharge,infoPrepaidWeight,infoWeight} from './info-weights.js';
 import {liveSpan,timedLiveSpan} from '../copy/live/live-execution-diagnostics.js';
 import {foreignUsage as processForeignUsage,isWsRateLimit,restWindowUse,wsWindowUse,type ForeignUsageCounter} from './foreign-usage.js';
+import { ANALYTICS_CAPACITY_WAIT_MS, ESSENTIAL_CAPACITY_WAIT_MS, LIVE_DEMAND_RENEW_MS, PAGE_CAPACITY_WAIT_MS, REST_CHARGE_LIFETIME_MS } from '../config/constants/hyperliquid.js';
 const fail=(code:string):never=>{throw new LiveBoundaryError(code);};
 // The requests this process may send (any other is refused, never guessed);
 // their weights come from the one table (info-weights.ts).
@@ -15,26 +16,6 @@ const cheap=new Set(['l2Book','allMids','clearinghouseState','orderStatus','spot
 const ordinary=new Set(['userRole','meta','perpDexs','metaAndAssetCtxs','spotMeta','spotMetaAndAssetCtxs','userAbstraction','userDexAbstraction','delegatorSummary','portfolio','referral','frontendOpenOrders','openOrders','allPerpMetas','activeAssetData','userFees','extraAgents','maxBuilderFee']);
 // Prepay the provider's bounded list cap. The global meter never refunds an
 // unused surcharge; local RequestBudgeter adjustments remain scheduling only.
-/** A live order still waiting for room records its demand again this
- * often, well inside its HYPERLIQUID_LIVE_DEMAND_HOLD_MS. */
-export const LIVE_DEMAND_RENEW_MS=HYPERLIQUID_LIVE_DEMAND_HOLD_MS-5_000;
-/** Longest an unlabelled request waits in all for shared REST capacity: within
- * a trader page's 12 s deadline, with room for the call itself. */
-export const PAGE_CAPACITY_WAIT_MS=6_000;
-/** Longest a snapshot or sweep of watched leaders waits in all for room in
- * the background lane (within the info client's 20 s request timeout). */
-export const ESSENTIAL_CAPACITY_WAIT_MS=15_000;
-/** Longest a trade-analytics read (a background job a page started, never
- * the page's own request) waits in all for room in the background lane: two
- * charge lifetimes, so it outlasts the full page its own computation sent
- * just before it and one more list of another process's background job.
- * On Stage (lane 400, ~250 of the window held by live and page reads) the
- * lane holds one full list (120) at a time: at 40 s a cold dense trader's
- * second page could never wait out the first one's 65 s, the computation
- * failed, and every retry of the page answered 503 busy (2026-10-07). The
- * info client sends this process's analytics reads one at a time, so they
- * don't race each other for that room. */
-export const ANALYTICS_CAPACITY_WAIT_MS=2*REST_CHARGE_LIFETIME_MS;
 const lists=new Set(['recentTrades','userFillsByTime','userFills','userTwapSliceFills','userTwapSliceFillsByTime','userFunding','userNonFundingLedgerUpdates']);
 const sendable=new Set([...cheap,...ordinary,...lists,'candleSnapshot']);
 /** A list's prepaid weight (20 + its largest answer's 100). */

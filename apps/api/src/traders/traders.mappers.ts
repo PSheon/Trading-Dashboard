@@ -15,6 +15,7 @@ import type {
   HlPortfolioResponse,
   HlUserFill,
 } from "../hyperliquid/types.js";
+import { DAY_MS } from '../config/constants/time.js';
 
 type TraderStatsRow = typeof traderStats.$inferSelect;
 type Point = [number, number];
@@ -216,7 +217,6 @@ export interface CapitalSeries {
   pnl: Point[];
 }
 
-const DAY_MS = 24 * 3_600_000;
 
 /** Below this much capital a return means nothing (CopyDog's calendar
  * rule, `apps/web/src/lib/pnl-calendar.ts`). */

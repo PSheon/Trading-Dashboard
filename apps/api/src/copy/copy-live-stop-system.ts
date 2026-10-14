@@ -9,6 +9,7 @@ import type { DrizzleDb } from '../db/drizzle.provider.js';
 import { UnitOfWork, type DbExecutor, type DbTransaction } from '../db/unit-of-work.js';
 import { CopyLiveStopRepository } from './copy-live-stop.repository.js';
 import { deploymentNetwork, liveExecutionEnabled } from './live-deployment.js';
+import { CLOSE_ALL_RESUME_AFTER_MS } from '../config/constants/timings.js';
 
 /** A running actual copy that a system stop can end: its account, owner and
  * the account's newest activated generation that has not stopped. */
@@ -30,9 +31,6 @@ const KEY_PREFIX: Record<SystemStopReason, string> = { admin_close_all: 'admin-c
 /** Unhandled reasons that leave nothing running: no generation ever traded, or no worker trades on this deployment. */
 const NOTHING_RUNNING = new Set(['no_activated_generation', 'live_execution_disabled']);
 const PAGE = 500;
-/** A close-all the api did not finish (it crashed after the control commit)
- * is resumed by the worker once it is this old. */
-export const CLOSE_ALL_RESUME_AFTER_MS = 60_000;
 
 /**
  * Stops the system starts for actual copies of this deployment's network:

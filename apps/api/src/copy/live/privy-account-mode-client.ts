@@ -5,21 +5,20 @@ import { HYPERLIQUID_NETWORKS, WALLET_NETWORKS, splitSignature, type Hyperliquid
 import { z } from 'zod';
 import { Dec } from '../../common/decimal/dec.js';
 import { readInfoJson } from '../../hyperliquid/response-validation.js';
-import { infoPrepaidWeights } from '../../hyperliquid/info-weights.js';
 import { userAbstractionSchema, type UserAbstraction } from '../../hyperliquid/info-schemas.js';
 import { boundedLiveRead } from './live-market-resolver.js';
 import {HyperliquidGlobalTransport} from '../../hyperliquid/hyperliquid-global-transport.js';
 import { LiveBoundaryError } from './wallet-authorization.js';
-import { LIVE_RESERVE_WAIT_MS, sharedCapacityWait, type LiveBudget, type LiveReserveOptions, type LiveBudgetReservation } from '../../hyperliquid/hyperliquid-budget-wait.js';
+import { sharedCapacityWait, type LiveBudget, type LiveReserveOptions, type LiveBudgetReservation } from '../../hyperliquid/hyperliquid-budget-wait.js';
+import { LIVE_RESERVE_WAIT_MS } from '../../config/constants/hyperliquid.js';
+import { ACCOUNT_MODE_OBSERVE_WEIGHT } from '../../config/constants/weights.js';
+import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
 
 export interface AccountModeIntent {
   readonly operationId: string; readonly accountId: string; readonly strategyId: number;
   readonly network: HyperliquidNetwork; readonly accountAddress: string; readonly nonce: number; readonly consentExpiresAt: number;
 }
 export interface AccountModeOwnedMaster { readonly walletId: string; readonly address: string; readonly ownerQuorumId: string }
-/** Provider weight of one observation: userRole 60, userAbstraction 20,
- * userDexAbstraction 20, spotClearinghouseState 2. */
-export const ACCOUNT_MODE_OBSERVE_WEIGHT = infoPrepaidWeights((['userRole', 'userAbstraction', 'userDexAbstraction', 'spotClearinghouseState'] as const).map(type => ({ type })));
 export interface AccountModeObserveOptions {
   readonly consume?: (weight: number) => void;
   /** The caller already took the weight from the budget (a preflight). */
@@ -67,7 +66,7 @@ function live(intent: AccountModeIntent, now: number): void {
 }
 function fresh(started: number, now: number): void {
   validTime(now);
-  if (now < started || now - started > 5000) fail('account_mode_evidence_stale');
+  if (now < started || now - started > LIVE_EVIDENCE_MAX_AGE_MS) fail('account_mode_evidence_stale');
 }
 function validSignature(signature: string): void {
   if (typeof signature !== 'string' || !/^0x[0-9a-fA-F]{128}(?:00|01|1b|1c)$/i.test(signature)) fail('account_mode_invalid_signature');

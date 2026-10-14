@@ -3,7 +3,8 @@ import { fileURLToPath } from 'node:url';
 import { getTableConfig, PgDialect } from 'drizzle-orm/pg-core';
 import { copyLiveIntentProvenance } from '@trading-dashboard/shared/database';
 import { describe, expect, it } from 'vitest';
-import { liveSourceExecutionAttempt, liveSourceExecutionCloid, MAX_LIVE_LEG_ATTEMPTS } from '../src/copy/live/copy-live-leg-attempt.js';
+import { liveSourceExecutionAttempt, liveSourceExecutionCloid } from '../src/copy/live/copy-live-leg-attempt.js';
+import { MAX_LIVE_LEG_ATTEMPTS } from '../src/config/constants/limits.js';
 
 /** The database's bound on copy_live_intent_provenance.attempt (0082) is MAX_LIVE_LEG_ATTEMPTS. */
 describe('the leg attempt bound', () => {

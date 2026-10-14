@@ -8,7 +8,7 @@ import { AppConfig } from '../src/config/app-config.js';
 import { CopyControlService } from '../src/copy/copy-control.service.js';
 import { CopyLiveMandateRepository } from '../src/copy/copy-live-mandate.repository.js';
 import { CopyLiveStopRepository } from '../src/copy/copy-live-stop.repository.js';
-import { CLOSE_ALL_RESUME_AFTER_MS, CopyLiveSystemStops } from '../src/copy/copy-live-stop-system.js';
+import { CopyLiveSystemStops } from '../src/copy/copy-live-stop-system.js';
 import { CopyOrderPlanner } from '../src/copy/copy-planner.service.js';
 import { CopyRiskPolicyService } from '../src/copy/copy-risk-policy.service.js';
 import { CopyRepository } from '../src/copy/copy.repository.js';
@@ -19,6 +19,7 @@ import { testConfig } from './config-test-utils.js';
 import { preparationFixture } from './copy-live-preparation-test-utils.js';
 import { now } from './copy-live-risk-test-utils.js';
 import { closeTestDb, getTestDb, type TestDb } from './db-test-utils.js';
+import { CLOSE_ALL_RESUME_AFTER_MS } from '../src/config/constants/timings.js';
 
 // The admin's 全部平倉 (close_positions at platform or user scope) on a
 // deployment that executes actual copies (the preparation fixture's running

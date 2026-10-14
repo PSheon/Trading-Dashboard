@@ -10,10 +10,12 @@ import type { UnitOfWork,DbTransaction } from '../db/unit-of-work.js';
 import {assertOriginalLiveRiskSession,type LiveRiskDatabaseSession} from '../copy/live/postgres-live-risk-scope.js';
 import {LiveBoundaryError,type LiveNetwork} from '../copy/live/wallet-authorization.js';
 import {HyperliquidRestCapacityError,sharedRestRetryAfterMs} from './hyperliquid-capacity-error.js';
-import {BACKGROUND_REST_ID_PREFIX,PAGE_REST_ID_PREFIX,HYPERLIQUID_MAX_LIVE_DEMAND,HYPERLIQUID_MAX_SETUP_CONNECTS,HYPERLIQUID_MAX_SETTLEMENTS,LIVE_LANE_TOKEN,LIVE_REST_ID_PREFIX,liveDemandTicket,liveStandbyTicket,HYPERLIQUID_STALE_LEASE_RECLAIM_MS,SETUP_DEMAND_ID_PREFIX,SETUP_LANE_TOKEN,SETUP_REST_ID_PREFIX,hyperliquidLaneStatus,hyperliquidMeterComposition,planHyperliquidQuota,setupDemandTicket,quotaSubscription,type HyperliquidMeterComposition,type HyperliquidQuotaPlan,type HyperliquidRestLane,type HyperliquidQuotaLease,type HyperliquidQuotaRequest,type HyperliquidQuotaSubscription} from './hyperliquid-global-quota.js';
+import { BACKGROUND_REST_ID_PREFIX, PAGE_REST_ID_PREFIX, HYPERLIQUID_MAX_LIVE_DEMAND, HYPERLIQUID_MAX_SETTLEMENTS, LIVE_LANE_TOKEN, LIVE_REST_ID_PREFIX, liveDemandTicket, liveStandbyTicket, SETUP_DEMAND_ID_PREFIX, SETUP_LANE_TOKEN, SETUP_REST_ID_PREFIX, hyperliquidLaneStatus, hyperliquidMeterComposition, planHyperliquidQuota, setupDemandTicket, quotaSubscription, type HyperliquidMeterComposition, type HyperliquidQuotaPlan, type HyperliquidRestLane, type HyperliquidQuotaLease, type HyperliquidQuotaRequest, type HyperliquidQuotaSubscription } from './hyperliquid-global-quota.js';
 import {freezeLiveReservation} from '../copy/live/live-risk-reservation.js';
 import {liveSourceDigest} from '../copy/live/copy-live-source-evidence.js';
 import {liveSpan} from '../copy/live/live-execution-diagnostics.js';
+import { HYPERLIQUID_MAX_SETUP_CONNECTS, HYPERLIQUID_STALE_LEASE_RECLAIM_MS } from '../config/constants/hyperliquid.js';
+import { LIVE_EVIDENCE_MAX_AGE_MS } from '../config/constants/timings.js';
 
 export interface HyperliquidQuotaBinding {readonly egressKey:string;readonly ownerId:string;}
 /** PostgresHyperliquidQuota.meterSnapshot (diagnostics). */
@@ -229,7 +231,7 @@ export class PostgresHyperliquidQuota {
             and(eq(leases.egressKey,binding.egressKey),notClosed,sql`${leases.leaseUntil} > to_timestamp(0) + (quota_clock.now - ${HYPERLIQUID_STALE_LEASE_RECLAIM_MS}::bigint) * interval '1 millisecond'`)).limit(11);
         const dbNow=Number(clocked[0]?.now);if(!Number.isSafeInteger(dbNow)||dbNow<=0||rows.length!==1||clocked.some(row=>Number(row.now)!==dbNow))fail('hyperliquid_quota_invalid');
         const localAfterClock=this.now();if(Math.abs(dbNow-localBeforeClock)>1000||Math.abs(dbNow-localAfterClock)>1000)fail('hyperliquid_quota_clock_skew');
-        const remaining=deadline===undefined?0:deadline-localBeforeClock;if(deadline!==undefined&&(remaining<=0||remaining>5000))fail('hyperliquid_quota_expired');
+        const remaining=deadline===undefined?0:deadline-localBeforeClock;if(deadline!==undefined&&(remaining<=0||remaining>LIVE_EVIDENCE_MAX_AGE_MS))fail('hyperliquid_quota_expired');
         const planned=request(dbNow,dbNow+remaining),referenced='leaseId'in planned?planned.leaseId:undefined;
         // A clock row with no lease has every lease column null (the primary key too).
         const stored=clocked.flatMap(row=>row.lease&&row.lease.id!==null?[row.lease]:[]);

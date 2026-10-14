@@ -5,13 +5,14 @@ import request from "supertest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { clientKey } from "../src/common/http/client-key.js";
-import { budgetConsumer, MAX_QUEUED, PAGE_RANK, PAGE_SHARE, PageBusyError, RequestBudgeterService } from "../src/hyperliquid/request-budgeter.service.js";
+import { budgetConsumer, MAX_QUEUED, PAGE_RANK, PageBusyError, RequestBudgeterService } from '../src/hyperliquid/request-budgeter.service.js';
 import { BackgroundJobs } from "../src/runtime/background-jobs.service.js";
 import { withRequestSignal } from "../src/runtime/request-context.js";
 import { requestContext } from "../src/runtime/request-middleware.js";
 import { TradeAnalyticsController, MAX_PENDING_PER_CLIENT } from "../src/traders/trade-analytics.controller.js";
 import { BusyException } from "../src/traders/busy.js";
 import type { TradeAnalyticsService } from "../src/traders/trade-analytics.service.js";
+import { PAGE_SHARE } from '../src/config/constants/hyperliquid.js';
 
 afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); });
 

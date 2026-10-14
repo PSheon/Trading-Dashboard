@@ -5,7 +5,7 @@ import type { UnitOfWork } from '../../db/unit-of-work.js';
 import { UNHELD_REJECTED, type LiveExecutionRecord } from '../live/live-execution.js';
 import type { LiveExecutionHooks, LiveExecutionRequest } from '../live/live-execution-runtime.js';
 import { canonicalLiveSourceLegs, decodeLiveSourceFill, liveSourceDigest } from '../live/copy-live-source-evidence.js';
-import { liveSourceExecutionAttempt, liveSourceExecutionCloid, MAX_LIVE_LEG_ATTEMPTS } from '../live/copy-live-leg-attempt.js';
+import { liveSourceExecutionAttempt, liveSourceExecutionCloid } from '../live/copy-live-leg-attempt.js';
 import { describeUnexpected, errorCode } from '../../runtime/safe-error-text.js';
 import { TERMINAL_STATES, type LiveSettleOutcome, type LiveSettleRequest } from './copy-live-settler.js';
 import { UNSENT_RELEASED, UNSENT_RETRY, type CopyLiveWorkerRepository, type DispatchRow, type LiveMandateWork, type LiveStreamWork } from './copy-live-worker.repository.js';
@@ -15,7 +15,7 @@ import type { WatchedMainnetSource } from './watched-mainnet-source.js';
 import type { FastMainnetSource } from './fast-mainnet-source.js';
 import { minOrderNotional } from '../min-order-notional.js';
 import { Dec } from '../../common/decimal/dec.js';
-import { HyperliquidBudgetWait, SHARED_CAPACITY_RETRY_MS } from '../../hyperliquid/hyperliquid-budget-wait.js';
+import { HyperliquidBudgetWait } from '../../hyperliquid/hyperliquid-budget-wait.js';
 import { classify, liveRetryDelayMs } from '../live/error-class.js';
 import { budgetConsumer } from '../../hyperliquid/request-budgeter.service.js';
 import { LiveReadComparisonError } from '../live/live-shared-reads.js';
@@ -87,9 +87,6 @@ export interface LiveEngineOptions {
    * at most this often. */
   readonly fastPollMs?: number;
 }
-/** While live copies run, the shared meter's standby (one order's need kept
- * free) is renewed this often, well inside HYPERLIQUID_LIVE_STANDBY_HOLD_MS. */
-export const LIVE_STANDBY_RENEW_MS = 10_000;
 export const DEFAULT_ENGINE_OPTIONS: LiveEngineOptions = { testnetSourceIntervalMs: 60_000, sourceLagMs: 1_000, passBudgetMs: 20_000, fastPollMs: 7_500 };
 
 /** A HIP-3 (builder-deployed dex) market: its fee scope cannot be proven
@@ -111,8 +108,6 @@ const isHip3 = (coin: string) => coin.includes(':');
  * nine leases were lost together, local harness 2026-10-12). Anything else: 3 s.
  */
 export function retryDelayMs(error: unknown): number { return liveRetryDelayMs(error); }
-/** Reads of an unsupported account mode before its refusal is final. */
-const ABSTRACTION_ATTEMPT_LIMIT = 3;
 const PERMANENT = new Set(['live_source_price_deviation', 'live_budget_over_capacity', 'below_min_notional', 'live_risk_adoption_unproven', 'live_market_unknown',
   'live_account_unsupported_role', 'live_account_unsupported_abstraction', 'unattempted_expired', 'live_risk_provider_fee_scope_unproven', HIP3_REFUSAL,
   'live_risk_leverage', 'live_risk_leverage_margin', 'live_leverage_update_rejected',
@@ -126,20 +121,14 @@ const PERMANENT_OPEN = new Set(['live_risk_platform_disabled']);
  * or one its owner paused. A pause stops new risk only: the leader's opens
  * are refused (submit), its closes still mirrored. */
 export const mirrorsLeader = (m: LiveMandateWork) => m.activated && (m.strategyStatus === 'active' || m.strategyStatus === 'paused');
-/** A merged order is planned within this long after its legs are merged
- * (evidence reads ~4 s): no leg merged older than the signal age less this. */
-const PLANNING_MARGIN_MS = 15_000;
 /** A refused close whose follower had nothing (left) to close. */
 const FOLLOWER_ALREADY_FLAT = new Set(['no_follower_position', 'position_closed_by_owner', 'copy_stopping']);
-/** A close has no age limit, but one that keeps failing is refused after this
- * many attempts (never an endless retry); a leader then flat closes the rest. */
-export const CLOSE_ATTEMPT_LIMIT = 30;
-/** A merged open the planner finds below the minimum goes back to waiting
- * only while its lead's signal has at least this long left (else refused). */
-const HOLD_MARGIN_MS = 30_000;
 /** Held when its follower notional could be under this much more than the minimum. */
 const HOLD_HEADROOM = '1.1';
 export { describeUnexpected, safeErrorText } from '../../runtime/safe-error-text.js';
+import { LIVE_STANDBY_RENEW_MS, SHARED_CAPACITY_RETRY_MS } from '../../config/constants/hyperliquid.js';
+import { ABSTRACTION_ATTEMPT_LIMIT, CLOSE_ATTEMPT_LIMIT, MAX_LIVE_LEG_ATTEMPTS } from '../../config/constants/limits.js';
+import { HOLD_MARGIN_MS, PLANNING_MARGIN_MS } from '../../config/constants/timings.js';
 const reasonOf = (error: unknown) => errorCode(error);
 
 /**

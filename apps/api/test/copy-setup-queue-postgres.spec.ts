@@ -18,8 +18,9 @@ import { Testnet, database, setupIntent, worker } from './copy-setup-capacity-te
 import { AppConfig } from '../src/config/app-config.js';
 import { RequestBudgeterService } from '../src/hyperliquid/request-budgeter.service.js';
 import { HyperliquidBudgetWait, reserveLive } from '../src/hyperliquid/hyperliquid-budget-wait.js';
-import { LIVE_HEADROOM_SHARE } from '../src/hyperliquid/wallet-network-hyperliquid.js';
+
 import { DEFAULT_LIVE_SETUP_TIMINGS } from '../src/config/live-timings.js';
+import { LIVE_HEADROOM_SHARE } from '../src/config/constants/hyperliquid.js';
 
 /**
  * The pre-mainnet gate of 2026-10-13 08:18–08:31 UTC (4th run, after
@@ -55,7 +56,7 @@ import { DEFAULT_LIVE_SETUP_TIMINGS } from '../src/config/live-timings.js';
  * Only Hyperliquid and Privy are fakes. The record (per class: held,
  * refused, oldest wait; every claim's decision) is printed for the report.
  */
-const RTT_MS = 8, DEADLINE_MS = Number(process.env.SETUP_QUEUE_DEADLINE_MS ?? 240_000);
+const RTT_MS = 8, LIVE_EVIDENCE_MAX_AGE_MS = Number(process.env.SETUP_QUEUE_DEADLINE_MS ?? 240_000);
 let db: ReturnType<typeof getTestDb>;
 beforeAll(() => { db = getTestDb(); });
 afterAll(async () => { await closeTestDb(); });
@@ -231,7 +232,7 @@ const scenario = (variant: Scenario) => async () => {
       })());
 
       const started = Date.now(), errors: string[] = [];
-      while (Date.now() - started < DEADLINE_MS && rows.rows.setup.stage !== 'running') {
+      while (Date.now() - started < LIVE_EVIDENCE_MAX_AGE_MS && rows.rows.setup.stage !== 'running') {
         await service.tick().catch(error => { errors.push(String(error?.message ?? error)); });
         await wait(1_000);
       }
@@ -273,6 +274,6 @@ const scenario = (variant: Scenario) => async () => {
 };
 
 describe('a copy setup beside the real worker\'s and api\'s consumers on the real Postgres meter (gate 2026-10-13 08:18)', () => {
-  it('reaches running within a bounded time; live is never refused; pages are served within the page hold; 1200 holds', { timeout: DEADLINE_MS + 90_000 }, scenario('gate4'));
-  it('with the worker\'s testnet bucket drained by other live work and the absence proofs\' sockets on the meter (gate 2026-10-13 09:48): every grant runs its attempt through, running within about 3 min', { timeout: DEADLINE_MS + 90_000 }, scenario('gate5'));
+  it('reaches running within a bounded time; live is never refused; pages are served within the page hold; 1200 holds', { timeout: LIVE_EVIDENCE_MAX_AGE_MS + 90_000 }, scenario('gate4'));
+  it('with the worker\'s testnet bucket drained by other live work and the absence proofs\' sockets on the meter (gate 2026-10-13 09:48): every grant runs its attempt through, running within about 3 min', { timeout: LIVE_EVIDENCE_MAX_AGE_MS + 90_000 }, scenario('gate5'));
 });

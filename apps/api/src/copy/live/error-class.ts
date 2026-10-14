@@ -1,7 +1,9 @@
 import { HttpException } from '@nestjs/common';
-import { HyperliquidBudgetWait, SHARED_CAPACITY_RETRY_MS, sharedCapacityWait } from '../../hyperliquid/hyperliquid-budget-wait.js';
+import { HyperliquidBudgetWait, sharedCapacityWait } from '../../hyperliquid/hyperliquid-budget-wait.js';
 import { sharedRestRetryAfterMs } from '../../hyperliquid/hyperliquid-capacity-error.js';
 import { LiveBoundaryError } from './wallet-authorization.js';
+import { SHARED_CAPACITY_RETRY_MS } from '../../config/constants/hyperliquid.js';
+import { LIVE_LEG_RETRY_BASE_MS, LIVE_RISK_BUSY_RETRY_MS, PROVIDER_READ_RETRY_MS, SETUP_RETRY_BACKOFF_BASE_MS, SETUP_RETRY_BACKOFF_MAX_MS, SETUP_RETRY_NEEDS_OWNER_MS, SETUP_RETRY_PENDING_MS, WAIT_FLOOR_MS } from '../../config/constants/timings.js';
 
 /**
  * THE classification of a live step's failure (architecture review
@@ -46,10 +48,6 @@ export class StepFail extends Error {
   constructor(readonly issue: string) { super(issue); this.name = 'StepFail'; }
 }
 
-/** When a busy live-risk scope (another order, stop or settlement of the
- * same account holds its advisory try-lock) is tried again: it is held for
- * one order's evidence and POST at most, a few seconds. */
-export const LIVE_RISK_BUSY_RETRY_MS = 1_000;
 /** Codes whose weight is not available yet: nothing was read or sent. */
 const BUDGET_CODES: ReadonlyMap<string, number | undefined> = new Map([
   // The shared per-IP meter refused the charge: its window and send window.
@@ -191,10 +189,6 @@ export function exhausted(classified: ErrorClassification, attempts: number, lim
   return classified.class === 'transient' && classified.exhausts !== false && attempts >= limit;
 }
 
-/** A failed provider read (PROVIDER_READ_FAILURES, a meter refusal) is
- * tried again after this: it opened a socket or spent weight, so a burst of
- * retries can't use up the 30 new WebSocket connections a minute. */
-export const PROVIDER_READ_RETRY_MS = 10_000;
 
 /**
  * THE retry policy of a live step (a copy leg, a stop or close, a setup
@@ -216,19 +210,16 @@ export interface RetryPolicy {
   readonly needsOwnerMs: number;
   readonly waitDefaultMs: number;
 }
-/** No live step is tried again within a second of a wait, whatever the
- * error's hint: a sub-second retry of a real-money step only spins. */
-export const WAIT_FLOOR_MS = 1_000;
 /** A copy leg's and a stop's policy: 3 s flat, never ended by this count
  * (legs and stops have their own limits: the signal's age, CLOSE_ATTEMPT_LIMIT);
  * a wait without a time is back in a second. */
-export const LIVE_LEG_RETRY_POLICY: RetryPolicy = Object.freeze({ baseMs: 3_000, maxMs: 3_000, attempts: Number.MAX_SAFE_INTEGER, needsOwnerMs: 3_000, waitDefaultMs: WAIT_FLOOR_MS });
+export const LIVE_LEG_RETRY_POLICY: RetryPolicy = Object.freeze({ baseMs: LIVE_LEG_RETRY_BASE_MS, maxMs: LIVE_LEG_RETRY_BASE_MS, attempts: Number.MAX_SAFE_INTEGER, needsOwnerMs: LIVE_LEG_RETRY_BASE_MS, waitDefaultMs: WAIT_FLOOR_MS });
 /** A funding confirmation's and a setup abort's policy: their rows back off
  * by their own failure count whatever the class (every failed pass, the
  * explorer unreachable included, doubles the wait: 3 s to 60 s), and have
  * their own exit points (a credit, a block, the not-flat escalation), so
  * only `backoffMs` of it is used. */
-export const FUNDING_RETRY_POLICY: RetryPolicy = Object.freeze({ baseMs: 3_000, maxMs: 60_000, attempts: Number.MAX_SAFE_INTEGER, needsOwnerMs: 15_000, waitDefaultMs: 3_000 });
+export const FUNDING_RETRY_POLICY: RetryPolicy = Object.freeze({ baseMs: SETUP_RETRY_BACKOFF_BASE_MS, maxMs: SETUP_RETRY_BACKOFF_MAX_MS, attempts: Number.MAX_SAFE_INTEGER, needsOwnerMs: SETUP_RETRY_NEEDS_OWNER_MS, waitDefaultMs: SETUP_RETRY_PENDING_MS });
 
 /** THE back-off of a counted failure: `policy.baseMs` × 2^priorAttempts, at
  * most `policy.maxMs` (the exponent is capped so the product stays finite). */

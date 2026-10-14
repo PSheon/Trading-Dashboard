@@ -1,15 +1,14 @@
 import { agentApprovalTypedData, approveBuilderFeeRequest, approveBuilderFeeTypedData, copyStrategySettingsSchema, liveSetupAgentName, userSetAbstractionTypedData, WALLET_NETWORKS,
   type LiveCopySetupIntent, type LiveCopySetupKind, type WalletNetwork } from '@trading-dashboard/shared/contracts';
 import { UnitOfWork } from '../db/unit-of-work.js';
-import { ATTEMPT_SOCKET_CONNECTS, ATTEMPT_STEP_REST_WEIGHT, ATTEMPT_STEP_WEIGHT, CopyAccountModeService } from './copy-account-mode.service.js';
+import { CopyAccountModeService } from './copy-account-mode.service.js';
 import type { HyperliquidMeterComposition } from '../hyperliquid/hyperliquid-global-quota.js';
-import { ACCOUNT_MODE_OBSERVE_WEIGHT } from './live/privy-account-mode-client.js';
-import { HyperliquidBudgetWait, SHARED_CAPACITY_MIN_RETRY_MS, sharedCapacityWait, type LiveBudget, type LiveBudgetReservation } from '../hyperliquid/hyperliquid-budget-wait.js';
-import { infoWeight } from '../hyperliquid/info-weights.js';
+
+import { HyperliquidBudgetWait, sharedCapacityWait, type LiveBudget, type LiveBudgetReservation } from '../hyperliquid/hyperliquid-budget-wait.js';
 import { LiveBoundaryError } from './live/wallet-authorization.js';
 import { CopyAgentService } from './copy-agent.service.js';
-import { AGENT_OBSERVE_WEIGHT } from './copy-agent-exchange.client.js';
-import { BUILDER_FEE_READ_WEIGHT, CopyFundingExchangeClient } from './copy-funding-exchange.client.js';
+
+import { CopyFundingExchangeClient } from './copy-funding-exchange.client.js';
 import { CopyFundingRepository } from './copy-funding.repository.js';
 import { CopyLiveMandateRepository } from './copy-live-mandate.repository.js';
 import { builderOutcome, CopyLiveReturnRepository } from './copy-live-return.repository.js';
@@ -18,6 +17,9 @@ import { CopyWalletRepository } from './copy-wallet.repository.js';
 import type { MasterTypedData } from './live/master-action.js';
 import { safeErrorText } from '../runtime/safe-error-text.js';
 import { digest, Fail, SetupPart, Wait, type SetupContext, type SetupSigner } from './copy-live-setup-shared.js';
+import { SETUP_CLAIM_RENEW_MS, SHARED_CAPACITY_MIN_RETRY_MS } from '../config/constants/hyperliquid.js';
+import { SETUP_CLAIM_LOG_EVERY_MS } from '../config/constants/timings.js';
+import { ACCOUNT_MODE_OBSERVE_WEIGHT, ACCOUNT_MODE_STEP_WEIGHT, AGENT_STEP_WEIGHT, ATTEMPT_SOCKET_CONNECTS, ATTEMPT_STEP_WEIGHT, BUILDER_FEE_READ_WEIGHT, BUILDER_STEP_WEIGHT } from '../config/constants/weights.js';
 
 /**
  * The steps of a confirmed live copy setup (credit → account mode → agent →
@@ -48,24 +50,6 @@ export interface SetupRestCapacity {
  * clients reserve it): a step whose weight its own client does not reserve
  * (the builder fee's read) takes it here before its shared claim. */
 export const SETUP_LOCAL_BUDGET = Symbol('SETUP_LOCAL_BUDGET');
-/** Longest a setup waits on the shared meter before it claims again: its
- * demand (the marker background yields to) is renewed well inside the
- * marker's 65 s, so background never gets the window back between two
- * claims. On 2026-10-13 a setup came back 65 s after its claim, its marker
- * had just expired, background had refilled the window, and the next claim
- * said ~63.5 s again: ten minutes at `funded`. */
-export const SETUP_CLAIM_RENEW_MS = 20_000;
-/** A setup's claim waits are logged with the meter's composition at most this often. */
-export const SETUP_CLAIM_LOG_EVERY_MS = 5_000;
-/** A throttled step's charges on the shared meter, claimed before it runs:
- * the account-mode attempt (its two preflights, the POST and the
- * observation after it, ATTEMPT_STEP_REST_WEIGHT; an operation in flight is
- * only observed, ACCOUNT_MODE_OBSERVE_WEIGHT), the agent's observation and
- * approval, the builder fee's read and approval (0: no builder fee, nothing
- * sent). */
-const ACCOUNT_MODE_STEP_WEIGHT = ATTEMPT_STEP_REST_WEIGHT;
-const AGENT_STEP_WEIGHT = AGENT_OBSERVE_WEIGHT + 1;
-const BUILDER_STEP_WEIGHT = infoWeight({ type: 'maxBuilderFee' }) + 1;
 /** A setup's key in its bucket's queue (LiveReserveOptions.holdKey): one per setup, every step. */
 const setupHoldKey = (row: Pick<SetupRow, 'id'>) => `setup:${row.id}`;
 /** The UserSetAbstraction the copy account signs for this mode nonce. */

@@ -7,8 +7,10 @@ import { PostgresHyperliquidQuota } from "../src/hyperliquid/postgres-hyperliqui
 import { RequestBudgeterService } from "../src/hyperliquid/request-budgeter.service.js";
 import { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
 import { walletNetworkHyperliquid } from "../src/copy/copy.module.js";
-import { ATTEMPT_WEIGHT } from "../src/copy/copy-account-mode.service.js";
-import { LIVE_RESERVE_WAIT_MS, liveBudget } from "../src/hyperliquid/hyperliquid-budget-wait.js";
+
+import { liveBudget } from '../src/hyperliquid/hyperliquid-budget-wait.js';
+import { LIVE_RESERVE_WAIT_MS } from '../src/config/constants/hyperliquid.js';
+import { ATTEMPT_WEIGHT } from '../src/config/constants/weights.js';
 
 const base = { DATABASE_URL: "postgres://u:p@localhost:5432/db", NODE_ENV: "test", HYPERLIQUID_EGRESS_KEY: "egress" };
 const config = (env: Record<string, string>) => new AppConfig(validateEnvironment({ ...base, ...env }));

@@ -31,7 +31,7 @@ import { Testnet, database, setupIntent, worker } from './copy-setup-capacity-te
  * the next 64 s, as contention.mjs leaves it after its first minute.
  * Only Hyperliquid and Privy are fakes.
  */
-const RTT_MS = 8, DEADLINE_MS = 170_000;
+const RTT_MS = 8, LIVE_EVIDENCE_MAX_AGE_MS = 170_000;
 let db: ReturnType<typeof getTestDb>;
 beforeAll(() => { db = getTestDb(); });
 afterAll(async () => { await closeTestDb(); });
@@ -50,7 +50,7 @@ function breakdown(events: readonly { id: string; kind: string; units: number; e
 }
 
 describe('a copy setup beside contention.mjs on the real Postgres meter (gate 2026-10-13 06:51)', () => {
-  it('reaches running within a bounded time; background is refused first; the window never passes 1200', { timeout: DEADLINE_MS + 60_000 }, async () => {
+  it('reaches running within a bounded time; background is refused first; the window never passes 1200', { timeout: LIVE_EVIDENCE_MAX_AGE_MS + 60_000 }, async () => {
     const restore = installDbRtt(pg.Client, RTT_MS);
     const egressKey = `setup-contention-${randomUUID()}`, pool = new pg.Pool({ connectionString: process.env.TEST_DATABASE_URL, max: 24 });
     const uow = () => new UnitOfWork(drizzle(pool, { schema }));
@@ -121,7 +121,7 @@ describe('a copy setup beside contention.mjs on the real Postgres meter (gate 20
       const sampler = (async () => { while (!stop.signal.aborted) { const row = await readRow(); peak = Math.max(peak, breakdown(row?.events ?? [], Date.now()).total); await wait(500); } })();
 
       const started = Date.now(), errors: string[] = [];
-      while (Date.now() - started < DEADLINE_MS && rows.rows.setup.stage !== 'running') {
+      while (Date.now() - started < LIVE_EVIDENCE_MAX_AGE_MS && rows.rows.setup.stage !== 'running') {
         await service.tick().catch(error => { errors.push(String(error?.message ?? error)); });
         await wait(1_000);
       }

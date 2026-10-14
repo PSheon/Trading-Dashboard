@@ -5,9 +5,8 @@ import { copyAgentSetups, copyExecutionAccounts, copyLiveSetups, copyExecutionWa
 import { CopyAgentRepository } from "../src/copy/copy-agent.repository.js";
 import { LiveBoundaryError } from "../src/copy/live/wallet-authorization.js";
 import { ConflictException, Logger } from "@nestjs/common";
-import { AGENT_APPROVED_UNRECORDED_ALERT_MS, CopyAgentService } from "../src/copy/copy-agent.service.js";
-import { FUNDING_NONCE_EXPIRY_MS } from "../src/copy/copy-funding-scan.js";
-import { PRIVY_IDENTITY_MAX_AGE_MS } from "../src/copy/live/privy-identity-freshness.js";
+import { CopyAgentService } from '../src/copy/copy-agent.service.js';
+
 import { CopyWalletRepository } from "../src/copy/copy-wallet.repository.js";
 import { CopyWalletService } from "../src/copy/copy-wallet.service.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
@@ -16,6 +15,8 @@ import type { UserAgentProvisioner } from "../src/copy/live/privy-agent-provisio
 import type { AgentApprovalClient } from "../src/copy/copy-agent-exchange.client.js";
 import { testConfig } from "./config-test-utils.js";
 import { closeTestDb, getTestDb, insertUser, truncateAll, type TestDb } from "./db-test-utils.js";
+import { AGENT_APPROVED_UNRECORDED_ALERT_MS } from '../src/config/constants/alerts.js';
+import { FUNDING_NONCE_EXPIRY_MS, PRIVY_IDENTITY_MAX_AGE_MS } from '../src/config/constants/timings.js';
 
 const owner = privateKeyToAccount(`0x${"01".repeat(32)}`);
 const master = privateKeyToAccount(`0x${"02".repeat(32)}`);

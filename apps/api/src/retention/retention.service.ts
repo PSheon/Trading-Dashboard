@@ -9,12 +9,12 @@ import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { RetentionRepository, type RetentionOutcome } from "./retention.repository.js";
+import { DAY_MS } from "../config/constants/time.js";
 
 /** Off-peak: 18:00–22:00 UTC is 02:00–06:00 in Taipei, where most users are. */
 export const RETENTION_WINDOW_UTC = { fromHour: 18, toHour: 22 } as const;
 /** A finished run is not repeated before this (one run a day). */
 export const RETENTION_MIN_INTERVAL_MS = 20 * 3_600_000;
-const DAY_MS = 86_400_000;
 /** A closed Hyperliquid socket lease (and its cleanup evidence) is kept
  * this long after `closed_at`. Nothing reads a closed lease: the meter
  * counts nonclosed ones only, and a request naming a closed or missing

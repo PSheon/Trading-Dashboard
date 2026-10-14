@@ -6,6 +6,8 @@ import { readInfoJson } from '../../hyperliquid/response-validation.js';
 import { parseFollowerFill, parseFollowerFunding, type ParsedFollowerFill, type ParsedFollowerFunding } from './actual-fill-accounting.js';
 import { boundedLiveRead } from './live-market-resolver.js';
 import { address, LiveBoundaryError } from './wallet-authorization.js';
+import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
+import { GENERAL_TIME_RANGE_CAP } from '../../config/constants/hyperliquid.js';
 
 export type FollowerReceiptKind = 'fills' | 'funding';
 export interface FollowerReceiptWindow {
@@ -41,12 +43,8 @@ const windowSchema = z.object({ kind: z.enum(['fills', 'funding']), from: millis
 const inputSchema = z.object({ accountAddress: z.string(), from: millisecond, to: millisecond,
   maxRequests: z.number().int().min(1).max(64), maxDepth: z.number().int().min(0).max(53).default(48),
   maxReceipts: z.number().int().min(1).max(10000).default(10000), resumeWindows: z.array(windowSchema).min(1).max(256).optional() });
-// Time-range docs also describe 500 elements/distinct blocks. Without an
-// authoritative block count, >=500 rows is conservatively possibly capped.
-const GENERAL_TIME_RANGE_CAP = 500;
 const MAX_RESPONSE_ROWS = 2000;
 export const RESPONSE_WEIGHT = 20 + MAX_RESPONSE_ROWS / 20;
-const DEADLINE_MS = 5000;
 function fail(code: string): never { throw new LiveBoundaryError(code); }
 function frozen<T>(value: T): T {
   if (value && typeof value === 'object') { for (const child of Object.values(value)) frozen(child); Object.freeze(value); }
@@ -133,7 +131,7 @@ export class HyperliquidFollowerReceiptReader {
     let requestsUsed = 0;
     const remaining = () => {
       if (!this.fresh(started)) fail('follower_reader_evidence_expired');
-      return Math.max(1, DEADLINE_MS - (this.now() - started));
+      return Math.max(1, LIVE_EVIDENCE_MAX_AGE_MS - (this.now() - started));
     };
     const unresolvedRest = (window: FollowerReceiptWindow, reason: FollowerWindowReason) => {
       for (const next of [window, ...queue]) unresolvedWindows.push({ ...next, reason });
@@ -222,6 +220,6 @@ export class HyperliquidFollowerReceiptReader {
   }
   private fresh(at: number): boolean {
     const now = this.now();
-    return Number.isSafeInteger(now) && now >= at && now - at <= DEADLINE_MS;
+    return Number.isSafeInteger(now) && now >= at && now - at <= LIVE_EVIDENCE_MAX_AGE_MS;
   }
 }

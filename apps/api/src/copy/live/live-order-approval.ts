@@ -1,8 +1,6 @@
 import { LiveBoundaryError, type ExchangeApprovalEvidence, type ExchangeApprovalVerifier } from './wallet-authorization.js';
+import { APPROVAL_REUSE_MS } from '../../config/constants/timings.js';
 
-/** Private to one execution. SQL grant reads and actual-POST freshness checks
- * still run every time; reuse never changes the exchange observation clock. */
-export const APPROVAL_REUSE_MS = 5000;
 export function orderApproval(verifier: ExchangeApprovalVerifier, now: () => number): ExchangeApprovalVerifier {
   let last: { key: string; evidence: Promise<ExchangeApprovalEvidence> } | undefined;
   return { verify: async grant => {

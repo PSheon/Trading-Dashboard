@@ -11,6 +11,7 @@ import { address } from './wallet-authorization.js';
 import { effectiveLeverage } from '../copy-risk.js';
 import { LiveLeverageUpdateRequired } from './live-leverage-update.js';
 import { beginLiveExecutionTiming, withLiveSpanRole, type LiveExecutionTimingHook, type LiveTimingStage } from './live-execution-diagnostics.js';
+import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
 
 /** Shared provider reads for an epoch (on the readers' network): the budget the epoch pays
  * its reads from, the info fetch, and the batch transport for each wave. */
@@ -75,7 +76,7 @@ export class LiveProviderReadEpoch {
   }
   private fresh(at: number): void {
     const now = this.now();
-    riskSourceRequire(Number.isSafeInteger(at) && at > 0 && Number.isSafeInteger(now) && now >= at && now - at <= 5000, 'live_risk_stale');
+    riskSourceRequire(Number.isSafeInteger(at) && at > 0 && Number.isSafeInteger(now) && now >= at && now - at <= LIVE_EVIDENCE_MAX_AGE_MS, 'live_risk_stale');
   }
   /** This session's shared reads (after `collect`), so the exchange boundary
    * verifies the market against the same metadata within the same clock. */

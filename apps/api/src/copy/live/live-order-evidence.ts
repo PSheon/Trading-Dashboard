@@ -7,6 +7,7 @@ import { buildOrderAction, executionKey, intentFingerprint, type HyperliquidOrde
 import { assertMarketIdentity, marketIdentityKey, type LiveMarketIdentity } from './live-market-resolver.js';
 import { freezeLiveReservation } from './live-risk-reservation.js';
 import { address, LiveBoundaryError } from './wallet-authorization.js';
+import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
 
 export interface LiveOrderEvidenceIdentity {
   readonly network: HyperliquidNetwork; readonly accountAddress: string; readonly key: string; readonly fingerprint: string; readonly nonce: number;
@@ -93,8 +94,8 @@ export function captureLiveOrderIdentity(record: LiveExecutionRecord, market: Li
 export function parseLiveOrderEvidence(input: { record: LiveExecutionRecord; market: LiveMarketIdentity; raw: unknown; checkedAt: number; completedAt: number; now: number }): Readonly<LiveOrderEvidence> {
   try {
     const { record, market, checkedAt, completedAt, now } = structuredClone(input), raw = object(structuredClone(input.raw));
-    check(integer(now) && integer(checkedAt) && checkedAt <= completedAt && completedAt <= now && now - checkedAt <= 5000 &&
-      integer(market.observedAt) && market.observedAt <= now && now - market.observedAt <= 5000);
+    check(integer(now) && integer(checkedAt) && checkedAt <= completedAt && completedAt <= now && now - checkedAt <= LIVE_EVIDENCE_MAX_AGE_MS &&
+      integer(market.observedAt) && market.observedAt <= now && now - market.observedAt <= LIVE_EVIDENCE_MAX_AGE_MS);
     check(Buffer.byteLength(JSON.stringify(raw)) <= 256 * 1024);
     const identity = captureLiveOrderIdentity(record, market);
     const sourceIdentity = (value: Record<string, unknown>) => check((value.user === undefined || typeof value.user === 'string' && address(value.user) === identity.accountAddress) &&

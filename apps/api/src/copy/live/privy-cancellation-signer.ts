@@ -18,6 +18,7 @@ import {
   type PreparedTrackedCancellation,
   type TrackedCancellationAuthority,
 } from './live-tracked-cancellation.js';
+import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
 
 const domain = {
   name: 'Exchange',
@@ -147,7 +148,7 @@ export class PrivyTrackedCancellationSigner {
                 assertCancellationPermit(permit, operation, 'sign', this.now());
                 if (
                   this.now() < walletCheckedAt ||
-                  this.now() - walletCheckedAt > 5000
+                  this.now() - walletCheckedAt > LIVE_EVIDENCE_MAX_AGE_MS
                 )
                   throw new LiveBoundaryError(
                     'cancel_privy_wallet_identity_stale',

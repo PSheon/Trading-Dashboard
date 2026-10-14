@@ -11,10 +11,11 @@ import type { RequestBudgeterService } from '../src/hyperliquid/request-budgeter
 import { CopyFundingRepository } from '../src/copy/copy-funding.repository.js';
 import { CopyLiveReturnRepository } from '../src/copy/copy-live-return.repository.js';
 import { CopyLiveReturnService } from '../src/copy/copy-live-return.service.js';
-import { FUNDING_NONCE_EXPIRY_MS } from '../src/copy/copy-funding-scan.js';
+
 import { allocateSignerNonce } from '../src/copy/signer-nonce.js';
 import { preparationFixture } from './copy-live-preparation-test-utils.js';
 import { closeTestDb, getTestDb, type TestDb } from './db-test-utils.js';
+import { FUNDING_NONCE_EXPIRY_MS } from '../src/config/constants/timings.js';
 
 // Real SQL; the exchange and the worker's Privy signer are doubles. Every
 // return is signed by the worker under the owner's policy (one signing model).

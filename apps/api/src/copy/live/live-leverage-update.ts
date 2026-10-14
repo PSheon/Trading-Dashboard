@@ -20,6 +20,7 @@ import { safeErrorText } from '../../runtime/safe-error-text.js';
 import { Dec, USD_DP } from '../../common/decimal/dec.js';
 import { ceilDecimalProduct } from './live-risk-rounding.js';
 import type { LiveAccountSnapshot } from './live-account-observer.js';
+import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
 
 /**
  * The copy account's leverage on the order's coin is above the copy's cap
@@ -191,7 +192,7 @@ export class LiveLeverageUpdater {
       const guard = () => {
         assertVerifiedAuthorizationFresh(verified, request, this.now());
         const now = this.now();
-        if (now < walletCheckedAt || now - walletCheckedAt > 5000) throw new LiveBoundaryError('privy_wallet_identity_stale');
+        if (now < walletCheckedAt || now - walletCheckedAt > LIVE_EVIDENCE_MAX_AGE_MS) throw new LiveBoundaryError('privy_wallet_identity_stale');
         if (expiresAfter <= now) throw new LiveBoundaryError('live_leverage_expired');
       };
       guard();

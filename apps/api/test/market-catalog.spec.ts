@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
-import { MARKET_CATALOG_RETRY_MS, MARKET_CATALOG_TTL_MS, MarketCatalogService } from "../src/hyperliquid/market-catalog.service.js";
+import { MarketCatalogService } from '../src/hyperliquid/market-catalog.service.js';
 import { withRequestSignal } from "../src/runtime/request-context.js";
+import { MARKET_CATALOG_TTL_MS } from '../src/config/constants/cache-ttls.js';
+import { MARKET_CATALOG_RETRY_MS } from '../src/config/constants/hyperliquid.js';
 
 const universe = (names: string[], delisted: string[] = []) => ({ universe: names.map((name) => ({ name, szDecimals: 2, maxLeverage: 10, ...(delisted.includes(name) ? { isDelisted: true } : {}) })) });
 
@@ -84,7 +86,6 @@ describe("MarketCatalogService", () => {
     expect(seen).toBeUndefined();
   });
 });
-
 
 describe("trending markets", () => {
   it("ranks actual 24h volume across dexes and caches the result", async () => {

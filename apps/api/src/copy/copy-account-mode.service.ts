@@ -7,14 +7,16 @@ import { UnitOfWork } from '../db/unit-of-work.js';
 import { currentRequestSignal } from '../runtime/request-context.js';
 import { CopyAccountModeRepository, accountModeDigest, type AccountModeRow } from './copy-account-mode.repository.js';
 import { USER_WALLET_PROVISIONER, type UserWalletProvisioner } from './live/privy-wallet-provisioner.js';
-import { ACCOUNT_MODE_OBSERVE_WEIGHT, accountModeTypedData, type AccountModeObservation, type AccountModeObserveOptions, type AccountModeOwnedMaster } from './live/privy-account-mode-client.js';
-import { ACCOUNT_MODE_ABSENCE_REST_WEIGHT, ACCOUNT_MODE_ABSENCE_WEIGHT } from './copy-account-mode-evidence.js';
+import { accountModeTypedData, type AccountModeObservation, type AccountModeObserveOptions, type AccountModeOwnedMaster } from './live/privy-account-mode-client.js';
+
 import { HyperliquidBudgetWait, type LiveReserveOptions, type LiveBudgetReservation } from '../hyperliquid/hyperliquid-budget-wait.js';
 import { LiveBoundaryError } from './live/wallet-authorization.js';
 import { safeErrorText } from '../runtime/safe-error-text.js';
 import { deploymentNetwork } from './live-deployment.js';
 import { liveReadCache } from './live/live-read-cache.js';
 import { IdentitySpans, privyIdentityFresh } from './live/privy-identity-freshness.js';
+import { IN_WINDOW_METER_WAIT_MS, LIVE_EVIDENCE_MAX_AGE_MS, SETUP_NONCE_MIN_REMAINING_MS } from '../config/constants/timings.js';
+import { ACCOUNT_MODE_OBSERVE_WEIGHT, ATTEMPT_WEIGHT, PREFLIGHT_WEIGHT } from '../config/constants/weights.js';
 
 export const ACCOUNT_MODE_CLIENT = Symbol('ACCOUNT_MODE_CLIENT');
 export const ACCOUNT_MODE_ABSENCE_READER = Symbol('ACCOUNT_MODE_ABSENCE_READER');
@@ -74,7 +76,7 @@ function readIntent(row: AccountModeRow): AccountModeIntent {
     network: row.network, accountAddress: row.accountAddress, nonce, consentExpiresAt: nonce + 300000 });
 }
 function fresh(timestamp: number, now = Date.now()) {
-  if (!Number.isSafeInteger(now) || now <= 0 || !Number.isSafeInteger(timestamp) || timestamp <= 0 || timestamp > now || now - timestamp > 5000) throw new ConflictException('account_mode_evidence_expired');
+  if (!Number.isSafeInteger(now) || now <= 0 || !Number.isSafeInteger(timestamp) || timestamp <= 0 || timestamp > now || now - timestamp > LIVE_EVIDENCE_MAX_AGE_MS) throw new ConflictException('account_mode_evidence_expired');
 }
 /** The Privy identity proof's own bound (PRIVY_IDENTITY_MAX_AGE_MS). */
 function identityFresh(checkedAt: number, now = Date.now()) {
@@ -89,49 +91,6 @@ function completionGuard(value: AccountModeIntent, proof: { assertFresh(): void;
     const now = Date.now(); liveConsent(value, now); proof.assertCompletion(now);
   };
 }
-/** One preflight's weight: an observation, an absence proof, an observation. */
-export const PREFLIGHT_WEIGHT = 2 * ACCOUNT_MODE_OBSERVE_WEIGHT + ACCOUNT_MODE_ABSENCE_WEIGHT;
-/** One attempt's weight: the preflight before signing, the one before the
- * POST, and the POST (the reconcile after it pays for itself). */
-export const ATTEMPT_WEIGHT = 2 * PREFLIGHT_WEIGHT + 1;
-/** One preflight's charges on the shared per-IP REST meter: two mode
- * observations (ACCOUNT_MODE_OBSERVE_WEIGHT, 102 each) and an absence
- * proof's REST reads (ACCOUNT_MODE_ABSENCE_REST_WEIGHT, 62): 266. */
-export const PREFLIGHT_REST_WEIGHT = 2 * ACCOUNT_MODE_OBSERVE_WEIGHT + ACCOUNT_MODE_ABSENCE_REST_WEIGHT;
-/** An exchange POST's REST weight. */
-export const EXCHANGE_POST_WEIGHT = 1;
-/** An attempt's charges on the shared meter: the preflight before signing,
- * the one after it and the POST (533). */
-export const ATTEMPT_REST_WEIGHT = 2 * PREFLIGHT_REST_WEIGHT + EXCHANGE_POST_WEIGHT;
-/**
- * What a setup's account-mode step really charges the shared meter, claimed
- * before it runs: the attempt and the observation after its POST (635). The
- * 613 claimed before was the local bucket's figure (it counts the absence
- * proofs' socket reads, 40 each, and not that observation): the step charged
- * 635 under it, its last 22 past its grant.
- *
- * One claim, not one per read or per preflight: the meter is a sliding 65 s
- * window and the step runs in a few seconds, so its parts need the same room
- * in that window whether they are claimed together or one after another; a
- * later part that waited would come after the earlier ones were spent (each
- * preflight's three reads share one 5 s evidence window, the signature is
- * good for this pass only, and a setup step blocks the copy engine's pass).
- * Claimed separately, the observation after the POST cost the setup ~60 s
- * in the meter reproduction.
- */
-export const ATTEMPT_STEP_REST_WEIGHT = ATTEMPT_REST_WEIGHT + ACCOUNT_MODE_OBSERVE_WEIGHT;
-/** What a setup's account-mode step takes from this process's bucket before
- * it claims the shared meter: the attempt and the observation after its POST
- * (715), so nothing of the step waits on the local bucket once its first
- * read went out. */
-export const ATTEMPT_STEP_WEIGHT = ATTEMPT_WEIGHT + ACCOUNT_MODE_OBSERVE_WEIGHT;
-/** Socket connects one attempt opens (each preflight's absence proof reads
- * every venue on a socket of its own). */
-export const ATTEMPT_SOCKET_CONNECTS = 2;
-/** Longest wait for room in the shared per-IP meter once a 5 s clock runs. */
-const IN_WINDOW_METER_WAIT_MS = 1_000;
-/** A setup's nonce keeps this much of its five-minute window to sign and send. */
-const SETUP_NONCE_MIN_REMAINING_MS = 60_000;
 function baseline(proof: AccountModeObservation): 'default' | 'supported' {
   if (proof.role !== 'user' || proof.portfolioMarginEnabled || !(proof.abstraction === 'default' && proof.dexAbstraction === null || proof.abstraction === 'disabled' && proof.dexAbstraction === false))
     throw new ConflictException('account_mode_baseline_unsupported');
@@ -183,7 +142,7 @@ export class CopyAccountModeService {
     if (!master || master.id !== row.accountWalletId || master.address !== row.accountAddress || master.externalId !== current.account.externalId || master.ownerQuorumId !== row.accountOwnerQuorumId)
       throw new ConflictException('account_mode_identity_changed');
     await timing.time('db_current_after', () => this.repository.assertCurrent(userId, row, undefined, mutation));
-    if (timing.elapsed() > 5_000) this.logger.warn(`account mode ${row.id} identity proof slow ${JSON.stringify(timing)}`);
+    if (timing.elapsed() > LIVE_EVIDENCE_MAX_AGE_MS) this.logger.warn(`account mode ${row.id} identity proof slow ${JSON.stringify(timing)}`);
     identityFresh(checkedAt); return { ...current, checkedAt };
   }
   private assertObservation(row: AccountModeRow, proof: AccountModeObservation) {

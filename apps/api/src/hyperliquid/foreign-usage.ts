@@ -2,22 +2,10 @@ import { Logger } from '@nestjs/common';
 import type { ForeignUsage } from '@trading-dashboard/shared/contracts';
 
 import type { HyperliquidMeterSnapshot } from './postgres-hyperliquid-quota.js';
-import { HYPERLIQUID_REST_CAP } from './hyperliquid-global-quota.js';
 
-/**
- * `foreign_usage_suspected` (design §8 I-12, I-15): Hyperliquid refused us
- * for its per-IP rate limit (a REST 429, or a WebSocket rate-limit error)
- * while our own shared meter for that egress key held less than
- * FOREIGN_USAGE_SHARE of the window. Our meter counts everything our
- * processes send from that egress, so the rest of the IP's use is someone
- * else's: Railway's egress (the default pool, and the static gateway "may be
- * shared with other customers") carries other tenants' Hyperliquid traffic.
- * It should stay at zero on our own addresses; a non-zero count is the
- * evidence for moving a role to another region.
- */
-export const FOREIGN_USAGE_SHARE = 0.8;
-/** Hyperliquid's WebSocket message limit a minute (the meter's ws_message cap). */
-export const HYPERLIQUID_WS_MESSAGE_CAP = 2000;
+import { ALERT_EVERY_MS } from '../config/constants/alerts.js';
+import { FOREIGN_USAGE_SHARE, HYPERLIQUID_REST_CAP, HYPERLIQUID_WS_MESSAGE_CAP } from '../config/constants/hyperliquid.js';
+
 
 /** What our own sends hold of an egress key's REST window (0..1): every
  * lane's charges; the 1-unit demand and standby markers and the setup
@@ -41,8 +29,6 @@ export function isWsRateLimit(data: unknown): boolean {
 
 /** The longest unmatched WS error text logged. */
 export const WS_ERROR_TEXT_MAX = 200;
-/** The same unmatched WS error text is logged at most once in this long. */
-export const WS_ERROR_UNMATCHED_EVERY_MS = 10 * 60_000;
 /** Distinct texts remembered for that rate limit (the oldest go first). */
 const WS_ERROR_TEXTS_KEPT = 200;
 
@@ -89,11 +75,11 @@ export class ForeignUsageCounter {
   /**
    * A WebSocket `error` that isWsRateLimit did not match: logged as
    * `hl_ws_error_unmatched {text}` (sanitizeWsErrorText), each distinct text
-   * at most once every WS_ERROR_UNMATCHED_EVERY_MS. True when logged.
+   * at most once every ALERT_EVERY_MS. True when logged.
    */
   noteUnmatchedWsError(data: unknown): boolean {
     const text = sanitizeWsErrorText(data), now = this.now(), at = this.#unmatched.get(text);
-    if (at !== undefined && now - at < WS_ERROR_UNMATCHED_EVERY_MS) return false;
+    if (at !== undefined && now - at < ALERT_EVERY_MS) return false;
     this.#unmatched.delete(text);
     this.#unmatched.set(text, now);
     if (this.#unmatched.size > WS_ERROR_TEXTS_KEPT) { const oldest = this.#unmatched.keys().next().value; if (oldest !== undefined) this.#unmatched.delete(oldest); }

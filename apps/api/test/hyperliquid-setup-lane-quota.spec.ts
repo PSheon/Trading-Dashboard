@@ -1,6 +1,7 @@
 import {describe,expect,it} from 'vitest';
 import {HyperliquidRestCapacityError} from '../src/hyperliquid/hyperliquid-capacity-error.js';
-import {HYPERLIQUID_BACKGROUND_REST_CAP,HYPERLIQUID_SETUP_GRANT_HOLD_MS,planHyperliquidQuota,setupDemandTicket,type HyperliquidQuotaEvent,type HyperliquidQuotaRequest,type HyperliquidQuotaState} from '../src/hyperliquid/hyperliquid-global-quota.js';
+import { planHyperliquidQuota, setupDemandTicket, type HyperliquidQuotaEvent, type HyperliquidQuotaRequest, type HyperliquidQuotaState } from '../src/hyperliquid/hyperliquid-global-quota.js';
+import { HYPERLIQUID_BACKGROUND_REST_CAP, HYPERLIQUID_SETUP_GRANT_HOLD_MS } from '../src/config/constants/hyperliquid.js';
 
 /**
  * The shared per-IP window's setup lane (2026-10-13 gate: a setup sat at

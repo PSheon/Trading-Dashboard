@@ -4,8 +4,9 @@ import type { RequestBudgeterService } from '../src/hyperliquid/request-budgeter
 import { testConfig } from './config-test-utils.js';
 import { budgetConsumer, PAGE_RANK } from '../src/hyperliquid/request-budgeter.service.js';
 import { HyperliquidRestCapacityError } from '../src/hyperliquid/hyperliquid-capacity-error.js';
-import { ANALYTICS_CAPACITY_WAIT_MS, ESSENTIAL_CAPACITY_WAIT_MS, PAGE_CAPACITY_WAIT_MS } from '../src/hyperliquid/hyperliquid-global-transport.js';
+
 import { offlineGlobalTransport } from './hyperliquid-quota-test-utils.js';
+import { ANALYTICS_CAPACITY_WAIT_MS, ESSENTIAL_CAPACITY_WAIT_MS, PAGE_CAPACITY_WAIT_MS } from '../src/config/constants/hyperliquid.js';
 afterEach(() => { vi.unstubAllGlobals(); });
 const budget = () => ({ acquire: vi.fn(async () => {}), adjust: vi.fn(), onSuccess: vi.fn(), onRateLimited: vi.fn() });
 it('requires globally metered transport before any registered INFO request', async () => {

@@ -11,7 +11,7 @@ import { ARCHIVE_BOUNDARY_MARGIN_MS } from "../src/analytics/history-checkpoint.
 import type { AppConfig } from "../src/config/app-config.js";
 import type { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
 import type { HlUserFill } from "../src/hyperliquid/types.js";
-import { archiveKey, HOUR_MS } from "../src/ingest/archive-format.js";
+import { archiveKey } from '../src/ingest/archive-format.js';
 import { ArchiveIngestRepository } from "../src/ingest/archive-ingest.repository.js";
 import { ArchiveIngestService } from "../src/ingest/archive-ingest.service.js";
 import { LocalArchiveStore, type ArchiveStore } from "../src/ingest/archive-store.js";
@@ -21,6 +21,7 @@ import { AnalysisHistoryService } from "../src/traders/analysis-history.service.
 import { storedFrame } from "./archive-test-utils.js";
 import { testConfig } from "./config-test-utils.js";
 import { closeTestDb, getTestDb, insertUser, storedFills, truncateAll } from "./db-test-utils.js";
+import { HOUR_MS } from '../src/config/constants/time.js';
 
 const FIXTURES = fileURLToPath(new URL("./fixtures/archive/", import.meta.url));
 const expected = JSON.parse(readFileSync(join(FIXTURES, "expected.json"), "utf8")) as Record<string, HlUserFill[]>;

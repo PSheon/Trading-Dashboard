@@ -4,6 +4,8 @@ import { AppConfig } from "../config/app-config.js";
 import { Injectable, Logger } from "@nestjs/common";
 import { currentRequestAnswered, currentRequestClient } from "../runtime/request-context.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
+import { CAPPED_SHARE, CAPS_TTL_MS, LIVE_RESERVE_SHARE, PAGE_CLIENT_SHARE, PAGE_LIST_GRACE_MS, PAGE_RESERVE_CAPACITY_SHARE, PAGE_SHARE, PAGE_SHARE_WINDOW_MS, STARTUP_RATE_SHARE } from '../config/constants/hyperliquid.js';
+import { SLOW_PAGE_LOG_EVERY_MS, SLOW_PAGE_WAIT_MS } from '../config/constants/alerts.js';
 
 
 /**
@@ -158,18 +160,8 @@ export type RequestPriority = "live" | "background";
 
 /** Hyperliquid's documented REST limit per IP. */
 const HARD_LIMIT_PER_MIN = 1200;
-/** Share of the main bucket only `live` may spend. */
-const LIVE_RESERVE_SHARE = 0.1;
-/** Share of the burst that is the page reserve (first paint + chart of a
- * cold trader page ≈ 106–130 weight at 200 burst → 120). */
-export const PAGE_RESERVE_CAPACITY_SHARE = 0.6;
 /** Live dispatches in a row, while background waits, before one background. */
 const MAX_LIVE_STREAK = 3;
-/** A page list's worst-case surcharge is forgiven in the next page list's
- * gate for this long (its real cost is settled within a second), so a cold
- * page's second fill list doesn't wait out the first one's worst case.
- * One list at a time: at most 100 weight of exposure beyond budget + burst. */
-const PAGE_LIST_GRACE_MS = 3_000;
 const PAGE_LIST_GRACE_LISTS = 1;
 /** Share of the refill the page reserve takes while main-bucket work is
  * waiting (see `refill`). */
@@ -178,12 +170,6 @@ const RESERVE_REFILL_SPLIT = 1 / 3;
 export const MIN_BACKGROUND_FACTOR = 0.25;
 /** A capped consumer may save up this many minutes of its cap. */
 const CAP_SAVED_MINUTES = 1;
-/** Share of the effective budget the capped consumers may take together. */
-export const CAPPED_SHARE = 0.75;
-/** Share of the rate a process refills at while it is starting up. */
-export const STARTUP_RATE_SHARE = 0.5;
-/** Consumer caps are re-read from settings this often. */
-const CAPS_TTL_MS = 30_000;
 
 /** Background ranks of trader-page calls; lower goes first. `analytics`: a
  * trade-analytics job a page started (not the page's own request): after
@@ -205,21 +191,8 @@ export const PAGE_WORK_MAX_RANK = PAGE_RANK.fills;
 /** Whether a call at this lane and rank is on-demand page work. */
 export const isPageWork = (priority: RequestPriority, rank: number | undefined): boolean =>
   priority === "background" && rank !== undefined && rank <= PAGE_WORK_MAX_RANK;
-/** Share of the budget page work may spend, over `PAGE_SHARE_WINDOW_MS`,
- * while other background work is waiting. */
-export const PAGE_SHARE = 0.5;
-/** The share is measured over this window, not a single minute, so a few
- * cold pages in a row (≈ 270–360 weight each) go out at once and only a
- * sustained flood is held to the share. */
-export const PAGE_SHARE_WINDOW_MS = 3 * 60_000;
 /** Seconds of the configured budget page work may have queued at once. */
 const PAGE_QUEUE_SECONDS = 30;
-/** Share of the page queue one client may hold. */
-const PAGE_CLIENT_SHARE = 0.5;
-/** A page call that waited this long for its turn is logged … */
-const SLOW_PAGE_WAIT_MS = 2_000;
-/** … at most once per this long. */
-const SLOW_PAGE_LOG_EVERY_MS = 10_000;
 /** The live rank of a reservation that yields to every other live call: a
  * keyed setup hold (hyperliquid-budget-wait `holdKey`). The live lane serves
  * the lowest rank first, so the refill builds up for it only while no other

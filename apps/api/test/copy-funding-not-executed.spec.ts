@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { CopyFundingService } from '../src/copy/copy-funding.service.js';
-import { FUNDING_NONCE_EXPIRY_MS } from '../src/copy/copy-funding-scan.js';
+
 import type { FundingRow } from '../src/copy/copy-funding.repository.js';
 import { testConfig } from './config-test-utils.js';
+import { FUNDING_NONCE_EXPIRY_MS } from '../src/config/constants/timings.js';
 
 // A transfer still unknown after its nonce window, with another (proven)
 // transfer between the same two accounts inside that window: an earlier

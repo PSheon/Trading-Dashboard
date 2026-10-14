@@ -1,9 +1,10 @@
 import type { CopyRiskLimits, CopyStrategySettings } from "@trading-dashboard/shared/contracts";
 import { Dec } from "../common/decimal/dec.js";
-import { MIDS_TTL_MS, type AssetMap, type Mids } from "./copy-market.service.js";
+import { type AssetMap, type Mids } from './copy-market.service.js';
 import type { PositionRow, StrategyRow } from "./copy.repository.js";
 import { effectiveLeverage } from "./copy-risk.js";
 import { strategyValue } from "./copy-planner.service.js";
+import { MIDS_TTL_MS } from '../config/constants/cache-ttls.js';
 
 /** Paper withdrawals never borrow against unrealized gains. Every open
  * position retains margin at the most conservative current leverage cap. */

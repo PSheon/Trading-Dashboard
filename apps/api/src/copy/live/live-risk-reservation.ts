@@ -7,6 +7,7 @@ import { buildOrderAction, executionKey, intentFingerprint, type HyperliquidOrde
 import { assertMarketIdentity, marketIdentityKey, type LiveMarketIdentity } from './live-market-resolver.js';
 import { address, LiveBoundaryError } from './wallet-authorization.js';
 import { ceilDecimalProduct } from './live-risk-rounding.js';
+import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
 
 export interface LiveReservationBoundsInput {
   readonly now: number; readonly identity: LiveRiskIdentity; readonly localSource: LiveAccountRiskInput['localSource'];
@@ -34,7 +35,7 @@ function intentKeys(intent: LiveOrderIntent) {
   if (intent.market) onlyKeys(intent.market, ['network', 'coin', 'dex', 'asset', 'universeIndex', 'perpDexIndex', 'sizeDecimals', 'maxLeverage', 'observedAt']);
   if (intent.builder) onlyKeys(intent.builder, ['address', 'feeTenthsBps', 'approvedMaxFeeTenthsBps']);
 }
-function fresh(at: number, now: number) { requireValue(integer(at) && at <= now && now - at <= 5000); }
+function fresh(at: number, now: number) { requireValue(integer(at) && at <= now && now - at <= LIVE_EVIDENCE_MAX_AGE_MS); }
 function money(value: unknown, signed = false) {
   requireValue(typeof value === 'string' && value.length <= 80 && /^-?(?:0|[1-9]\d*)(?:\.\d{1,18})?$/.test(value));
   const result = Dec.from(value); requireValue(signed || result.gte(0)); return result;

@@ -16,6 +16,8 @@ import {
 } from './live-market-resolver.js';
 import { address, LiveBoundaryError } from './wallet-authorization.js';
 import type { LiveSharedReads } from './live-shared-reads.js';
+import { RISK_PROVIDER_WEIGHT } from '../../config/constants/weights.js';
+import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
 
 export interface LiveRiskProviderOptions {
   readonly extraRiskBufferBps: string;
@@ -65,7 +67,7 @@ const fraction = nonnegative.refine((v) => Dec.from(v).lte(1));
 const settingsSchema = z.object({
   extraRiskBufferBps: nonnegative.refine((v) => Dec.from(v).lte(10000)),
   restingOrderBuilderFeeCapTenthsBps: integer.refine((v) => v <= 100),
-  timeoutMs: integer.refine((v) => v >= 1 && v <= 5000).optional(),
+  timeoutMs: integer.refine((v) => v >= 1 && v <= LIVE_EVIDENCE_MAX_AGE_MS).optional(),
 });
 const metaSchema = z.object({
   collateralToken: integer,
@@ -156,11 +158,6 @@ function mode(values: readonly unknown[]): void {
     deny('live_risk_provider_unsupported_mode');
 }
 
-/** The account modes twice (userRole 60, userAbstraction 20,
- * userDexAbstraction 20, spotClearinghouseState 2: before and after the
- * rest), and metaAndAssetCtxs, activeAssetData, userFees, perpDexs and
- * spotMeta 20 each. */
-const RISK_PROVIDER_WEIGHT = 304;
 /** Uncached fixed-network REST proofs. Target activeAssetData reads configured
  * leverage even without a position. No credentials, WS, signatures or actions.
  * Named dex effective-fee settings remain unproven and cannot yield a proof. */
@@ -210,7 +207,7 @@ export class HyperliquidLiveRiskProvider {
           !Number.isSafeInteger(at) ||
           at < 0 ||
           at > now ||
-          now - at > 5000 ||
+          now - at > LIVE_EVIDENCE_MAX_AGE_MS ||
           now - started > timeout
         )
           deny('live_risk_provider_stale');

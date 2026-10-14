@@ -8,7 +8,7 @@ import { CopyLiveSourceRepository } from '../src/copy/copy-live-source.repositor
 import { HyperliquidLiveSourceClient } from '../src/copy/copy-live-source.client.js';
 import { HyperliquidBudgetWait } from '../src/hyperliquid/hyperliquid-budget-wait.js';
 import { liveSourceExecutionCloid } from '../src/copy/live/postgres-live-preparation.js';
-import { MAX_LIVE_LEG_ATTEMPTS } from '../src/copy/live/copy-live-leg-attempt.js';
+
 import { CopyLiveApiSettlementRepository } from '../src/copy/live-worker/copy-live-api-settlement.repository.js';
 import { LiveBoundaryError } from '../src/copy/live/wallet-authorization.js';
 import { HyperliquidRestCapacityError } from '../src/hyperliquid/hyperliquid-capacity-error.js';
@@ -16,7 +16,7 @@ import { NEVER_PLACED, type LiveExecutionRecord } from '../src/copy/live/live-ex
 import { buildOrderAction } from '../src/copy/live/live-order.js';
 import { planLiveReservation } from '../src/copy/live/live-risk-reservation.js';
 import type { LiveExecutionHooks, LiveExecutionRequest } from '../src/copy/live/live-execution-runtime.js';
-import { CLOSE_ATTEMPT_LIMIT, CopyLiveEngine, type LiveEngineDependencies } from '../src/copy/live-worker/copy-live-engine.js';
+import { CopyLiveEngine, type LiveEngineDependencies } from '../src/copy/live-worker/copy-live-engine.js';
 import { CopyLiveWorkerRepository } from '../src/copy/live-worker/copy-live-worker.repository.js';
 import { WatchedMainnetSource } from '../src/copy/live-worker/watched-mainnet-source.js';
 import type { LiveSettleOutcome, LiveSettleRequest } from '../src/copy/live-worker/copy-live-settler.js';
@@ -25,6 +25,7 @@ import { now } from './copy-live-risk-test-utils.js';
 /** What the account observer throws when what failed underneath was `cause` (LiveObservationUnavailable). */
 const unavailable = (cause: unknown) => Object.assign(new LiveBoundaryError('live_account_observation_unavailable'), { cause });
 import { closeTestDb, getTestDb, type TestDb } from './db-test-utils.js';
+import { CLOSE_ATTEMPT_LIMIT, MAX_LIVE_LEG_ATTEMPTS } from '../src/config/constants/limits.js';
 
 // Real SQL, real watched-source reads and source repository; the runtime
 // (signing/exchange) and the settler are doubles that record their calls.

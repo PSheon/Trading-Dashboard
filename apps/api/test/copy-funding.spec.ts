@@ -15,7 +15,7 @@ import { WithdrawalRepository } from "../src/wallet/withdrawal.repository.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
 import { closeTestDb, getTestDb, insertUser, truncateAll } from "./db-test-utils.js";
 import { testConfig } from "./config-test-utils.js";
-import { PRIVY_IDENTITY_MAX_AGE_MS } from "../src/copy/live/privy-identity-freshness.js";
+import { PRIVY_IDENTITY_MAX_AGE_MS } from '../src/config/constants/timings.js';
 
 const signer = privateKeyToAccount(`0x${"11".repeat(32)}`);
 const MAIN = signer.address.toLowerCase(), DEST = `0x${"22".repeat(20)}`, HASH = `0x${"aa".repeat(32)}`;

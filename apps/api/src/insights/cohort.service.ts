@@ -8,7 +8,7 @@ import { AppConfig } from "../config/app-config.js";
 import { kolAvatarPath } from "../discovery/kol-avatar.js";
 import { HyperliquidInfoClient } from "../hyperliquid/hyperliquid-info.client.js";
 import { budgetConsumer, BudgetWaitError, ESSENTIAL_RANK, PAGE_RANK, pacedWeightPerMinute, RequestBudgeterService } from "../hyperliquid/request-budgeter.service.js";
-import { sharedCapacityWait, SHARED_CAPACITY_RETRY_MS } from "../hyperliquid/hyperliquid-budget-wait.js";
+import { sharedCapacityWait } from '../hyperliquid/hyperliquid-budget-wait.js';
 import { sharedRestRetryAfterMs } from "../hyperliquid/hyperliquid-capacity-error.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { SettingsService } from "../settings/settings.service.js";
@@ -16,6 +16,7 @@ import { TtlCache } from "../traders/ttl-cache.js";
 import { COHORT_TIERS, aggregate, candleInterval, cohortEligible, cohortHistoryReady, dexOf, positionsFrom, WINDOW_MS, type MemberSnapshot } from "./cohorts.js";
 import { CohortRepository, type CohortCandidate, type CohortMemberRow } from "./cohort.repository.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
+import { SHARED_CAPACITY_RETRY_MS } from '../config/constants/hyperliquid.js';
 
 /** Weight of one `clearinghouseState` (per dex). */
 const WEIGHT_STATE = 2;

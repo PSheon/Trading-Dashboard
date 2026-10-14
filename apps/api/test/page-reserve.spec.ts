@@ -1,15 +1,9 @@
 import { testConfig } from "./config-test-utils.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import {
-  budgetConsumer,
-  MIN_BACKGROUND_FACTOR,
-  PAGE_RANK,
-  PAGE_SHARE,
-  PageBusyError,
-  RequestBudgeterService,
-} from "../src/hyperliquid/request-budgeter.service.js";
+import { budgetConsumer, MIN_BACKGROUND_FACTOR, PAGE_RANK, PageBusyError, RequestBudgeterService } from '../src/hyperliquid/request-budgeter.service.js';
 import { withRequestSignal } from "../src/runtime/request-context.js";
+import { PAGE_SHARE } from '../src/config/constants/hyperliquid.js';
 
 afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); });
 

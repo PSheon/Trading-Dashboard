@@ -9,7 +9,7 @@ import type { AuthService } from "../src/common/auth/auth.service.js";
 import { CopyFundingRepository } from "../src/copy/copy-funding.repository.js";
 import { CopyFundingService } from "../src/copy/copy-funding.service.js";
 import { CopyFundingExchangeClient } from "../src/copy/copy-funding-exchange.client.js";
-import { FUNDING_NONCE_EXPIRY_MS } from "../src/copy/copy-funding-scan.js";
+
 import { CopyWalletRepository } from "../src/copy/copy-wallet.repository.js";
 import { CopyWalletService } from "../src/copy/copy-wallet.service.js";
 import { USER_WALLET_PROVISIONER } from "../src/copy/live/privy-wallet-provisioner.js";
@@ -17,6 +17,7 @@ import { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.clien
 import { WithdrawalRepository } from "../src/wallet/withdrawal.repository.js";
 import { createAuthedApp, stubPrivy } from "./auth-test-utils.js";
 import { closeTestDb, getTestDb, insertUser, truncateAll } from "./db-test-utils.js";
+import { FUNDING_NONCE_EXPIRY_MS } from '../src/config/constants/timings.js';
 
 const MAIN = `0x${"11".repeat(20)}`, ACCOUNT = `0x${"22".repeat(20)}`;
 const ID = "55555555-5555-4555-8555-555555555555";

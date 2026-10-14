@@ -1,9 +1,6 @@
 import { LiveBoundaryError } from '../copy/live/wallet-authorization.js';
+import { REST_CHARGE_LIFETIME_MS } from '../config/constants/hyperliquid.js';
 
-/** How long a REST charge holds the shared meter: its permitted send window
- * (at most 5 s) plus the provider's 60 s accounting window. Every charge ahead
- * of a waiting request has expired within this. Never applies to leases. */
-export const REST_CHARGE_LIFETIME_MS = 65_000;
 const safeDelay = (value: number): boolean =>
   Number.isSafeInteger(value) && value > 0 && value <= REST_CHARGE_LIFETIME_MS;
 

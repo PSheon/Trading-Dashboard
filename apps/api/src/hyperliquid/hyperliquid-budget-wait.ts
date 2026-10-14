@@ -2,23 +2,8 @@ import { ServiceUnavailableException } from '@nestjs/common';
 import { HyperliquidRestCapacityError, sharedRestRetryAfterMs } from './hyperliquid-capacity-error.js';
 import { LiveBoundaryError } from '../copy/live/wallet-authorization.js';
 import { BudgetWaitError, LIVE_YIELD_RANK, type RequestBudgeterService, type RequestPriority } from './request-budgeter.service.js';
+import { LOCAL_HOLD_IDLE_MS, LOCAL_HOLD_READY_MS, LOCAL_HOLD_RETRY_MS, SHARED_CAPACITY_MIN_RETRY_MS, SHARED_CAPACITY_RETRY_MS, SHARED_CAPACITY_SLACK_MS, WAIT_SLACK_MS } from '../config/constants/hyperliquid.js';
 
-/** After the shared per-IP window refused a charge without saying when it
- * fits: no sooner than this (the provider's 60 s window plus the 5 s send
- * window of the charges in it). A refusal that says when
- * (HyperliquidRestCapacityError.retryAfterMs) is retried then. */
-export const SHARED_CAPACITY_RETRY_MS = 65_000;
-/** Earliest retry after a shared-window refusal, and what is added to the
- * meter's estimate (its clock and ours, the next charge's transaction). */
-export const SHARED_CAPACITY_MIN_RETRY_MS = 1_000;
-const SHARED_CAPACITY_SLACK_MS = 250;
-/** Longest a setup step's read waits for its Hyperliquid weight before it
- * starts its evidence clock (a reservation the step's client queues waits up
- * to AppConfig.copy.live.setup.stepBudgetMs.reserveWaitMs, live-timings.ts). */
-export const LIVE_RESERVE_WAIT_MS = 8_000;
-/** What `reserveLive` adds to a wait it allows: the estimate is a hint (a
- * background turn or a 429 backoff can make it longer). */
-const WAIT_SLACK_MS = 1_000;
 
 /** What a throw site knows about a wait, for the log and the setup's
  * `last_wait` (never part of the HTTP answer): the weight asked for, its
@@ -163,15 +148,6 @@ export function takeReserved(reservation: LiveBudgetReservation | void | undefin
   try { reservation.consume(weight); return true; } catch { return false; }
 }
 
-/** A keyed live reservation (`holdKey`) waiting with nobody asking for it is
- * abandoned after this (its caller comes back at least every 20 s). */
-export const LOCAL_HOLD_IDLE_MS = 60_000;
-/** A keyed reservation whose weight is gathered (or parked) but not taken is
- * refunded after this. */
-export const LOCAL_HOLD_READY_MS = 30_000;
-/** Longest a keyed reservation's refusal asks its caller to stay away (well
- * inside LOCAL_HOLD_IDLE_MS). */
-const LOCAL_HOLD_RETRY_MS = 15_000;
 interface LocalHold { readonly weight: number; ready: boolean; readonly gathered: Promise<void>; readonly abort: AbortController; timer?: ReturnType<typeof setTimeout> }
 const localHolds = new WeakMap<RequestBudgeterService, Map<string, LocalHold>>();
 /** Keyed holds of a bucket (tests, diagnostics). */

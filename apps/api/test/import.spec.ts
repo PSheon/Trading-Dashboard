@@ -156,7 +156,6 @@ describe("ImportService (A1/A2/A5) — real Postgres", () => {
       rows: [{ address: "0xabababababababababababababababababababab", rank: 5 }], // rank <= 20 -> tier A on first import
     });
 
-
     // Simulate an A3 manual edit: demote to C, deactivate, label it.
     await db
       .update(leaders)

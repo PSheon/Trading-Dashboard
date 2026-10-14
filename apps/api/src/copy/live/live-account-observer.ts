@@ -8,11 +8,12 @@ import { HyperliquidAllDexsAccountSource, type LiveAllDexsAccountSource, type Li
 export { HyperliquidAllDexsAccountSource, type LiveAllDexsAccountSource, type LiveAllDexsStateEvidence, type LiveAllDexsOrderEvidence, type LiveAllDexsAccountEvidence } from './live-account-ws-source.js';
 import { Dec } from '../../common/decimal/dec.js';
 import { readInfoJson } from '../../hyperliquid/response-validation.js';
-import { boundedLiveRead, MAX_LIVE_PERP_DEXES, LIVE_DEX_NAME, LIVE_PERP_COIN, RESERVE_BOUND_MS } from './live-market-resolver.js';
+import { boundedLiveRead, MAX_LIVE_PERP_DEXES, LIVE_DEX_NAME, LIVE_PERP_COIN } from './live-market-resolver.js';
 import { address, LiveBoundaryError } from './wallet-authorization.js';
 import { accountModeBodies, liveInfoWeights, type LiveSharedReads } from './live-shared-reads.js';
 import { LiveReadCache } from './live-read-cache.js';
 import { liveSpan } from './live-execution-diagnostics.js';
+import { LIVE_EVIDENCE_MAX_AGE_MS, RESERVE_BOUND_MS } from '../../config/constants/timings.js';
 
 export interface LiveObservedPosition {
   readonly coin: string; readonly dex: string; readonly asset: number; readonly sizeDecimals: number;
@@ -171,7 +172,7 @@ export class HyperliquidLiveAccountObserver {
     aggregateSource?: LiveAllDexsAccountSource, private readonly reservationMaxWaitMs = RESERVE_BOUND_MS,
     /** Reads kept across observations and orders (live-read-cache.ts); none: every read is sent. */
     private readonly cache?: LiveReadCache) {
-    if (!isHyperliquidNetwork(network) || typeof acquire !== 'function' || !Number.isSafeInteger(maxAgeMs) || maxAgeMs < 1 || maxAgeMs > 5000 ||
+    if (!isHyperliquidNetwork(network) || typeof acquire !== 'function' || !Number.isSafeInteger(maxAgeMs) || maxAgeMs < 1 || maxAgeMs > LIVE_EVIDENCE_MAX_AGE_MS ||
       !Number.isSafeInteger(reservationMaxWaitMs) || reservationMaxWaitMs < 1 || reservationMaxWaitMs > 182_000)
       fail('live_account_invalid_observer');
     this.aggregateSource = aggregateSource ?? new HyperliquidAllDexsAccountSource(now, undefined, network);

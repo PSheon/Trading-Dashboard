@@ -14,6 +14,7 @@ import { followerReceiptDigestV1 } from './actual-fill-accounting.js';
 import { freezeLiveReservation } from './live-risk-reservation.js';
 import { address, LiveBoundaryError } from './wallet-authorization.js';
 import { EXCHANGE_MIN_ORDER_NOTIONAL_USD, minOrderNotional } from '../min-order-notional.js';
+import { LIVE_EVIDENCE_MAX_AGE_MS, SOURCE_EQUITY_MAX_AGE_MS, SOURCE_MID_MAX_AGE_MS } from '../../config/constants/timings.js';
 export interface LiveSourcePlanInput {
   readonly mandate: MandateRow; readonly settings: CopyStrategySettings; readonly fill: LiveSourceFillEvidence;
   readonly leg: CanonicalLiveSourceLeg; readonly sizingBasis: unknown; readonly now: number;
@@ -78,12 +79,8 @@ export function combinedCloseFraction(fractions:readonly string[]):Dec{
   const remaining=(n*SCALE)/d,removed=SCALE-remaining;
   return Dec.from(`${removed/SCALE}.${(removed%SCALE).toString().padStart(18,'0')}`);
 }
-function fresh(at:number,now:number){requireSizing(Number.isSafeInteger(at)&&at>=0&&at<=now&&now-at<=5000);}
+function fresh(at:number,now:number){requireSizing(Number.isSafeInteger(at)&&at>=0&&at<=now&&now-at<=LIVE_EVIDENCE_MAX_AGE_MS);}
 function equal(a:unknown,b:unknown){requireSizing(isDeepStrictEqual(a,b));}
-/** Source-network references may be older than the 5 s provider frames: a mid is the
- * shared mainnet mids read (3 s cache), leader capital the paper sizing's
- * 60 s cache. Both stay bounded and are never used past these ages. */
-export const SOURCE_MID_MAX_AGE_MS=10_000,SOURCE_EQUITY_MAX_AGE_MS=120_000;
 /** Basis points by which the execution network's mid differs from the source network's mid. */
 export function liveSourceDeviationBps(executionMid:string,sourceMid:string):Dec{
   const reference=Dec.from(sourceMid);requireSizing(reference.isPositive&&Dec.from(executionMid).isPositive);

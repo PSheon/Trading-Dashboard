@@ -1,15 +1,6 @@
 import { createHash } from 'node:crypto';
+import { MAX_LIVE_LEG_ATTEMPTS } from '../../config/constants/limits.js';
 
-/**
- * Most orders one leader leg may be planned as. Attempt 0 is the leg's
- * original order; a later attempt exists only after the previous one was
- * released as never sent (its exchange request provably never began:
- * isDefinitelyUnsent, released by releaseUnsent) and is a new order with its
- * own cloid, execution key, nonce, provenance, reservation and every gate.
- * The previous attempt's journal stays rejected (immutable); it is never
- * re-armed. After the last attempt the leg is skipped as before.
- */
-export const MAX_LIVE_LEG_ATTEMPTS = 3;
 
 /** Stable economic identity of one attempt of one leader leg, independent of
  * a worker, quote or retry time. Attempt 0 is the original derivation

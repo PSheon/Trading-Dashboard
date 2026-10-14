@@ -3,13 +3,13 @@ import { type CrowdCoin, type CrowdResponse } from "@trading-dashboard/shared/co
 
 import { InsightsRepository } from "./insights.repository.js";
 import { TtlCache } from "../traders/ttl-cache.js";
+import { DAY_MS } from '../config/constants/time.js';
 
 export const CROWD_TTL_MS = 60_000;
 /** A snapshot set older than this is ignored, so an address the scheduler
  * stopped snapshotting doesn't keep showing positions it may have closed.
  * Snapshots run every 5 minutes. */
 export const SNAPSHOT_MAX_AGE_MS = 15 * 60_000;
-const DAY_MS = 24 * 3_600_000;
 
 /**
  * Position notional at the snapshot's own mark price. A snapshot stores

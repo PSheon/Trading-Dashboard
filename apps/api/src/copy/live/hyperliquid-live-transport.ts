@@ -14,6 +14,7 @@ import { HyperliquidGlobalTransport } from '../../hyperliquid/hyperliquid-global
 import type { HyperliquidSendPermit } from '../../hyperliquid/postgres-hyperliquid-quota.js';
 import { observeLiveExecutionFailure, type LiveExecutionDiagnosticHook, type LiveDiagnosticStage } from './live-execution-diagnostics.js';
 import { liveInfoWeight } from './live-shared-reads.js';
+import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
 
 export interface LiveTransportDependencies {
   marketResolver: LiveMarketResolver;
@@ -227,7 +228,7 @@ export class HyperliquidLiveTransport implements LiveExchangeTransport {
     return market;
   }
   private assertObservationFresh(at: number): void {
-    if (!Number.isSafeInteger(at) || at > this.now() || this.now() - at > 5_000)
+    if (!Number.isSafeInteger(at) || at > this.now() || this.now() - at > LIVE_EVIDENCE_MAX_AGE_MS)
       throw new LiveBoundaryError('live_boundary_evidence_expired');
   }
   private async verifyBuilder(record: LiveExecutionRecord): Promise<LiveBuilderApprovalProof | null> {

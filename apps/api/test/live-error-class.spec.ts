@@ -1,16 +1,18 @@
 import { BadGatewayException, ConflictException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import { assertSetupTimings, DEFAULT_LIVE_SETUP_TIMINGS, setupStepBudgetMs } from '../src/config/live-timings.js';
-import { backoffMs, classify, decideRetry, exhausted, FUNDING_RETRY_POLICY, IDENTITY_UNVERIFIED_ISSUE, LIVE_LEG_RETRY_POLICY, liveRetryDelayMs, PRIVY_IDENTITY_EVIDENCE_CODES, PROVIDER_READ_RETRY_MS, StepFail, StepWait, WAIT_FLOOR_MS } from '../src/copy/live/error-class.js';
+import { backoffMs, classify, decideRetry, exhausted, FUNDING_RETRY_POLICY, IDENTITY_UNVERIFIED_ISSUE, LIVE_LEG_RETRY_POLICY, liveRetryDelayMs, PRIVY_IDENTITY_EVIDENCE_CODES, StepFail, StepWait } from '../src/copy/live/error-class.js';
 import { errorCode } from '../src/runtime/safe-error-text.js';
 import { fundingBackoffMs } from '../src/copy/copy-funding-scan.js';
 import { setupRetryPolicy } from '../src/config/live-timings.js';
 import { AgentIdentityEvidenceExpired } from '../src/copy/copy-agent.service.js';
 import { LiveBoundaryError } from '../src/copy/live/wallet-authorization.js';
-import { HyperliquidBudgetOverCapacity, HyperliquidBudgetWait, SHARED_CAPACITY_RETRY_MS } from '../src/hyperliquid/hyperliquid-budget-wait.js';
+import { HyperliquidBudgetOverCapacity, HyperliquidBudgetWait } from '../src/hyperliquid/hyperliquid-budget-wait.js';
 /** What the account observer throws when what failed underneath was `cause` (LiveObservationUnavailable). */
 const unavailable = (cause: unknown) => Object.assign(new LiveBoundaryError('live_account_observation_unavailable'), { cause });
 import { HyperliquidRestCapacityError } from '../src/hyperliquid/hyperliquid-capacity-error.js';
+import { SHARED_CAPACITY_RETRY_MS } from '../src/config/constants/hyperliquid.js';
+import { PROVIDER_READ_RETRY_MS, WAIT_FLOOR_MS } from '../src/config/constants/timings.js';
 
 describe('the live error classifier', () => {
   it('a Hyperliquid weight wait is budget at its estimate (at least 1 s): the shared window when the meter said, a local bucket its own', () => {

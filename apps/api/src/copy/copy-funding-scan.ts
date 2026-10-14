@@ -1,12 +1,6 @@
 import { z } from "zod";
 import { backoffMs, FUNDING_RETRY_POLICY } from "./live/error-class.js";
 
-/** Hyperliquid permits a nonce up to one day ahead of block time. */
-export const FUNDING_NONCE_SKEW_MS = 86_400_000;
-/** …and down to two days behind it (docs: "Nonces must be within (T - 2 days,
- * T + 1 day)"): a transfer signed with an older nonce can no longer execute.
- * An hour of margin on top. */
-export const FUNDING_NONCE_EXPIRY_MS = 2 * 86_400_000 + 3_600_000;
 /** A confirmation pass that failed (the explorer or the ledger unreachable,
  * the budget refused) waits before the row's next background pass:
  * backoffMs(failures − 1, FUNDING_RETRY_POLICY) (live/error-class.ts, THE

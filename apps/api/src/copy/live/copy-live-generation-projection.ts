@@ -19,6 +19,7 @@ import { decodeLiveSettlementProof } from './live-settlement-proof.js';
 import { decodeLiveUnattemptedRelease,assertLiveUnattemptedReleaseMirrors } from './live-unattempted-release.js';
 import { freezeLiveReservation, validateLiveReservationPayload, type LiveReservationStored } from './live-risk-reservation.js';
 import { address, LiveBoundaryError } from './wallet-authorization.js';
+import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
 export interface LiveGenerationProjectionIdentity {
   readonly mandateId: string; readonly mandateRevision: number; readonly accountId: string; readonly userId: number;
   readonly strategyId: number; readonly network: HyperliquidNetwork; readonly accountAddress: string;
@@ -130,7 +131,7 @@ function keys(rows: readonly {key:string}[]) { requireGeneration(new Set(rows.ma
  * `baseline.createdAt <= now` and an unattempted release's `checkedAt <= now`,
  * which hold at any later time once they held. */
 function assertGenerationCurrent(id:LiveGenerationProjectionIdentity,manifest:LiveGenerationManifestV1,snapshot:LiveAccountSnapshot,now:number):void{
-  requireGeneration(Number.isSafeInteger(now)&&now>0&&Number.isSafeInteger(manifest.checkedAt)&&manifest.checkedAt<=now&&now-manifest.checkedAt<=5000);
+  requireGeneration(Number.isSafeInteger(now)&&now>0&&Number.isSafeInteger(manifest.checkedAt)&&manifest.checkedAt<=now&&now-manifest.checkedAt<=LIVE_EVIDENCE_MAX_AGE_MS);
   const view=mapLiveAccountView(id,snapshot,{blocked:false,reason:null},now,5000);
   requireGeneration(view.freshness==='fresh'&&view.coverage.complete&&view.coverage.balanceComplete&&view.coverage.orderComplete);
 }

@@ -15,6 +15,7 @@ import {
   LiveBoundaryError,
   type ExchangeApprovalEvidence,
 } from './wallet-authorization.js';
+import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
 
 export interface TrackedCancellationAction {
   type: 'cancelByCloid';
@@ -248,7 +249,7 @@ export function assertCancellationPermit(
   const approval = permit.exchangeApproval,
     auth = operation.authorization;
   const fresh = (at: number) =>
-    Number.isSafeInteger(at) && at <= now && now - at <= 5000;
+    Number.isSafeInteger(at) && at <= now && now - at <= LIVE_EVIDENCE_MAX_AGE_MS;
   if (
     permit.phase !== phase ||
     permit.operationId !== operation.operationId ||

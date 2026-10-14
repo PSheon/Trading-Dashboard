@@ -1,5 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
-import { liveSourceExecutionCloid, MAX_LIVE_LEG_ATTEMPTS } from './copy-live-leg-attempt.js';
+import { liveSourceExecutionCloid } from './copy-live-leg-attempt.js';
 import { isDefinitelyUnsent } from './live-execution.js';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { copyLiveDispatches, copyLiveExecutions, copyLiveIntentProvenance, copyLiveSignalLegs, copyLiveSourceFills, copyLiveSourceStreams,
@@ -53,6 +53,8 @@ export interface LivePreparationOptions extends LiveRiskProviderOptions {
   readonly maxSourceDeviationBps?: string;
 }
 export { liveSourceExecutionCloid } from './copy-live-leg-attempt.js';
+import { MAX_LIVE_LEG_ATTEMPTS } from '../../config/constants/limits.js';
+import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
 
 /** Prepares authority, never signs or submits. All remote observations occur
  * outside SQL; the first baseline, canonical source claim, monotonic nonce,
@@ -75,7 +77,7 @@ export class PostgresLivePreparation {
   }
   private fresh(started: number): void {
     const now = this.now();
-    riskSourceRequire(Number.isSafeInteger(now) && now >= started && now - started <= 5000, 'live_risk_stale');
+    riskSourceRequire(Number.isSafeInteger(now) && now >= started && now - started <= LIVE_EVIDENCE_MAX_AGE_MS, 'live_risk_stale');
   }
   async prepare(session: LiveRiskDatabaseSession, supplied: LivePreparationBinding): Promise<{ intent: LiveOrderIntent; record: LiveExecutionRecord }> {
     assertOriginalLiveRiskSession(session);

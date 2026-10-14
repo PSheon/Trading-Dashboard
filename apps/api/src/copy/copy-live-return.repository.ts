@@ -10,15 +10,15 @@ import type { DrizzleDb } from '../db/drizzle.provider.js';
 import type { DbTransaction } from '../db/unit-of-work.js';
 import { lockCopyUser } from './copy-user-lock.js';
 import { allocateSignerNonce } from './signer-nonce.js';
-import { FUNDING_NONCE_EXPIRY_MS } from './copy-funding-scan.js';
+
 import { blockingFunding } from './funding-blocking.js';
 import { deploymentNetwork } from './live-deployment.js';
+import { SYSTEM_SWEEP_ATTEMPTS } from '../config/constants/limits.js';
+import { FUNDING_NONCE_EXPIRY_MS, RETURN_CONSENT_WINDOW_MS } from '../config/constants/timings.js';
 
 export type ReturnRow = typeof copyFundingOperations.$inferSelect;
 export type BuilderApprovalRow = typeof copyLiveBuilderApprovals.$inferSelect;
 const busy = () => new ConflictException({ statusCode: 409, code: 'funding_pending', message: 'Resolve the pending wallet operation first' });
-/** The owner's consent to a return is valid this long after it is prepared. */
-export const RETURN_CONSENT_WINDOW_MS = 300_000;
 
 /**
  * A return to the main wallet prepared but never attempted, whose consent
@@ -37,11 +37,6 @@ export async function expireStaleReturns(tx: DbTransaction, accountId: string): 
 /** Idempotency keys of the worker's automatic returns: `sweep:<stop id>`,
  * then `sweep:<stop id>:<n>` for attempt n after one never sent. */
 export const SYSTEM_SWEEP_PREFIX = 'sweep:';
-/** A stop's automatic return that provably never reached the exchange (not
- * signed, or refused before its POST) is reserved again with a new nonce, at
- * most this many attempts in all, the next one no sooner than
- * sweepRetryDelayMs(n) after attempt n ended. */
-export const SYSTEM_SWEEP_ATTEMPTS = 5;
 export const sweepRetryDelayMs = (attempt: number) => 60_000 * 2 ** attempt;
 const jsonDigest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 /** The evidence an automatic return records when it ended unsent: only the

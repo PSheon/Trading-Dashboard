@@ -9,7 +9,7 @@ import { HyperliquidGlobalTransport } from '../../hyperliquid/hyperliquid-global
 import { RequestBudgeterService } from '../../hyperliquid/request-budgeter.service.js';
 import { reserveLive } from '../../hyperliquid/hyperliquid-budget-wait.js';
 import { readInfoJson } from '../../hyperliquid/response-validation.js';
-import { isDefinitelyUnsent, NEVER_PLACED, NEVER_PLACED_GRACE_MS, UNHELD_REJECTED, type LiveExecutionRecord } from '../live/live-execution.js';
+import { isDefinitelyUnsent, NEVER_PLACED, UNHELD_REJECTED, type LiveExecutionRecord } from '../live/live-execution.js';
 import { HyperliquidLiveAccountObserver, observerRestWeight } from '../live/live-account-observer.js';
 import { HyperliquidAllDexsAccountSource, PerReadAllDexsAccountSource } from '../live/live-account-ws-source.js';
 import { boundedLiveRead, HyperliquidLiveMarketResolver } from '../live/live-market-resolver.js';
@@ -21,6 +21,7 @@ import { LiveBoundaryError } from '../live/wallet-authorization.js';
 import { LiveSharedReads } from '../live/live-shared-reads.js';
 import type { LiveSourceNetwork } from '../live/copy-live-source-evidence.js';
 import { liveReadCache } from '../live/live-read-cache.js';
+import { LIVE_EVIDENCE_MAX_AGE_MS, NEVER_PLACED_GRACE_MS } from '../../config/constants/timings.js';
 
 export const TERMINAL_STATES: ReadonlySet<string> = new Set(['filled', 'partial', 'cancelled', 'rejected']);
 export interface LiveSettleRequest {
@@ -187,7 +188,7 @@ export class CopyLiveSettler {
     }
     const checkedAt = this.now(), remaining = () => {
       const now = this.now();
-      if (!Number.isSafeInteger(now) || now - checkedAt > 5000) throw new LiveBoundaryError('live_boundary_evidence_expired');
+      if (!Number.isSafeInteger(now) || now - checkedAt > LIVE_EVIDENCE_MAX_AGE_MS) throw new LiveBoundaryError('live_boundary_evidence_expired');
       return Math.max(1, 5000 - (now - checkedAt));
     };
     const market = await boundedLiveRead(() => resolver.resolveAsset(record.action.orders[0]!.a), remaining());

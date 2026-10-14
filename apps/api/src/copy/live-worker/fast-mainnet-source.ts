@@ -3,6 +3,7 @@ import { isOutOfScopeSpotFill } from '../../watcher/action-classifier.js';
 import type { LiveSourceReadResult } from '../copy-live-source.client.js';
 import { liveSourceDigest, parseLiveSourceFill, type LiveSourceFillEvidence } from '../live/copy-live-source-evidence.js';
 import { address, LiveBoundaryError } from '../live/wallet-authorization.js';
+import { FOLLOW_UP_MAX_MS, FOLLOW_UP_MIN_MS, LIVE_EVIDENCE_MAX_AGE_MS, WITNESS_EXPIRY_MS } from '../../config/constants/timings.js';
 
 /** Provider reads of the fast source, both in the mainnet live lane. Each
  * acquires its base weight plus the worst-case list surcharge and gives back
@@ -21,13 +22,6 @@ export interface FastSourceReader {
 export const FAST_SOURCE_WINDOW_ROWS = 500;
 /** Hyperliquid's per-call row cap: a full page may have more after it. */
 const PAGE_ROWS = 2000;
-/** A trade the feed reported that REST still hasn't returned this long
- * after it happened no longer holds coverage back (the after-sweep audit
- * reports a fill the stream then missed). */
-export const WITNESS_EXPIRY_MS = 60_000;
-/** Follow-up reads of one leader start at least this far apart, doubling
- * (up to 8 s) while a witnessed trade stays missing. */
-const FOLLOW_UP_MIN_MS = 1000, FOLLOW_UP_MAX_MS = 8000;
 const ZERO_HASH = /^0x0{64}$/;
 /** As `fills.raw` holds it: a JSON round trip, like the jsonb column (no
  * undefined members, plain objects). */
@@ -173,7 +167,7 @@ export class FastMainnetSource {
       const fill = parseLiveSourceFill(row, { network: 'mainnet', leaderAddress, from, to, receivedAt, kind: 'fills' });
       parsed.set(fill.id, fill);
     }
-    const completedAt = this.now(), fresh = completedAt - observedAt <= 5000;
+    const completedAt = this.now(), fresh = completedAt - observedAt <= LIVE_EVIDENCE_MAX_AGE_MS;
     const observations = [{ kind: 'fills' as const, from, to, depth: 0, observedAt, completedAt, count: kept.length,
       responseDigest: liveSourceDigest(kept), saturated: false, ...(sealed ? { sealed: true as const } : {}) }];
     const result = { network: 'mainnet' as const, leaderAddress, from, to, observedAt, completedAt, fresh, complete: fresh,
@@ -187,7 +181,7 @@ export class FastMainnetSource {
   private unreadable(leaderAddress: string, from: number, observedAt: number, rows: HlUserFill[], requests: number): LiveSourceReadResult {
     this.log?.(`ALERT fast source: ${leaderAddress} has ${rows.length}+ fills at ${new Date(from).toISOString()}, more than one read returns; ` +
       'that millisecond cannot be read whole, stream set to gap (incomplete_coverage)');
-    const completedAt = this.now(), fresh = completedAt - observedAt <= 5000;
+    const completedAt = this.now(), fresh = completedAt - observedAt <= LIVE_EVIDENCE_MAX_AGE_MS;
     const observations = [{ kind: 'fills' as const, from, to: from, depth: 0, observedAt, completedAt, count: rows.length,
       responseDigest: liveSourceDigest(rows), saturated: rows.length >= FAST_SOURCE_WINDOW_ROWS }];
     const result = { network: 'mainnet' as const, leaderAddress, from, to: from, observedAt, completedAt, fresh, complete: false,

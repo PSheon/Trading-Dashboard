@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { assessLiveReservationSettlement, LIVE_FILL_SCAN_MARGIN_MS, type LiveReservationSettlementInput } from '../src/copy/live/live-reservation-settlement.js';
+import { assessLiveReservationSettlement, type LiveReservationSettlementInput } from '../src/copy/live/live-reservation-settlement.js';
 import { digestLiveEvidence, parseLiveOrderEvidence, parseLiveIocAcknowledgement } from '../src/copy/live/live-order-evidence.js';
 import { parseFollowerFill, followerReceiptDigestV1 } from '../src/copy/live/actual-fill-accounting.js';
 import { planLiveReservation } from '../src/copy/live/live-risk-reservation.js';
 import { intentFingerprint } from '../src/copy/live/live-order.js';
 import { fixture, now as base } from './copy-live-risk-test-utils.js';
+import { LIVE_FILL_SCAN_MARGIN_MS } from '../src/config/constants/timings.js';
 type Mutable<T> = T extends object ? { -readonly [K in keyof T]: Mutable<T[K]> } : T;
 function input(status = 'filled', size = '1'): Mutable<LiveReservationSettlementInput> {
   const f = fixture(), record = { key: f.reservations.own.key, fingerprint: f.reservations.own.fingerprint, nonce: base,

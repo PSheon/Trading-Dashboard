@@ -3,7 +3,7 @@ import { eq, sql } from 'drizzle-orm';
 import { privateKeyToAccount } from 'viem/accounts';
 import { copyAccountModeOperations, copyExecutionAccounts, copyExecutionWallets, copyStrategies, copyWalletAuthorizations, copySignerNonces, users } from '@trading-dashboard/shared/database';
 import { CopyAccountModeRepository } from '../src/copy/copy-account-mode.repository.js';
-import { ATTEMPT_WEIGHT, CopyAccountModeService, PREFLIGHT_WEIGHT } from '../src/copy/copy-account-mode.service.js';
+import { CopyAccountModeService } from '../src/copy/copy-account-mode.service.js';
 import { UnitOfWork } from '../src/db/unit-of-work.js';
 import { LiveBoundaryError } from '../src/copy/live/wallet-authorization.js';
 import { accountModeTypedData, type AccountModeIntent, type AccountModeObservation } from '../src/copy/live/privy-account-mode-client.js';
@@ -14,7 +14,8 @@ import { testConfig } from './config-test-utils.js';
 import { liveBudget } from '../src/hyperliquid/hyperliquid-budget-wait.js';
 import type { RequestBudgeterService } from '../src/hyperliquid/request-budgeter.service.js';
 import { liveReadCache, resetLiveReadCaches } from '../src/copy/live/live-read-cache.js';
-import { PRIVY_IDENTITY_MAX_AGE_MS } from '../src/copy/live/privy-identity-freshness.js';
+import { PRIVY_IDENTITY_MAX_AGE_MS } from '../src/config/constants/timings.js';
+import { ATTEMPT_WEIGHT, PREFLIGHT_WEIGHT } from '../src/config/constants/weights.js';
 
 const owner = privateKeyToAccount(`0x${'01'.repeat(32)}`), master = privateKeyToAccount(`0x${'02'.repeat(32)}`), foreign = privateKeyToAccount(`0x${'03'.repeat(32)}`);
 const address = master.address.toLowerCase(), accountId = 'mode-account', key = 'mode-preparation-key-001';

@@ -3,14 +3,9 @@ import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import { outsideRequest } from "../runtime/request-context.js";
 import { HyperliquidInfoClient } from "./hyperliquid-info.client.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
+import { MARKET_CATALOG_TTL_MS } from '../config/constants/cache-ttls.js';
+import { MARKET_CATALOG_RETRY_MS, MARKET_CATALOG_WAIT_MS } from '../config/constants/hyperliquid.js';
 
-/** The catalog is re-read this often (listings change a few times a week). */
-export const MARKET_CATALOG_TTL_MS = 60 * 60_000;
-/** After a failed read the next one waits this long (the last good list
- * keeps answering meanwhile). */
-export const MARKET_CATALOG_RETRY_MS = 60_000;
-/** How long one answer waits for the first read of a new process. */
-export const MARKET_CATALOG_WAIT_MS = 2_000;
 
 /**
  * Every perp market Hyperliquid has listed: the main dex and each HIP-3

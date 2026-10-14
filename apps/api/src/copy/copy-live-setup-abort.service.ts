@@ -20,15 +20,13 @@ import { deploymentNetwork, liveExecutionEnabled } from './live-deployment.js';
 import { abortDepositSettled } from './copy-live-setup-abort-deposit.js';
 import { backoffMs, classify, FUNDING_RETRY_POLICY, type ErrorClassification } from './live/error-class.js';
 import type { DbTransaction } from '../db/unit-of-work.js';
+import { ALERT_EVERY_MS } from '../config/constants/alerts.js';
+import { NOT_DISPATCHED_RETRY_MS, REPROVE_AFTER_MS, SETUP_ABORT_BLOCKED_RECHECK_MS, SETUP_ABORT_NOT_FLAT_ESCALATE_MS } from '../config/constants/timings.js';
 
 export const SETUP_ABORT_OBSERVER = Symbol('SETUP_ABORT_OBSERVER');
 export interface SetupAbortObserver { observeSetupAbortFlat(address: string): Promise<SetupAbortFlatObservation> }
 const digest = (v: unknown) => createHash('sha256').update(JSON.stringify(v)).digest('hex');
 const issue = (value: string | null) => value && /^[a-z][a-z0-9_]{0,79}$/.test(value) ? value : null;
-/** A flat proof older than this when the refund is signed is taken again. */
-const REPROVE_AFTER_MS = 2_500;
-/** A refund that never left is tried again no sooner than this. */
-const NOT_DISPATCHED_RETRY_MS = 120_000;
 /** A failed pass whose error names no code of its own (a read that failed,
  * a stale or missing row): a wait, never a block (error-class: transient). */
 const EVIDENCE_UNAVAILABLE = 'setup_abort_evidence_unavailable';
@@ -37,20 +35,6 @@ const EVIDENCE_UNAVAILABLE = 'setup_abort_evidence_unavailable';
 const blocks = (classified: ErrorClassification) => classified.class === 'permanent' || classified.class === 'needs_owner';
 /** Whether an abort's stored issue blocks it (error-class over its code). */
 export const setupAbortIssueBlocks = (code: string | null) => code !== null && blocks(classify(new Error(code)));
-/** An abort's ALERT (a follow-up refund, or the follow-ups exhausted) is
- * logged at most once per this, per abort and kind. */
-export const SETUP_ABORT_ALERT_EVERY_MS = 10 * 60_000;
-/** The copy account proven not flat (a position, an order, margin:
- * setup_abort_proof_not_flat) waits; the same abort still not flat for more
- * than this is the owner's (setup_abort_not_flat_persistent, needs_owner).
- * Since when is kept on the row's backoff (notFlatSince); a flat proof
- * resets it. */
-export const SETUP_ABORT_NOT_FLAT_ESCALATE_MS = 30 * 60_000;
-/** A blocked abort (a permanent or the owner's issue) is looked at again
- * this often, not every 30 s: what it waits for is someone's action. The
- * same block again changes nothing (repository.defer: no revision, no
- * updatedAt); anything that moved transitions it as usual. */
-export const SETUP_ABORT_BLOCKED_RECHECK_MS = 5 * 60_000;
 const NOT_FLAT = 'setup_abort_proof_not_flat', NOT_FLAT_PERSISTENT = 'setup_abort_not_flat_persistent';
 const states = { requested: 'requested', draining: 'reconciling', waiting_credit: 'reconciling', proving: 'reconciling', returning: 'refunding',
   delegated: 'delegated', blocked: 'blocked', done: 'completed' } as const;
@@ -125,10 +109,10 @@ export class CopyLiveSetupAbortService {
   private kept(abortId: string, child: string, childId: string) {
     return (error: unknown) => { this.logger.warn(`setup abort ${abortId} ${child} ${childId} reconcile kept for the next pass ${JSON.stringify(errorLogFields(error))}`); };
   }
-  /** `ALERT setup_abort <kind>`, rate-limited (SETUP_ABORT_ALERT_EVERY_MS). */
+  /** `ALERT setup_abort <kind>`, rate-limited (ALERT_EVERY_MS). */
   private alert(row: SetupAbortRow, kind: 'residual_return' | 'residual_cap' | 'not_flat', fields: Record<string, unknown>) {
     const key = `${row.id}:${kind}`, at = this.now(), last = this.alerted.get(key);
-    if (last !== undefined && at - last < SETUP_ABORT_ALERT_EVERY_MS) return;
+    if (last !== undefined && at - last < ALERT_EVERY_MS) return;
     this.alerted.set(key, at);
     this.logger.error(`ALERT setup_abort ${kind} ${JSON.stringify({ abortId: row.id, setupId: row.setupId, accountId: row.accountId, network: row.network, ...fields })}`);
   }

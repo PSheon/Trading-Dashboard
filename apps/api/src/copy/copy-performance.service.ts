@@ -8,18 +8,12 @@ import { safeErrorText } from "../runtime/safe-error-text.js";
 import { deploymentNetwork } from "./live-deployment.js";
 import type { LiveAccountSnapshot } from "./live/live-account-observer.js";
 import { mapLiveAccountView } from "./live/live-account-view.js";
-import { CopyMarketService, MIDS_TTL_MS } from "./copy-market.service.js";
+import { CopyMarketService } from './copy-market.service.js';
 import { wire } from "./copy.mappers.js";
 import { strategyValue } from "./copy-planner.service.js";
 import { CopyRepository } from "./copy.repository.js";
+import { ACTUAL_FRESH_MS, COPY_SNAPSHOT_INTERVAL_MS, FRESH_MS, MIDS_TTL_MS } from '../config/constants/cache-ttls.js';
 
-export const COPY_SNAPSHOT_INTERVAL_MS = 60_000;
-const FRESH_MS = 2 * COPY_SNAPSHOT_INTERVAL_MS;
-/** An actual copy is valued at each stored observation of its account, which
- * the follower collector takes at most every two minutes per account (five
- * while testnet orders are busy), not every minute: a gap up to this is not a
- * hole in its history. */
-export const ACTUAL_FRESH_MS = 6 * COPY_SNAPSHOT_INTERVAL_MS;
 /** The portfolio chart's resolution: about this many intervals per window. */
 export const PORTFOLIO_POINTS = 120;
 export const SPARKLINE_POINTS = 48;

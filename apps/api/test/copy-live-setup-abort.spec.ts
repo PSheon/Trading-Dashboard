@@ -168,7 +168,6 @@ it('an original attempted builder outcome still reconciles after the abort barri
   expect(await repository.builder(1, operation.id)).toMatchObject({ state: 'accepted', attemptedAt });
 });
 
-
 it('a late driver cannot rewrite the setup or acquire a new lease after the durable abort', async () => {
   await installAbort();
   const repository = new CopyLiveSetupRepository(db), row = await repository.find(1, setupId);

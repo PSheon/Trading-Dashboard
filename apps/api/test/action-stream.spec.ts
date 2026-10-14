@@ -24,7 +24,7 @@ import { openSse, type SseConnection } from "./sse-test-client.js";
 
 const WHALE = "0x" + "aa".repeat(20);
 const OTHER = "0x" + "bb".repeat(20);
-const DEADLINE_MS = 300;
+const LIVE_EVIDENCE_MAX_AGE_MS = 300;
 
 /** A normal route, to show the deadline the stream is exempt from. */
 @Public()
@@ -32,7 +32,7 @@ const DEADLINE_MS = 300;
 class SlowProbeController {
   @Get("slow")
   async slow() {
-    await new Promise((resolve) => setTimeout(resolve, DEADLINE_MS * 3));
+    await new Promise((resolve) => setTimeout(resolve, LIVE_EVIDENCE_MAX_AGE_MS * 3));
     return { late: true };
   }
 }
@@ -89,7 +89,7 @@ describe("GET /actions/stream (SSE) — real Postgres", () => {
         },
       ],
       // main.ts's middleware, with a short deadline.
-      beforeListen: (a) => a.use(requestContext(jobs, DEADLINE_MS)),
+      beforeListen: (a) => a.use(requestContext(jobs, LIVE_EVIDENCE_MAX_AGE_MS)),
     }));
     streams = app.get(ActionStreamService);
     events = app.get(EventEmitter2);
@@ -358,7 +358,7 @@ describe("GET /actions/stream (SSE) — real Postgres", () => {
   it("is exempt from the request deadline that ends other routes", async () => {
     await request(app.getHttpServer()).get("/probe/slow").expect(504);
     const conn = await sse("/actions/stream");
-    await new Promise((resolve) => setTimeout(resolve, DEADLINE_MS * 3));
+    await new Promise((resolve) => setTimeout(resolve, LIVE_EVIDENCE_MAX_AGE_MS * 3));
     const [late] = await create(row());
     await conn.waitFor(() => conn.events("action").some((e) => e.id === String(late.id)));
     expect(streams.stats().total).toBe(1);

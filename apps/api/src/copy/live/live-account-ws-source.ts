@@ -142,11 +142,8 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
    * One clock sample per all-venue state message: our clock when the frame
    * arrived (taken first in the socket's message handler, before parsing)
    * minus the latest provider `time` in it. Only socket frames are sampled,
-   * outside the meter and the budget: a sample taken once the whole read was
-   * validated carried every wait after the frame (the order batches, the
-   * meter's queue) and inflated the estimate (2026-10-13 08:22: "ahead by
-   * about 3748 ms" with the host in sync to 0.1 s), which then shrank the
-   * fast source's certified window and alerted for nothing.
+   * outside the meter and the budget: sampling after validation counted the
+   * waits after the frame and inflated the skew (2026-10-13 08:22).
    */
   private sampleClock(data: unknown, receivedAt: number): void {
     try {

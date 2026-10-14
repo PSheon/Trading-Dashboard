@@ -58,16 +58,13 @@ const BUDGET_CODES: ReadonlyMap<string, number | undefined> = new Map([
   // (networkUnreachable). Nothing was learned and nothing is wrong with the
   // operation: it waits, backed off per row, and never counts as an attempt.
   ['funding_explorer_unreachable', undefined],
-  // The live-risk scope's advisory try-lock was busy (postgres-live-risk-scope):
-  // nothing was read, reserved or sent. Gate 2026-10-13 11:15 (7th run): it
-  // counted as an attempt, and the leg was refused with it once the signal aged.
+  // The live-risk scope's advisory try-lock was busy: nothing was read,
+  // reserved or sent, so it is not an attempt (gate 2026-10-13 11:15).
   ['live_risk_busy', LIVE_RISK_BUSY_RETRY_MS],
 ]);
 /** Codes that wrap what failed underneath (`cause`): a wait underneath (the
- * shared meter refused a socket connect or a read) makes them a wait too.
- * Gate 2026-10-13 11:15: an order's follower observation was refused its
- * connect (`hyperliquid_quota_exhausted`), surfaced as
- * `live_account_observation_unavailable` and counted as a failed attempt. */
+ * shared meter refused a socket connect or a read) makes them a wait too
+ * (gate 2026-10-13 11:15). */
 const WRAPPING_CODES: ReadonlySet<string> = new Set(['live_account_observation_unavailable']);
 /** A failed provider read (it opened a socket or spent weight): its retry is
  * spaced (liveRetryDelayMs), so a burst of them can't use up the 30 new
@@ -104,14 +101,10 @@ const NEEDS_OWNER_CODES: ReadonlySet<string> = new Set([
 const TRANSIENT_WAIT_CODES: ReadonlySet<string> = new Set([
   'setup_abort_evidence_unavailable', 'setup_abort_proof_stale', 'setup_abort_proof_not_flat', 'setup_abort_lease_changed', 'setup_abort_unavailable',
 ]);
-/**
- * A Privy identity proof that aged past PRIVY_IDENTITY_MAX_AGE_MS before its
- * decision (a slow link to Privy): nothing was signed or sent, and the next
- * proof may pass. A wait with backoff (transient, counted); at the caller's
- * limit it is not a failure but `needs_owner` (IDENTITY_UNVERIFIED_ISSUE,
- * with an ALERT): the link, not the setup, is what's wrong. Gate run 8
- * (2026-10-13): agent_identity_evidence_expired every pass for 10+ minutes.
- */
+/** A Privy identity proof that aged past PRIVY_IDENTITY_MAX_AGE_MS (a slow
+ * link to Privy): nothing was signed or sent. Transient and counted; at the
+ * caller's limit it becomes `needs_owner` (IDENTITY_UNVERIFIED_ISSUE) since the
+ * link, not the setup, is what's wrong (gate run 8, 2026-10-13). */
 export const PRIVY_IDENTITY_EVIDENCE_CODES: ReadonlySet<string> = new Set([
   'agent_identity_evidence_expired', 'account_mode_identity_evidence_expired', 'funding_identity_evidence_expired',
 ]);
@@ -189,7 +182,6 @@ export function exhausted(classified: ErrorClassification, attempts: number, lim
   return classified.class === 'transient' && classified.exhausts !== false && attempts >= limit;
 }
 
-
 /**
  * THE retry policy of a live step (a copy leg, a stop or close, a setup
  * step): how a failure of each class is tried again. One table, so a leg,
@@ -249,8 +241,8 @@ type RetryDecision =
  *   is still unknown) it is `end`, or `owner` for a code exhausted as such.
  *   Otherwise `retry` after the back-off; a failed provider read
  *   (PROVIDER_READ_FAILURES, a meter refusal code) waits at least
- *   PROVIDER_READ_RETRY_MS whatever the back-off (gate 2026-10-13 11:16:
- *   a step that failed its read looped into a full connect window).
+ *   PROVIDER_READ_RETRY_MS whatever the back-off, so failed reads can't
+ *   loop into a full connect window (gate 2026-10-13 11:16).
  */
 export function decideRetry(error: unknown, priorAttempts: number, policy: RetryPolicy): RetryDecision {
   const classified = classify(error), code = classified.code ?? '';

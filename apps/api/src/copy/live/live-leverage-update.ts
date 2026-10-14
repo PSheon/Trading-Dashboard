@@ -133,10 +133,8 @@ export class LiveLeverageUpdater {
       signature = await signL1Action({ action: { ...action }, nonce, expiresAfter, isTestnet: this.network === 'testnet', wallet: this.wallet(target, request, signer, action, nonce, expiresAfter, v => { verified = v; }) });
     } catch (error) {
       // Nothing was sent: the update is refused, never retried under this nonce.
-      // The SDK wraps the wallet's error in its `cause`. On Stage mainnet
-      // (2026-10-12) the approval check's provider read inside it met an
-      // exhausted IP meter and the order failed as a final signing failure:
-      // a budget refusal stays a budget wait (retried), our own code stays ours.
+      // The SDK wraps the wallet's error in its `cause`: a budget refusal there
+      // stays a budget wait (retried), our own code stays ours (Stage mainnet 2026-10-12).
       const root = error instanceof LiveBoundaryError || sharedCapacityWait(error) ? error : (error as { cause?: unknown })?.cause ?? error;
       const wait = sharedCapacityWait(root), inner = !wait && root instanceof LiveBoundaryError ? root : null;
       new Logger('LiveLeverageUpdate').warn(`leverage update for ${accountAddress} ${target.coin} not signed: ${wait ? `budget wait (${wait.reason})` : inner?.code ?? safeErrorText(root)}`);

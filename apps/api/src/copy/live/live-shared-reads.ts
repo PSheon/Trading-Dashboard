@@ -40,9 +40,8 @@ export const accountModeBodies = (user: string) => [{ type: 'userRole', user }, 
  * alone. Its role and modes are its own choice, never read (2026-10-12). */
 export const leaderBodies = (leader: string) => [{ type: 'spotClearinghouseState', user: leader }];
 /** What of a leader's spot state an order goes on: only that it is not
- * portfolio margin. Its balances move with every trade it makes, so the whole
- * answer failed every order of an active leader's copy twice (Stage mainnet
- * 2026-10-12: a SOL open sent 32.7 s late). */
+ * portfolio margin. Its balances move with every trade, so comparing the whole
+ * answer failed active leaders' copies (Stage mainnet 2026-10-12). */
 const leaderComparison = (leaders: readonly string[]) => {
   const set = new Set(leaders.map(l => l.toLowerCase()));
   return (body: Readonly<Record<string, unknown>>) => body.type === 'spotClearinghouseState' && typeof body.user === 'string' && set.has(body.user.toLowerCase())
@@ -50,10 +49,8 @@ const leaderComparison = (leaders: readonly string[]) => {
 };
 /** What of the dex list an order goes on: the dex names in order (the index
  * is the asset id's prefix, live-market-resolver.ts), as
- * copy-account-mode-evidence.ts compares it. Per-dex market parameters
- * (funding interest rates, streaming OI caps) move on their own, and the
- * whole answer refused about 1 open in 30 on mainnet (probe 2026-10-14:
- * `mkts` assetToFundingInterestRate changed in 1.5 s). */
+ * copy-account-mode-evidence.ts compares it. Per-dex market parameters move
+ * on their own (~1 open in 30 refused, probe 2026-10-14). */
 const perpDexNames = (value: unknown) => Array.isArray(value)
   ? value.map(row => row !== null && typeof row === 'object' ? (row as { name?: unknown }).name : row) : value;
 /** The final check's comparison: the dex names, and a leader's portfolio-margin flag. */
@@ -114,8 +111,7 @@ const MAX_BATCH_BODIES = 16;
  * evidence an owner can need, `maxStrategiesPerUser` live accounts (at most
  * MAX_LIVE_ACCOUNTS_PER_OWNER) plus the leader, must fit the bucket's live
  * capacity, or every one of that owner's orders would wait for a weight the
- * bucket can never hold (Stage 2026-10-06: COPY_LIVE_WEIGHT_PER_MIN=700 left
- * 500, and every order of an owner with three accounts timed out).
+ * bucket can never hold (Stage 2026-10-06).
  * Throws a clear error to refuse startup; returns the numbers otherwise.
  */
 export function assertLiveEvidenceCapacity({ capacity, maxStrategiesPerUser, network, budgetPerMin }:

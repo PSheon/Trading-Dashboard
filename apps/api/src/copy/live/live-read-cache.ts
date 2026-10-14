@@ -2,10 +2,8 @@ import { isDeepStrictEqual } from 'node:util';
 import type { HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 
 /**
- * Evidence reads that do not change between orders, kept across them (the
- * order evidence of 2026-10-12 read 589 weight an order, 200 of each
- * account's 204 for facts that never or rarely change: one order every two
- * minutes in a 300/min bucket, and two owners queued past their signals).
+ * Evidence reads that do not change between orders, kept across them (most
+ * of an order's evidence weight was facts that rarely change, 2026-10-12).
  *
  * Only these are kept, and only while they hold the value an order may go
  * on, so a refusal is never remembered and an unusual value is read anew

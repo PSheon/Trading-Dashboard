@@ -72,12 +72,9 @@ export function decodeLiveSettlementProof(raw: unknown, claimedDigest: string): 
 }
 
 /**
- * Verified settlement proofs by content digest, bounded (least recently used
- * first out). Every settled order's proof was re-assessed by every projection
- * of every later order (its preparation's and each risk gate check's, about
- * fourteen), so each order took ~100 ms longer per settled order before it
- * until the copy's orders outlived the 5 s evidence window (CI 2026-10-13:
- * live_risk_stale at the final check, the order never placed).
+ * Verified settlement proofs by content digest, bounded (LRU). Without it every
+ * projection re-assessed every earlier settled proof, and orders outgrew the
+ * 5 s evidence window (CI 2026-10-13).
  *
  * Sound because decoding is a pure function of the proof's content: capture()
  * reads no clock, configuration or database (the assessment's `now` is the

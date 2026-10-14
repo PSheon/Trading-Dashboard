@@ -216,40 +216,10 @@ Before connecting a live worker, implement and verify all of these dependencies:
 These are integration prerequisites, not implemented production readiness. No
 live/testnet execution mode has been enabled by this boundary work.
 
-## Why the sweep back to the main wallet is not automatic (2026-10-05)
+## Automatic return (stream 13, 2026-10-05)
 
-CopyDog's help says stopping a copy closes its positions and sweeps
-everything back to the main wallet. Orbie closes automatically but stops at
-`stop_awaiting_return_to_main_wallet` until the owner signs the return. The
-missing piece is authority, not code:
-
-- The funds sit on the copy's Hyperliquid account, whose key is a Privy
-  wallet the owner alone owns (`PrivyWalletProvisioner`: owner `user_id`,
-  no additional signer; provisioning verifies `additional_signers` is empty
-  and the owner quorum holds exactly that user, no authorization keys).
-- A transfer out of that account is a `usdSend` signed by the account
-  itself. The worker's agent (API wallet) can trade and reduce but
-  Hyperliquid does not let an agent transfer or withdraw funds.
-- So the return is signed by the account wallet itself in the owner's
-  browser (Privy's `signTypedData` with that wallet's address, silently)
-  next to the owner's main wallet's consent to the exact transfer; the api
-  checks the signature recovers to the account for exactly that payload
-  (`master-action.ts`) before it sends anything. (Until 2026-10-06 the
-  server signed with the owner's session JWT, `user_jwts`; Privy refuses
-  that exchange for this app, so that path is gone.)
-
-Making the sweep automatic safely needs a server signer on the account
-wallet that can sign only that transfer: a Privy key quorum (the worker's
-authorization key) added as an additional signer on each copy account
-wallet, with a Privy policy allowing only `HyperliquidTransaction:UsdSend`
-whose destination is the owner's main wallet (and nothing else), added with
-the owner's consent when the copy account is created, and the provisioning
-checks above relaxed to expect exactly that signer and policy. Until then
-the portfolio shows "Return everything" as soon as the stop is flat.
-
-### Automatic return (stream 13, 2026-10-05)
-
-That design is now on `dev`, dormant until it is switched on:
+A copy account's funds return to the owner's main wallet signed by the
+worker quorum (an agent cannot transfer funds). Off unless switched on:
 
 - `privy-master-policy.ts`: the owner-owned policy (testnet `UsdSend` only to
   the owner's main wallet, exact lowercase; the account's own
@@ -270,27 +240,15 @@ That design is now on `dev`, dormant until it is switched on:
   checking the type, the bound values (chain, destination) and the wallet's
   signers. The stopper's `CopyLiveAutoReturn` reserves `sweep:<stop id>` for
   everything withdrawable once flat, signs and sends it once; idle
-  withdrawals on such accounts need no owner consent. Legacy accounts keep
-  `stop_awaiting_return_to_main_wallet` and the signed return.
+  withdrawals on such accounts need no owner consent. Accounts without the
+  signer stop at `stop_awaiting_return_to_main_wallet`.
 
 Prototype on the Stage Dev Privy app: see
 `docs/one-click-copy-plan-2026-10-05.md`, "Prototype results".
 
-### Owner-signed actions in the browser (stream 19, 2026-10-06)
+## Copy-account signing (2026-10-07, 6ba83d01)
 
-Every action a copy account signs "as the owner" (a one-click setup's
-standard account mode, agent approval and builder fee; returns to the main
-wallet; the Settings account-mode and agent approvals) is signed in the
-owner's browser with the copy account (`WalletSigner.signAsAccount`, only
-for one of the signed-in user's own Privy wallets), never by the server
-with a user JWT. The api prepares the exact typed data and its EIP-712
-digest (`masterActionRequest`: a setup parks it as `pendingSignature`, the
-challenges return it as `masterAction`), and takes the signature only when
-it recovers to the copy account for exactly that payload, still bound to
-the consented values (`masterSignatureRefusal`); a setup's step then runs
-with it exactly as before (same preflights, nonces and never-resend rules).
-Refusals are specific: `owner_signature_not_requested`, `_stale`,
-`_expired`, `_invalid`, `_malformed` on `/advance`, and
-`master_signature_invalid` / `account_mode_master_signature_invalid` /
-`agent_master_signature_invalid` on the approvals.
-
+Every action a copy account signs (setup account mode, agent approval,
+builder fee, returns) is signed by the worker quorum under the owner's own
+Privy policy (`PrivyPolicyMasterSigner`). The browser signs only the setup
+consent, the deposit from the main wallet and `addSigners`.

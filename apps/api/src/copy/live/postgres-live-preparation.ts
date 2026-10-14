@@ -215,11 +215,9 @@ export class PostgresLivePreparation {
     const seedCarry = !carry;
     if (!carry) {
       riskSourceRequire(!currentManifest.journals.some(v => v.journal.record && (v.journal.record as unknown as LiveExecutionRecord).market?.coin === source.fill.coin), 'live_preparation_carry_missing');
-      // Seeded at the manifest's own check time, not planningAt: with an
-      // earlier order's manifest (checked before planning) a later time
-      // failed the proof's updatedAt <= checkedAt, refusing every open of a
-      // coin the copy had not traded yet (Stage mainnet 2026-10-12: BTC after
-      // SOL, live_generation_unproven). The row is stored with the same time.
+      // Seeded at the manifest's own check time, not planningAt: a later time
+      // fails the proof's updatedAt <= checkedAt for a coin the copy has not
+      // traded yet (Stage mainnet 2026-10-12). The row is stored with the same time.
       carry = { mandateId: binding.mandateId, coin: source.fill.coin, carry: '0', revision: 1, updatedAt: new Date(currentManifest.checkedAt).toISOString() };
     }
     const seeded: LiveGenerationManifestV1 = { ...currentManifest, carry: seedCarry ? [...currentManifest.carry, carry] : currentManifest.carry };

@@ -84,11 +84,10 @@ export interface LiveGenerationManifestV1 {
 }
 
 /** The manifest an order's sizing envelope retains: each settled order's
- * settlement proof by its digest only (settlementProofDigest stays). A proof
- * is immutable, content-addressed evidence kept in copy_live_execution_evidence;
- * inline, every settled order added its whole account snapshot to every later
- * envelope until the 2 MiB bound refused every order (O1). Replay supplies the
- * proofs by digest (settlementProofs), so the projection is unchanged. */
+ * settlement proof by its digest only (settlementProofDigest stays), since
+ * inline proofs grew envelopes past the 2 MiB bound (O1). Proofs are immutable,
+ * content-addressed rows in copy_live_execution_evidence; replay supplies them
+ * by digest (settlementProofs), so the projection is unchanged. */
 export function compactLiveGenerationManifest(manifest: LiveGenerationManifestV1): LiveGenerationManifestV1 {
   return { ...manifest, journals: manifest.journals.map(entry => {
     if (!entry.evidence?.settlementProofDigest || entry.evidence.settlementProof === undefined || entry.evidence.settlementProof === null) return entry;
@@ -142,9 +141,8 @@ function deepFrozen(value:unknown):boolean{
   return true;
 }
 function unproven(error:unknown):never{
-  // Which of the proof's checks failed: its line in this module (no values).
-  // Every refusal read only live_generation_unproven (Stage mainnet
-  // 2026-10-12, the copy's second order, 16 attempts).
+  // Which of the proof's checks failed: its line in this module (no values;
+  // Stage mainnet 2026-10-12).
   const at=error instanceof Error?(error.stack??'').split('\n').find(line=>line.includes('copy-live-generation-projection')&&!/at (requireGeneration|same|millis|keys|unproven) /.test(line))?.match(/:(\d+):\d+\)?$/)?.[1]:undefined;
   new Logger('LiveGenerationProjection').warn(`live_generation_unproven at line ${at??'unknown'}${error instanceof LiveBoundaryError?'':` (${error instanceof Error?error.name:'error'})`}`);
   throw new LiveBoundaryError('live_generation_unproven');

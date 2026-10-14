@@ -23,10 +23,8 @@ export interface LiveMarketResolver {
 }
 /** Runs `start()` with a deadline. The timeout is computed first (a lazy
  * `remaining()` may throw once the evidence window has passed), and only
- * then is the work started, with its rejection handled at once. Passing an
- * already started promise was the crash class: `boundedLiveRead(acquire(),
- * remaining())` started the read, `remaining()` threw before the helper was
- * entered, and the orphaned read's later rejection was unhandled. */
+ * then is the work started, so a throwing timeout never orphans a started
+ * read whose later rejection would go unhandled. */
 export async function boundedLiveRead<T>(start: () => PromiseLike<T> | T, timeout: number | (() => number)): Promise<T> {
   if (typeof start !== 'function') throw new LiveBoundaryError('live_read_invalid');
   const timeoutMs = typeof timeout === 'function' ? timeout() : timeout;

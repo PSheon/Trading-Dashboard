@@ -151,9 +151,6 @@ export class PostgresLiveReservations {
     const grant = assertWalletAuthorization(current, input.intent, this.now());
     check(grant.version === input.identity.authorizationVersion, 'wallet_authorization_changed'); assertSameAuthorization(record.authorization, grant);
   }
-  /** This is the local budget binding, not a source/sizing certificate. The
-   * trusted producer independently rederives the complete canonical source leg
-   * and sizing basis before this DAL may assess actual collateral. */
   /** The provenance's mandate and its bindings, by the journal key (the
    * record's: checked equal to the input intent's key by `journal`). */
   private actualBudgetRead(db: DbExecutor, key: string) {

@@ -1,0 +1,170 @@
+MAINNET EVIDENCE PROBE, SECOND RUN: WHICH OBSERVATION CHANGED  (2026-10-14, branch feat/probe-observation-diff)
+
+Why: the first run (mainnet-evidence-probe-2026-10-14.txt) refused 2/20 open epochs with
+live_account_observation_changed without saying which read changed. The probe now records, on that
+refusal, the epoch's own LiveReadComparisonError.changedReads (production's comparison,
+live-shared-reads.ts `unchanged`, the final check evidenceFinalCheck: userRole / userAbstraction /
+userDexAbstraction / spotClearinghouseState per account, the leader's spotClearinghouseState by
+portfolioMarginEnabled alone, and perpDexs) and, from the raw answers its fetch saw, which account's
+answer differed (follower / leader / '-' = account-independent) and where: key paths only, never values.
+No production code changed. Run: 32 open epochs (ratio: leader included, leverage checked), no close
+runs, no fill-lag part; read-only (info POSTs and WS subscriptions only), isolated DB via local-db-test.sh,
+db rtt 8 ms, pace 65 s.
+
+RESULT: 30/32 ok.
+  #32 live_account_observation_changed: changedReads [perpDexs] (ACCOUNT-INDEPENDENT).
+      Only difference between the first wave's and the final check's perpDexs answer (~1.5 s apart):
+      [mkts].assetToFundingInterestRate[mkts:BVIV][1]  (HIP-3 dex `mkts`, the funding interest rate of
+      its BVIV asset). No account-specific read changed in any run.
+  #22 live_account_evidence_expired (NOT an observation change: the account observer's freshness check,
+      live-account-observer.ts fresh / freshProvider, refused during account snapshots; the probe does
+      not record which timestamp; not investigated here).
+  observation changes over both runs: run 1 (20 epochs) 2, unattributed (pre-diagnostic);
+  run 2 (32 epochs) 1, perpDexs.
+
+Reading: perpDexs carries per-dex market parameters that move on their own (assetToFundingInterestRate
+here; assetToStreamingOiCap is the same kind of field). Production compares the whole perpDexs answer,
+so any such change on any of the 11 dexes between first wave and final check refuses a real mainnet
+order with live_account_observation_changed, regardless of the account. Observed rate here: 1 in 32
+epochs; the first run's 2/20 are consistent with it but were not attributed.
+
+Full report of this run:
+
+MAINNET EVIDENCE PROBE  2026-10-14T12:08:19.679Z  (read-only; db rtt 8 ms, pace 65000 ms)
+  follower 0x13d2c8cd96bc7ecbdb8800874d20f51588b6d43c  leader 0x2e30c32738a28833e3d85189c04895c25ee54cb5  coin ETH
+
+CASE open: 30/32 runs ok; errors: #22 live_account_evidence_expired, #32 live_account_observation_changed
+  per run: run  collect  age  preclock  quotaInClock(n/tx/wall)  rest(n/w)  ws(sock/sub/frames)  dexes  stages
+     1 ok    1405  1325    80   11/642/648       19/388    2/24/48       11  local_authority=23 budget=1 leverage_preview=177 first_wave=295 account_snapshots=598 other_markets=127 final_modes=162 final_authority=22
+     2 ok    1359  1283    76   12/608/613       12/168    2/24/48       11  local_authority=20 budget=1 leverage_preview=229 first_wave=261 account_snapshots=588 other_markets=123 final_modes=115 final_authority=21
+     3 ok    1538  1459    79   11/615/620       12/168    2/24/50       11  local_authority=21 budget=0 leverage_preview=203 first_wave=437 account_snapshots=604 other_markets=127 final_modes=121 final_authority=24
+     4 ok    1331  1253    78   11/636/640       12/168    2/24/48       11  local_authority=22 budget=0 leverage_preview=197 first_wave=224 account_snapshots=609 other_markets=124 final_modes=126 final_authority=29
+     5 ok    1283  1210    73   11/629/633       12/168    2/24/48       11  local_authority=21 budget=0 leverage_preview=141 first_wave=171 account_snapshots=645 other_markets=127 final_modes=149 final_authority=28
+     6 ok    1819  1734    85   11/644/647       17/268    2/24/48       11  local_authority=25 budget=1 leverage_preview=188 first_wave=184 account_snapshots=700 other_markets=141 final_modes=554 final_authority=26
+     7 ok    1205  1124    81   11/630/634       12/168    2/24/48       11  local_authority=22 budget=1 leverage_preview=164 first_wave=144 account_snapshots=573 other_markets=137 final_modes=138 final_authority=26
+     8 ok    1295  1211    84   11/621/626       12/168    2/24/48       11  local_authority=22 budget=0 leverage_preview=189 first_wave=190 account_snapshots=560 other_markets=121 final_modes=186 final_authority=26
+     9 ok    1273  1190    83   11/611/616       12/168    2/24/48       11  local_authority=21 budget=0 leverage_preview=160 first_wave=152 account_snapshots=642 other_markets=123 final_modes=148 final_authority=25
+    10 ok    1387  1304    83   11/625/628       12/168    2/24/48       11  local_authority=26 budget=1 leverage_preview=157 first_wave=195 account_snapshots=698 other_markets=128 final_modes=158 final_authority=24
+    11 ok    1315  1229    86   11/633/636       17/268    2/24/48       11  local_authority=24 budget=1 leverage_preview=187 first_wave=180 account_snapshots=636 other_markets=124 final_modes=136 final_authority=26
+    12 ok    1381  1300    81   11/621/622       12/168    2/24/48       11  local_authority=20 budget=0 leverage_preview=209 first_wave=212 account_snapshots=614 other_markets=139 final_modes=162 final_authority=25
+    13 ok    1269  1188    81   11/614/614       12/168    2/24/48       11  local_authority=23 budget=0 leverage_preview=165 first_wave=196 account_snapshots=583 other_markets=142 final_modes=135 final_authority=26
+    14 ok    1300  1219    81   12/655/663       12/168    2/24/48       11  local_authority=21 budget=0 leverage_preview=172 first_wave=192 account_snapshots=624 other_markets=136 final_modes=126 final_authority=28
+    15 ok    1302  1220    82   11/627/628       12/168    2/24/48       11  local_authority=23 budget=0 leverage_preview=291 first_wave=148 account_snapshots=542 other_markets=152 final_modes=124 final_authority=21
+    16 ok    1258  1179    79   11/646/648       17/268    2/24/48       11  local_authority=22 budget=1 leverage_preview=194 first_wave=197 account_snapshots=550 other_markets=138 final_modes=127 final_authority=28
+    17 ok    1320  1240    80   11/620/625       12/168    2/24/48       11  local_authority=23 budget=1 leverage_preview=181 first_wave=176 account_snapshots=589 other_markets=135 final_modes=186 final_authority=29
+    18 ok    1322  1244    78   11/619/622       12/168    2/24/48       11  local_authority=23 budget=0 leverage_preview=249 first_wave=164 account_snapshots=564 other_markets=138 final_modes=155 final_authority=28
+    19 ok    1339  1256    83   11/637/640       12/168    2/24/48       11  local_authority=24 budget=1 leverage_preview=185 first_wave=162 account_snapshots=652 other_markets=135 final_modes=153 final_authority=26
+    20 ok    1275  1197    78   11/616/619       12/168    2/24/48       11  local_authority=22 budget=0 leverage_preview=164 first_wave=155 account_snapshots=606 other_markets=123 final_modes=174 final_authority=31
+    21 ok    2867  2792    75   11/623/627       17/268    2/24/48       11  local_authority=21 budget=0 leverage_preview=237 first_wave=767 account_snapshots=1024 other_markets=367 final_modes=419 final_authority=32
+    22 ERR   1217  1143    74   10/515/518       8/124     2/24/48       –  local_authority=22 budget=0 leverage_preview=210 first_wave=178  live_account_evidence_expired
+    23 ok    1774  1693    81   11/637/642       12/168    2/24/48       11  local_authority=23 budget=1 leverage_preview=293 first_wave=390 account_snapshots=656 other_markets=184 final_modes=205 final_authority=21
+    24 ok    1835  1754    81   11/636/639       12/168    2/24/48       11  local_authority=22 budget=1 leverage_preview=287 first_wave=225 account_snapshots=840 other_markets=234 final_modes=198 final_authority=27
+    25 ok    1577  1498    79   11/642/647       12/168    2/24/48       11  local_authority=23 budget=1 leverage_preview=216 first_wave=283 account_snapshots=712 other_markets=157 final_modes=157 final_authority=28
+    26 ok    1483  1396    87   12/632/636       17/268    2/24/48       11  local_authority=23 budget=1 leverage_preview=188 first_wave=270 account_snapshots=573 other_markets=185 final_modes=214 final_authority=28
+    27 ok    1419  1336    83   12/669/675       12/168    2/24/48       11  local_authority=24 budget=0 leverage_preview=179 first_wave=166 account_snapshots=687 other_markets=153 final_modes=182 final_authority=27
+    28 ok    1357  1270    87   11/650/655       12/168    2/24/48       11  local_authority=23 budget=1 leverage_preview=195 first_wave=205 account_snapshots=635 other_markets=148 final_modes=130 final_authority=20
+    29 ok    1965  1887    78   12/656/659       14/288    2/24/48       11  local_authority=23 budget=0 leverage_preview=314 first_wave=265 account_snapshots=992 other_markets=142 final_modes=202 final_authority=27
+    30 ok    1448  1375    73   11/688/692       12/168    2/24/48       11  local_authority=21 budget=0 leverage_preview=192 first_wave=192 account_snapshots=726 other_markets=158 final_modes=129 final_authority=29
+    31 ok    1353  1278    75   11/608/609       17/268    2/24/48       11  local_authority=21 budget=0 leverage_preview=172 first_wave=191 account_snapshots=578 other_markets=172 final_modes=193 final_authority=26
+    32 ERR   1708  1626    82   11/650/651       12/168    2/24/48       –  local_authority=23 budget=1 leverage_preview=431 first_wave=250 account_snapshots=691 other_markets=131  live_account_observation_changed
+  observation changes (1):
+    #32 changed perpDexs = perpDexs/- (account-independent): [mkts].assetToFundingInterestRate[mkts:BVIV][1]
+    by read: perpDexs/- (account-independent) ×1
+  p50 / p95 / max over ok runs:
+    collect total (ms)               1353 / 1965 / 2867
+    evidence age at return (ms)      1270 / 1887 / 2792   (clock start = first wave dispatch → collect returns)
+    before the clock (ms)            81 / 87 / 87
+    stage epoch_local_authority      22 / 25 / 26
+    stage epoch_budget               0 / 1 / 1
+    stage epoch_leverage_preview     188 / 293 / 314
+    stage epoch_first_wave           192 / 437 / 767
+    stage epoch_account_snapshots    614 / 992 / 1024
+    stage epoch_other_markets        138 / 234 / 367
+    stage epoch_final_modes          155 / 419 / 554
+    stage epoch_final_authority      26 / 31 / 32
+    quota SQL in clock: requests     11 / 12 / 12
+    quota SQL in clock: Σ tx ms      630 / 669 / 688
+    quota SQL in clock: Σ queue ms   317 / 371 / 387
+    quota SQL in clock: Σ lock ms    117 / 125 / 128
+    quota SQL in clock: wall ms      634 / 675 / 692   (union of queue+tx)
+      rest           n 3 / 4 / 4  tx ms 171 / 181 / 182
+      connect        n 2 / 2 / 2  tx ms 115 / 133 / 133
+      subscribe      n 2 / 2 / 2  tx ms 109 / 122 / 125
+      opened         n 2 / 2 / 2  tx ms 106 / 115 / 117
+      closed         n 2 / 2 / 2  tx ms 129 / 148 / 157
+    quota SQL before clock: n / tx / wall   1 / 1 / 1 | 56 / 62 / 62 | 56 / 62 / 62
+    REST requests                    12 / 17 / 19
+    REST weight                      168 / 288 / 388
+      meta                     20 / 20 / 20
+      activeAssetData          40 / 40 / 40
+      userAbstraction          0 / 40 / 40
+      perpDexs                 40 / 40 / 40
+      spotClearinghouseState   8 / 8 / 8
+      userFees                 0 / 20 / 20
+      allPerpMetas             20 / 20 / 20
+      spotMeta                 20 / 20 / 20
+      userDexAbstraction       0 / 40 / 40
+      userRole                 0 / 120 / 120
+      metaAndAssetCtxs         20 / 20 / 20
+    WS sockets                       2 / 2 / 2
+    WS subscribes / unsubscribes     24 / 24 / 24 | 0 / 0 / 0
+    WS commands out                  24 / 24 / 24
+    WS messages in                   48 / 48 / 50
+    WS bytes in                      16080 / 16723 / 20845
+    dexes (perpDexs venues)          11
+    fill-index lag reads (ms)        0 / 0 / 0   (none in the evidence path)
+    boundary reads after collect (ms) 398 / 588 / 705   (extraAgents ×2, maxBuilderFee; each one meter request)
+      extraAgents              133 / 322 / 429   (slowest of the run)
+      maxBuilderFee            134 / 194 / 263   (slowest of the run)
+      quota SQL: Σ tx / wall ms      199 / 214 / 216 | 199 / 214 / 216
+    provider age: clock → last boundary read (ms)  1706 / 2298 / 3318
+    spans (count | Σ ms | max ms):
+      quota_rest_queue                   7 / 7 / 7 | 0 / 1 / 1 | 0 / 1 / 1
+      quota_rest_tx                      7 / 7 / 7 | 427 / 444 / 445 | 74 / 78 / 78
+      rest_wave_quota                    4 / 4 / 4 | 228 / 242 / 243 | 61 / 64 / 65
+      quota_rest_lock                    7 / 7 / 7 | 78 / 81 / 81 | 12 / 14 / 14
+      rest_wave_http                     4 / 4 / 4 | 397 / 771 / 1535 | 140 / 492 / 702
+      observer_rest:follower             1 / 1 / 1 | 255 / 447 / 781 | 255 / 447 / 781
+      observer_rest:leader               1 / 1 / 1 | 255 / 447 / 781 | 255 / 447 / 781
+      observer_ws:follower               1 / 1 / 1 | 492 / 731 / 816 | 492 / 731 / 816
+      quota_connect_queue:follower       1 / 1 / 1 | 1 / 1 / 2 | 1 / 1 / 2
+      ws_reserve:follower                1 / 1 / 1 | 62 / 76 / 77 | 62 / 76 / 77
+      quota_connect_tx:follower          1 / 1 / 1 | 61 / 75 / 77 | 61 / 75 / 77
+      quota_connect_queue:leader         1 / 1 / 1 | 62 / 77 / 79 | 62 / 77 / 79
+      ws_reserve:leader                  1 / 1 / 1 | 116 / 134 / 135 | 116 / 134 / 135
+      observer_ws:leader                 1 / 1 / 1 | 552 / 970 / 1005 | 552 / 970 / 1005
+      quota_connect_lock:follower        1 / 1 / 1 | 11 / 13 / 14 | 11 / 13 / 14
+      ws_idle:follower                   1 / 1 / 1 | 0 / 0 / 0 | 0 / 0 / 0
+      quota_connect_tx:leader            1 / 1 / 1 | 53 / 58 / 60 | 53 / 58 / 60
+      ws_open:follower                   1 / 1 / 1 | 99 / 117 / 118 | 99 / 117 / 118
+      ws_subscribe_quota:follower        1 / 1 / 1 | 108 / 123 / 125 | 108 / 123 / 125
+      quota_subscribe_queue:follower     1 / 1 / 1 | 55 / 59 / 60 | 55 / 59 / 60
+      quota_connect_lock:leader          1 / 1 / 1 | 10 / 12 / 12 | 10 / 12 / 12
+      ws_idle:leader                     1 / 1 / 1 | 0 / 0 / 0 | 0 / 0 / 0
+      quota_subscribe_tx:follower        1 / 1 / 1 | 54 / 62 / 65 | 54 / 62 / 65
+      quota_subscribe_queue:leader       1 / 1 / 1 | 54 / 63 / 65 | 54 / 63 / 65
+      ws_open:leader                     1 / 1 / 1 | 102 / 127 / 127 | 102 / 127 / 127
+      ws_subscribe_quota:leader          1 / 1 / 1 | 110 / 123 / 126 | 110 / 123 / 126
+      quota_subscribe_lock:follower      1 / 1 / 1 | 10 / 13 / 14 | 10 / 13 / 14
+      quota_opened_queue:follower        1 / 1 / 1 | 66 / 74 / 84 | 66 / 74 / 84
+      ws_first_message:follower          1 / 1 / 1 | 60 / 166 / 198 | 60 / 166 / 198
+      ws_messages:follower               1 / 1 / 1 | 196 / 378 / 544 | 196 / 378 / 544
+      quota_subscribe_tx:leader          1 / 1 / 1 | 55 / 60 / 60 | 55 / 60 / 60
+      quota_subscribe_lock:leader        1 / 1 / 1 | 11 / 11 / 11 | 11 / 11 / 11
+      quota_opened_queue:leader          1 / 1 / 1 | 61 / 75 / 79 | 61 / 75 / 79
+      ws_first_message:leader            1 / 1 / 1 | 61 / 121 / 131 | 61 / 121 / 131
+      ws_messages:leader                 1 / 1 / 1 | 206 / 410 / 663 | 206 / 410 / 663
+      quota_opened_tx:follower           1 / 1 / 1 | 53 / 58 / 62 | 53 / 58 / 62
+      quota_opened_lock:follower         1 / 1 / 1 | 11 / 12 / 12 | 11 / 12 / 12
+      quota_opened_tx:leader             1 / 1 / 1 | 51 / 57 / 61 | 51 / 57 / 61
+      quota_opened_lock:leader           1 / 1 / 1 | 10 / 11 / 12 | 10 / 11 / 12
+      ws_close:follower                  1 / 1 / 1 | 117 / 226 / 230 | 117 / 226 / 230
+      quota_closed_queue:follower        1 / 1 / 1 | 0 / 63 / 74 | 0 / 63 / 74
+      quota_closed_tx:follower           1 / 1 / 1 | 70 / 81 / 81 | 70 / 81 / 81
+      ws_close:leader                    1 / 1 / 1 | 117 / 185 / 340 | 117 / 185 / 340
+      quota_closed_lock:follower         1 / 1 / 1 | 11 / 13 / 13 | 11 / 13 / 13
+      quota_closed_queue:leader          1 / 1 / 1 | 0 / 47 / 48 | 0 / 47 / 48
+      quota_closed_tx:leader             1 / 1 / 1 | 57 / 76 / 80 | 57 / 76 / 80
+      quota_closed_lock:leader           1 / 1 / 1 | 11 / 13 / 15 | 11 / 13 / 15
+
+host clock vs NTP: +0.122542 +/- 0.038955 time.apple.com 17.253.68.125

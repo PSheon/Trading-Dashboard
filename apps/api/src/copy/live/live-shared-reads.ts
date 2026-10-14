@@ -48,6 +48,19 @@ export const leaderComparison = (leaders: readonly string[]) => {
   return (body: Readonly<Record<string, unknown>>) => body.type === 'spotClearinghouseState' && typeof body.user === 'string' && set.has(body.user.toLowerCase())
     ? (value: unknown) => (value as { portfolioMarginEnabled?: unknown } | null)?.portfolioMarginEnabled === true : undefined;
 };
+/** What of the dex list an order goes on: the dex names in order (the index
+ * is the asset id's prefix, live-market-resolver.ts), as
+ * copy-account-mode-evidence.ts compares it. Per-dex market parameters
+ * (funding interest rates, streaming OI caps) move on their own, and the
+ * whole answer refused about 1 open in 30 on mainnet (probe 2026-10-14:
+ * `mkts` assetToFundingInterestRate changed in 1.5 s). */
+export const perpDexNames = (value: unknown) => Array.isArray(value)
+  ? value.map(row => row !== null && typeof row === 'object' ? (row as { name?: unknown }).name : row) : value;
+/** The final check's comparison: the dex names, and a leader's portfolio-margin flag. */
+export const observationComparison = (leaders: readonly string[]) => {
+  const leader = leaderComparison(leaders);
+  return (body: Readonly<Record<string, unknown>>) => body.type === 'perpDexs' ? perpDexNames : leader(body);
+};
 /** An order evidence epoch's first wave: every observed user's account modes,
  * the dex list, spot and perp metadata, the order dex's metadata and
  * contexts, the target's leverage for the coin and its fees. */

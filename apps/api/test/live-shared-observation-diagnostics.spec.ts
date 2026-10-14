@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { leaderComparison, LiveSharedReads } from '../src/copy/live/live-shared-reads.js';
+import { LiveSharedReads, observationComparison } from '../src/copy/live/live-shared-reads.js';
 
 const clock = () => 1_800_000_000_000;
 async function comparison(type: string, before: unknown, after: unknown, leaders: string[] = []) {
@@ -7,15 +7,22 @@ async function comparison(type: string, before: unknown, after: unknown, leaders
   const shared = new LiveSharedReads('testnet', async () => Response.json(calls++ ? after : before), undefined, clock);
   const bodies = [{ type, user: 'private-wallet' }];
   await shared.wave(bodies);
-  return shared.unchanged(bodies, 'live_account_observation_changed', leaderComparison(leaders));
+  return shared.unchanged(bodies, 'live_account_observation_changed', observationComparison(leaders));
 }
 
 describe('shared observation refusal diagnostics without provider payloads', () => {
-  it('identifies a changed dex response and still refuses ancillary-field changes', async () => {
-    await expect(comparison('perpDexs', [null, { name: 'xyz', assetToStreamingOiCap: [['ETH', '1']] }],
-      [null, { name: 'xyz', assetToStreamingOiCap: [['ETH', '2']] }])).rejects.toMatchObject({
-      code: 'live_account_observation_changed', changedReads: ['perpDexs'],
-    });
+  it("goes on the dex names alone: a per-dex market parameter moves on its own (mainnet probe 2026-10-14)", async () => {
+    const dexes = (rate: string, cap: string) => [null, { name: 'mkts', assetToFundingInterestRate: [['mkts:BVIV', rate]], assetToStreamingOiCap: [['mkts:BVIV', cap]] }];
+    await expect(comparison('perpDexs', dexes('0.0001', '1'), dexes('0.0002', '2'))).resolves.toBeUndefined();
+  });
+  it('identifies a renamed, added or reordered dex as a changed dex response', async () => {
+    const list = (...names: string[]) => [null, ...names.map(name => ({ name }))];
+    const changes: [string[], string[]][] = [[['xyz'], ['xyz2']], [['xyz'], ['xyz', 'abc']], [['xyz', 'abc'], ['xyz']], [['xyz', 'abc'], ['abc', 'xyz']]];
+    for (const [before, after] of changes) {
+      await expect(comparison('perpDexs', list(...before), list(...after))).rejects.toMatchObject({
+        code: 'live_account_observation_changed', changedReads: ['perpDexs'],
+      });
+    }
   });
   it('identifies changed spot balances while keeping values and account addresses out of the error', async () => {
     const error = await comparison('spotClearinghouseState', { balances: [{ total: 'sensitive-before' }] },

@@ -231,7 +231,7 @@ describe('a live copy\'s first order right after its setup reached running, besi
         } catch (error) {
           const reason = errorCode(error) ?? 'unknown';
           order.attempts.push({ reason, elapsedMs: Date.now() - attemptAt });
-          await wait(Math.max(250, retryDelayMs(error, reason)));
+          await wait(Math.max(250, retryDelayMs(error)));
         }
       }
       stop.abort(); await Promise.allSettled(loops);

@@ -1,4 +1,5 @@
 import { integerValue } from "./parse-env.js";
+import type { RetryPolicy } from "../copy/live/error-class.js";
 
 type Environment = Record<string, string | undefined>;
 
@@ -72,6 +73,12 @@ export const DEFAULT_LIVE_STOP_TIMINGS: LiveStopTimings = Object.freeze({
   agentExpiryMarginMs: 24 * 3_600_000,
   retry: Object.freeze({ closeAttempts: 10, cancelAttempts: 3 }),
 });
+
+/** A setup step's retry policy (decideRetry): its transient back-off, the
+ * attempts at which a stage gives up, and when an owner's step is looked at
+ * again. One table with the copy legs' and the stops' (LIVE_LEG_RETRY_POLICY). */
+export const setupRetryPolicy = (timings: LiveSetupTimings): RetryPolicy =>
+  ({ baseMs: timings.retry.backoffBaseMs, maxMs: timings.retry.backoffMaxMs, attempts: timings.retry.transientAttempts, needsOwnerMs: timings.retry.needsOwnerMs });
 
 /** Sum of one setup step's budgets: what a driver may spend under one lease. */
 export const setupStepBudgetMs = (timings: LiveSetupTimings): number =>

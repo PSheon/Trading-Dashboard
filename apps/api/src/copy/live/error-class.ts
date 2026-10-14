@@ -191,20 +191,81 @@ export function exhausted(classified: ErrorClassification, attempts: number, lim
   return classified.class === 'transient' && classified.exhausts !== false && attempts >= limit;
 }
 
+/** A failed provider read (PROVIDER_READ_FAILURES, a meter refusal) is
+ * tried again after this: it opened a socket or spent weight, so a burst of
+ * retries can't use up the 30 new WebSocket connections a minute. */
+export const PROVIDER_READ_RETRY_MS = 10_000;
+
+/**
+ * THE retry policy of a live step (a copy leg, a stop or close, a setup
+ * step): how a failure of each class is tried again. One table, so a leg,
+ * a stop and a setup step wait the same way for the same failure.
+ * - `baseMs`, `maxMs`: a transient failure's back-off, base × 2^attempts,
+ *   at most maxMs (a flat delay: maxMs = baseMs).
+ * - `attempts`: at this many transient attempts the step ends (`exhausted`),
+ *   or, for a code with `exhaustedAs`, waits for its owner.
+ * - `needsOwnerMs`: when a step waiting for its owner is looked at again.
+ */
+export interface RetryPolicy {
+  readonly baseMs: number;
+  readonly maxMs: number;
+  readonly attempts: number;
+  readonly needsOwnerMs: number;
+}
+/** A copy leg's and a stop's policy: 3 s flat, never ended by this count
+ * (legs and stops have their own limits: the signal's age, CLOSE_ATTEMPT_LIMIT). */
+export const LIVE_LEG_RETRY_POLICY: RetryPolicy = Object.freeze({ baseMs: 3_000, maxMs: 3_000, attempts: Number.MAX_SAFE_INTEGER, needsOwnerMs: 3_000 });
+
+/** What a failed step does next (decideRetry). `delayMs` is from now. */
+export type RetryDecision =
+  /** A wait (`budget`): back when it said, not an attempt. */
+  | { readonly kind: 'wait'; readonly delayMs: number; readonly classified: ErrorClassification }
+  /** A transient failure, counted: back after its back-off (`attempts`: including this one). */
+  | { readonly kind: 'retry'; readonly delayMs: number; readonly attempts: number; readonly classified: ErrorClassification }
+  /** The owner's turn (needs_owner, or a transient failure exhausted as such): looked at again after `delayMs`. */
+  | { readonly kind: 'owner'; readonly delayMs: number; readonly attempts: number; readonly exhausted: boolean; readonly classified: ErrorClassification }
+  /** The step ends (permanent, or a transient failure at the limit). */
+  | { readonly kind: 'end'; readonly attempts: number; readonly exhausted: boolean; readonly classified: ErrorClassification };
+
+/**
+ * The one decision for a failed live step, from the error's class
+ * (classify), the step's attempts so far and the caller's policy:
+ * - `budget`: `wait` when the error said (at least 1 s); never an attempt.
+ * - `needs_owner`: `owner` after `needsOwnerMs`; attempts unchanged.
+ * - `permanent`: `end`.
+ * - `transient`: one attempt more. At `policy.attempts` (unless the outcome
+ *   is still unknown) it is `end`, or `owner` for a code exhausted as such.
+ *   Otherwise `retry` after the back-off; a failed provider read
+ *   (PROVIDER_READ_FAILURES, a meter refusal code) waits at least
+ *   PROVIDER_READ_RETRY_MS whatever the back-off (gate 2026-10-13 11:16:
+ *   a step that failed its read looped into a full connect window).
+ */
+export function decideRetry(error: unknown, priorAttempts: number, policy: RetryPolicy): RetryDecision {
+  const classified = classify(error), code = classified.code ?? '';
+  switch (classified.class) {
+    case 'budget': return { kind: 'wait', delayMs: Math.max(1_000, classified.retryAfterMs ?? 1_000), classified };
+    case 'needs_owner': return { kind: 'owner', delayMs: policy.needsOwnerMs, attempts: priorAttempts, exhausted: false, classified };
+    case 'permanent': return { kind: 'end', attempts: priorAttempts, exhausted: false, classified };
+    case 'transient': {
+      const attempts = priorAttempts + 1;
+      if (exhausted(classified, attempts, policy.attempts)) {
+        if (classified.exhaustedAs === 'needs_owner') return { kind: 'owner', delayMs: policy.needsOwnerMs, attempts, exhausted: true, classified };
+        return { kind: 'end', attempts, exhausted: true, classified };
+      }
+      const backoff = Math.min(policy.maxMs, policy.baseMs * 2 ** Math.min(priorAttempts, 5));
+      const providerRead = PROVIDER_READ_FAILURES.has(code) || code.startsWith('hyperliquid_quota_');
+      return { kind: 'retry', delayMs: providerRead ? Math.max(backoff, PROVIDER_READ_RETRY_MS) : backoff, attempts, classified };
+    }
+  }
+}
+
 /**
  * How long a live step that failed waits before it is tried again (a copy
- * leg's next submission, a stop's next pass): THE one policy for both.
- * - a wait (`budget`): when it said (a local bucket's estimate, the shared
- *   meter's, a busy lock's), at least 1 s; never an attempt;
- * - a failed provider read (PROVIDER_READ_FAILURES, a meter refusal): 10 s;
- * - anything else: 3 s.
- * Gate 2026-10-13 11:16: a stop whose observation was refused looped many
- * times a second (`stop … kept for the next pass`), each pass opening
- * sockets into a full connect window.
+ * leg's next submission, a stop's next pass): decideRetry under
+ * LIVE_LEG_RETRY_POLICY, as a delay only (the leg's and the stop's own
+ * limits decide when they end).
  */
-export function liveRetryDelayMs(error: unknown, reason = classify(error).code ?? ''): number {
-  const classified = classify(error);
-  if (classified.class === 'budget') return Math.max(1_000, classified.retryAfterMs ?? 1_000);
-  if (PROVIDER_READ_FAILURES.has(reason) || reason.startsWith('hyperliquid_quota_')) return 10_000;
-  return 3_000;
+export function liveRetryDelayMs(error: unknown): number {
+  const decision = decideRetry(error, 0, LIVE_LEG_RETRY_POLICY);
+  return decision.kind === 'end' ? LIVE_LEG_RETRY_POLICY.baseMs : decision.delayMs;
 }

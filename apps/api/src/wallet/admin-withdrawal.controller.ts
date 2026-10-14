@@ -7,12 +7,8 @@ import { ApiDoc, ResponseMessage } from "../common/decorators/http.decorator.js"
 import { AdminResolveWithdrawalDto, WithdrawalIdDto } from "./withdrawal.dto.js";
 import { WithdrawalService } from "./withdrawal.service.js";
 
-/**
- * Main-wallet withdrawals whose outcome is unknown (the exchange's answer
- * was lost): the list (users.read) and an operator's resolution
- * (users.manage, audited). Until resolved, the address's next withdrawal
- * and copy funding are refused with 409.
- */
+/** Unknown-outcome main-wallet withdrawals: list (users.read) and resolve (users.manage,
+ * audited). Until resolved, the address's next withdrawal and copy funding get 409. */
 @Controller("admin/wallet/withdrawals")
 @RequirePermissions("admin.access", "users.read")
 export class AdminWithdrawalController {

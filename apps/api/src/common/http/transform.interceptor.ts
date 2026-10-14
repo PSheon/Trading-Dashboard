@@ -23,8 +23,7 @@ export class TransformInterceptor implements NestInterceptor {
     const res = context.switchToHttp().getResponse<Response>();
     const meta = responseMeta(req, res);
     return next.handle().pipe(map((data: unknown) => {
-      // A handler that wrote the response itself (an SSE stream via @Res)
-      // validates its own output; there is no body left to wrap.
+      // A handler that wrote the response itself (SSE via @Res) has no body to wrap.
       if (res.headersSent) return data;
       if (skip || data instanceof StreamableFile || res.statusCode === 204 || req.method === "HEAD") return data;
       const contract = findHttpContract(req.method, req.path);

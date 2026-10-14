@@ -5,27 +5,14 @@ import type { AppConfig } from "../config/app-config.js";
 import type { DbExecutor } from "../db/unit-of-work.js";
 
 /**
- * A deleted account's identity, as keyed hashes only (account_deletion_markers,
- * docs/account-deletion.md): HMAC-SHA256 of the Privy id, the email and the
- * wallet addresses, under a key derived from a server secret, kept for
- * RETENTION_ACCOUNT_DELETION_DAYS. Without the key a digest can't be checked
- * against anyone; with it, only an identity that signs up again matches.
- * Used for one thing: a returning identity can't bind a new referral in that
- * window, so deleting and signing up again can't farm invites.
+ * A deleted account's identity as HMAC-SHA256 digests only (Privy id, email, wallets;
+ * account_deletion_markers, docs/account-deletion.md), kept RETENTION_ACCOUNT_DELETION_DAYS
+ * so a returning identity can't bind a new referral (no invite farming).
  *
- * The key is its own secret, ACCOUNT_DELETION_MARKER_KEY, so rotating the
- * Privy app secret leaves the markers made under it alone. Markers made
- * before it was set used the key derived from the *current* PRIVY_APP_SECRET
- * (else AUTH_SERVICE_TOKEN): rotating that secret drops their key from the
- * list, and they stop matching (fail open) until they expire;
- * PREVIOUS_KEYS can't bring them back (its values derive the v2 way). Rotating the marker key keeps
- * the old one in ACCOUNT_DELETION_MARKER_PREVIOUS_KEYS (comma-separated)
- * until RETENTION_ACCOUNT_DELETION_DAYS have passed: new markers use the
- * current key, and a returning identity is matched under every key. The key
- * earlier markers were made with (derived from PRIVY_APP_SECRET, else
- * AUTH_SERVICE_TOKEN) is always one of them, and is the current key while
- * ACCOUNT_DELETION_MARKER_KEY is unset; local development without any
- * secret uses a fixed key.
+ * Key: ACCOUNT_DELETION_MARKER_KEY; on rotation keep the old one in
+ * ACCOUNT_DELETION_MARKER_PREVIOUS_KEYS for the retention window. The v1 key derived from
+ * PRIVY_APP_SECRET (else AUTH_SERVICE_TOKEN) is always also matched; rotating that secret
+ * makes v1 markers stop matching (fail open) until they expire.
  */
 export interface DeletedIdentity { privyUserId: string; email: string | null; walletAddress: string | null; embeddedWalletAddress: string | null }
 

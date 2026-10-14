@@ -47,14 +47,10 @@ function actionLabel(action: Pick<ActionRow, "kind" | "side">, locale: Locale): 
 export const DISPLAY_NAME_MAX = 40;
 
 /**
- * A trader's display name as it may appear in a Telegram message (review
- * finding 35). The name is someone else's text — a leaderboard name anyone
- * can set — and Telegram turns anything link-shaped in a plain message into
- * a tappable link sent by the official bot. So: control, formatting and
- * invisible characters are removed, whitespace is one space, the length is
- * capped, and the characters that make text a link, a mention, a command
- * or a hashtag are swapped for look-alikes that don't ("example.com" →
- * "example․com", "@name" → "＠name"). Empty when nothing is left.
+ * A trader's display name made safe for a Telegram message (review 35): it is
+ * anyone's text, and Telegram links anything link-shaped. Invisible characters
+ * go, whitespace collapses, length is capped, and link/mention/command/hashtag
+ * characters become look-alikes ("@name" → "＠name"). Empty when nothing is left.
  */
 export function safeDisplayName(value: string): string {
   const clean = value

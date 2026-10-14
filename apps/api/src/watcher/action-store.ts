@@ -40,10 +40,8 @@ export async function lockActions(tx: Tx, address: string): Promise<void> {
 }
 
 /**
- * Runs `fn` in a transaction holding the address's action lock. The fast
- * path and fill storage both check which trades already have an action and
- * then insert the rest; the lock keeps the two from both inserting one. It
- * is held only for these DB statements, never across an HTTP call.
+ * Runs `fn` holding the address's action lock, so the fast path and fill
+ * storage never both insert an action. Never held across an HTTP call.
  */
 export function withActionLock<T>(db: DrizzleDb, address: string, fn: (tx: Tx) => Promise<T>): Promise<T> {
   return db.transaction(async (tx) => {

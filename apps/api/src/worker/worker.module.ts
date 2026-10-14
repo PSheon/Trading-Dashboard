@@ -19,22 +19,13 @@ import { WatcherModule } from "../watcher/watcher.module.js";
 import { WatcherRuntimeModule } from "../watcher/watcher-runtime.module.js";
 import { WorkerHeartbeatService } from "./worker-heartbeat.service.js";
 
-/** The `copy` role (lease (73106, 1)): real-money work and its signal
- * source. The running watcher (the trade feed and its self-alert), the
- * live engine with its stops, closes, settler, setup driver and aborts, the
- * funding monitor and the terminal settlement loop (CopyLiveWorkerModule).
- * RulesModule: the alerts of the actions its fast path stores are
- * evaluated in-process at once, as before (the `read` worker's outbox drain
- * still replays any that were interrupted). */
+/** The `copy` role (lease (73106, 1)): real-money work and its signal source (the trade
+ * feed, the live engine, funding and settlement). RulesModule evaluates the fast path's
+ * alerts in-process; the `read` worker's outbox drain replays interrupted ones. */
 const COPY_MODULES = [WatcherRuntimeModule, CopyLiveWorkerModule, RulesModule];
 
-/** The `read` role (lease (73106, 2)): every schedule that only reads
- * Hyperliquid or touches no exchange: snapshots, sweeps and catch-ups, the
- * backfill window and queue, the leaderboard import, analysis history and
- * tracked analytics, the discovery pool, cohorts, the archive ingest,
- * retention, the outbox drain, the Telegram bot, the default rules' seed,
- * paper copy, follower snapshots and receipts, and the revenue snapshot.
- * WatcherModule's capabilities only: no second feed. */
+/** The `read` role (lease (73106, 2)): every schedule that only reads Hyperliquid or
+ * touches no exchange. WatcherModule's capabilities only: no second feed. */
 const READ_MODULES = [
   WatcherModule,
   SchedulerModule,
@@ -53,12 +44,8 @@ const READ_MODULES = [
   RevenueWorkerModule,
 ];
 
-/**
- * Everything that runs on its own, by WORKER_ROLE (runtime/worker-role.ts):
- * `all` (unset, today's single worker) imports both sets. Only
- * `AppModule.worker()` imports it; the api process constructs none of
- * these and has no ScheduleModule, so no `@Cron` / `@Interval` fires there.
- */
+/** Background work by WORKER_ROLE (`all`, the default, imports both sets). Only
+ * `AppModule.worker()` imports it, so no `@Cron` / `@Interval` fires in the api process. */
 @Module({})
 export class WorkerModule {
   static forRole(role: WorkerRole = "all"): DynamicModule {

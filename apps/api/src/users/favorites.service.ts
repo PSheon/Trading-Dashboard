@@ -48,13 +48,9 @@ export class FavoritesService {
   }
 
   /**
-   * PATCH /me/favorites/:address/alert. Switching an alert on needs a
-   * linked, enabled Telegram chat (409 `telegram_not_linked`) and room
-   * under `notifications.maxAlertTraders` (409 `alert_limit`). The user's
-   * row is locked first, so two concurrent requests count one after the
-   * other and can't both take the last slot. Lowering the limit later
-   * doesn't switch existing alerts off; editing one that is already on
-   * isn't counted again.
+   * PATCH /me/favorites/:address/alert. Switching on needs a linked Telegram chat (409
+   * `telegram_not_linked`) and room under `maxAlertTraders` (409 `alert_limit`); the user row
+   * is locked so concurrent requests can't both take the last slot.
    */
   async setAlert(userId: number, address: string, patch: PatchFavoriteAlertRequest): Promise<Favorite> {
     const limit = (await this.settings.get("notifications")).maxAlertTraders;

@@ -6,14 +6,11 @@ import type { RequestUser } from "./current-user.js";
 import { clientKey } from "../http/client-key.js";
 import { isSafetyExit } from "./safety-exit.decorator.js";
 
-/** `/health` and `/health/ready` per client and minute: ample for a
- * platform's health checks (answers are cached for a second anyway), and
- * outside the ingress and read limits so a busy client can't fail them. */
+/** Health checks per client and minute, in their own bucket so a busy client can't fail them. */
 export const HEALTH_PER_MINUTE = 120;
 
-/** Safety exits (@SafetyExit: stop, close, cancel, revoke, return) per
- * caller and minute, in their own bucket: the caller's other writes never
- * hold back taking risk off a real-money copy, and the exits stay bounded. */
+/** @SafetyExit calls per caller and minute, in their own bucket so other writes never
+ * hold back taking risk off a real-money copy. */
 export const SAFETY_EXIT_PER_MINUTE = 30;
 
 /** Keys (client × category) tracked at once. */
@@ -22,13 +19,9 @@ const RATE_LIMIT_MAX_KEYS = 50_000;
 export const OVERFLOW_MULTIPLIER = 10;
 
 /**
- * Single-process bounded windows, matching the supported single-replica
- * topology. At capacity, expired keys are evicted first; a new key that
- * still doesn't fit shares its category's overflow bucket (`overflow:<category>`,
- * `OVERFLOW_MULTIPLIER` × the limit) until room frees up. Active keys are
- * never evicted (that would let a client reset its own window), and a
- * flood of new identities (IPv6 makes addresses cheap; they count per /64,
- * see `clientKey`) can no longer lock every new visitor out.
+ * Single-process minute windows (single-replica topology). At capacity, expired keys go
+ * first; a new key that still doesn't fit shares `overflow:<category>` (OVERFLOW_MULTIPLIER ×
+ * limit). Active keys are never evicted (a client could reset its own window).
  */
 @Injectable()
 export class RequestRateLimiter {
@@ -64,12 +57,8 @@ export class RequestRateLimiter {
 
 const logger = new Logger("RateLimit");
 let lastLimitedLog = 0;
-/**
- * At most one line per 10 s: whether the limited caller was identified by a
- * forwarded address or by the socket peer, and the peer's network (never a
- * whole address). A limit that hits everyone at once shows here as an
- * untrusted peer: API_TRUSTED_PROXY_CIDRS does not cover the proxy.
- */
+/** At most one line per 10 s, networks only (never a whole address). Everyone limited at
+ * once with `identifiedBy: "peer"` means API_TRUSTED_PROXY_CIDRS misses the proxy. */
 function noteLimited(request: Request): void {
   const now = Date.now();
   if (now - lastLimitedLog < 10_000) return;
@@ -80,8 +69,7 @@ function noteLimited(request: Request): void {
     route: request.route?.path ?? request.path,
     identifiedBy: request.ip && request.ip !== peer ? "forwarded" : "peer",
     forwardedEntries: String(request.headers["x-forwarded-for"] ?? "").split(",").filter((v) => v.trim()).length,
-    // The start of the address the limit was keyed on: enough to tell a
-    // visitor from an edge or private address, not enough to identify one.
+    // Address prefix only: tells a visitor from an edge/private address without identifying one.
     keyedNetwork: (request.ip ?? "").includes(".") ? (request.ip ?? "").replace(/^::ffff:/i, "").split(".")[0] : (request.ip ?? "").split(":").slice(0, 2).join(":"),
     peerNetwork: peer.includes(".") ? peer.replace(/^::ffff:/i, "").split(".").slice(0, 2).join(".") : peer.split(":").slice(0, 2).join(":"),
   });
@@ -122,8 +110,7 @@ export class CallerRateGuard implements CanActivate {
     if (health(req)) return true;
     const identity = req.user?.kind === "user" ? `user:${req.user.id}` : req.user?.kind === "service" ? "service" : `ip:${ipOf(req)}`;
     const write = !["GET", "HEAD", "OPTIONS"].includes(req.method);
-    // A safety exit never waits behind the caller's other writes (a full
-    // write bucket held a stop back for up to a minute).
+    // A safety exit never waits behind the caller's other writes.
     if (write && isSafetyExit(this.reflector, context)) return enforce(context, this.limiter, `safety:${identity}`, SAFETY_EXIT_PER_MINUTE);
     const expensive = write && (req.path.startsWith("/import") || req.path.endsWith("/telegram/test"));
     const category = expensive ? "expensive" : write ? "write" : "read";

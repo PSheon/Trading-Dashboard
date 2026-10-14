@@ -6,8 +6,7 @@ import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { HlUserFill } from "../hyperliquid/types.js";
 
 /** Fills per page when a whole verified span is walked (tracked rebuilds,
- * full continuity checks). A span is no longer bounded by a small backfill
- * cap, so it is never read into memory at once. */
+ * full continuity checks), so a span is never in memory at once. */
 export const SPAN_PAGE_FILLS = 20_000;
 
 /** Each coin's fills at its latest millisecond (where a next page continues). */

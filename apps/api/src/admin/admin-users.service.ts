@@ -34,21 +34,11 @@ export class AdminUsersService {
   }
 
   /**
-   * Role change (user, operator, admin) and/or disable. Rules, in order:
-   * 404 unknown id; 400 `{code:"self"}` when an admin demotes (to operator
-   * or user) or disables themself; 409 `{code:"last_admin"}` when no
-   * enabled admin would be left.
-   *
-   * Runs in a transaction that first locks every enabled admin row (in id
-   * order, so two admins demoting each other can't deadlock), so concurrent
-   * demotions can't both pass the last-admin check.
-   *
-   * Disabling a user also stops every running actual copy of theirs (close,
-   * then return; CopyLiveSystemStops.stopOwner) in the same transaction: a
-   * disabled owner can't sign in, and the worker refuses all their orders
-   * but a stop's closes, so a copy left running would hold its positions
-   * unmanaged. 409 `{code:"owner_copies_unstoppable", copies}` (and nothing
-   * changes) when a running copy can't get a stop the worker will work.
+   * Role change and/or disable: 404 unknown id; 400 `self` when an admin demotes/disables
+   * themself; 409 `last_admin` when no enabled admin would remain (enabled admins locked in
+   * id order, so concurrent demotions can't both pass).
+   * Disabling also stops the user's running real copies in the same transaction (a disabled
+   * owner's copy would hold positions unmanaged); 409 `owner_copies_unstoppable` otherwise.
    */
   async patch(id: number, body: unknown, actor: RequestUser | null): Promise<AdminUser> {
     const request = parseOr400(patchAdminUserRequestSchema, body);

@@ -42,11 +42,9 @@ export class AuthRepository {
     });
   }
 
-  /** PostgreSQL can report the other unique index (embedded wallet) while
-   * concurrent speculative inserts of the same DID are resolving. Only an
-   * actually committed row for that verified DID proves an identity winner.
-   * A wallet collision with another DID remains a conflict; no row is changed.
-   * Catch outside any transaction so a rolled-back bootstrap can be read. */
+  /** Concurrent inserts of one DID may surface as a 23505 on the embedded-wallet index;
+   * only a committed row for that DID proves a winner (another DID's wallet stays a conflict).
+   * Caught outside any transaction so a rolled-back bootstrap can be read. */
   private async recoverConcurrentIdentity(privyUserId: string, create: () => Promise<AuthUserRow | undefined>): Promise<AuthUserRow | undefined> {
     try { return await create(); }
     catch (error) {
@@ -59,15 +57,10 @@ export class AuthRepository {
   }
 
   /**
-   * First sign-in of an AUTH_ADMIN_EMAILS address. The row is `admin` only
-   * while the site has no enabled admin: the list is how the first admin
-   * comes to exist, not a standing grant. Otherwise a demoted admin could
-   * delete the account (deletion keeps no identifier, by design) and sign
-   * in again as a new row to get the role back. Once an admin exists,
-   * further admins are made by an admin. Serialized, so two listed
-   * addresses signing in together can't both see "no admin"; a bootstrap
-   * is written to the audit log in the same transaction. Undefined when
-   * another first sign-in of the same Privy DID won the insert.
+   * First sign-in of an AUTH_ADMIN_EMAILS address: `admin` only while no enabled admin
+   * exists (a bootstrap, not a standing grant — else a demoted admin could delete and
+   * re-sign-up). Serialized by advisory lock and audited. Undefined when another first
+   * sign-in of the same DID won the insert.
    */
   async createBootstrapCandidate(input: Pick<AuthUserRow, "privyUserId" | "email" | "walletAddress"> & { embeddedWalletAddress?: string | null; locale?: AuthUserRow["locale"] }) {
     return this.recoverConcurrentIdentity(input.privyUserId, () => this.db.transaction(async (tx) => {
@@ -81,9 +74,8 @@ export class AuthRepository {
     }));
   }
 
-  /** Record the Privy embedded wallet once. It never changes for a Privy user,
-   * so an address already stored is kept (undefined = not updated, e.g.
-   * another request stored it first or the address belongs to another row). */
+  /** Records the embedded wallet once (it never changes for a Privy user); undefined when
+   * not updated (already stored, or the address is on another row). */
   async setEmbeddedWallet(id: number, address: string) {
     const [row] = await this.db.transaction(async tx => {
       await lockCopyUser(tx, id);
@@ -91,8 +83,7 @@ export class AuthRepository {
         .where(and(eq(users.id, id), isNull(users.embeddedWalletAddress))).returning();
     })
       .catch((error: { code?: string }) => {
-        // 23505: the address is already on another user row. Privy never
-        // shares a wallet between users, so leave both rows as they are.
+        // 23505: already on another user row; leave both as they are.
         if (error?.code === "23505") return [];
         throw error;
       });

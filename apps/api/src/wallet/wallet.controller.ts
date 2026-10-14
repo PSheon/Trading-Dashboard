@@ -9,12 +9,8 @@ import { WalletService } from "./wallet.service.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
 import { BUSY_RETRY_AFTER_MS, PAGE_DEADLINE_MS } from '../config/constants/http.js';
 
-/**
- * The signed-in user's main account (Stage 4 step 2). Not @Public: 401
- * without a token, 403 for the service token (it has no wallet). Read only:
- * deposits, withdrawals and key export are signed in the browser by the
- * user's own Privy wallet and never pass through this api.
- */
+/** The user's main account: 401 without a token, 403 for the service token. Read-only:
+ * deposits, withdrawals and key export are signed in the browser. */
 @Controller("me/wallet")
 @UseFilters(BusyFilter)
 export class WalletController {
@@ -36,9 +32,8 @@ export class WalletController {
     return this.upstream(this.wallet.history(requireUserId(user)));
   }
 
-  /** Same deadline and error mapping as trader pages: 503 busy when the
-   * Hyperliquid budget can't serve it in time, 502 for other upstream
-   * failures; HTTP errors (404 user gone) pass through. */
+  /** As trader pages: 503 busy when the budget can't serve in time, 502 other upstream
+   * failures; HTTP errors pass through. */
   private async upstream<T>(promise: Promise<T>): Promise<T> {
     promise.catch(() => undefined);
     let timer: ReturnType<typeof setTimeout> | undefined;

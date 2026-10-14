@@ -11,11 +11,8 @@ import { SettingsService } from "../settings/settings.service.js";
 import { RevenueService } from "./revenue.service.js";
 import { isZodError, parseOr400 } from "../common/http/validation.js";
 
-/**
- * GET/PATCH /admin/settings on top of `SettingsService`: validates the
- * request, normalizes the builder address (lowercase) and takes a revenue snapshot as soon as the platform address
- * changes, so the revenue page isn't empty for up to an hour.
- */
+/** GET/PATCH /admin/settings: validates, lowercases the builder address, and snapshots
+ * revenue at once when it changes (else the page is empty for up to an hour). */
 @Injectable()
 export class AdminSettingsService {
   constructor(

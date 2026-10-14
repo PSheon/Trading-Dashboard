@@ -1,11 +1,8 @@
 import { HEALTH_CACHE_MS } from '../../config/constants/http.js';
 
 /**
- * Single-flight, briefly cached probe: callers arriving while a probe runs
- * share it, and its result (success or failure) answers everyone for
- * `ttlMs` after it settles. However hard `/health` or `/health/ready` is
- * hit, the work behind it (a database round trip, the worker heartbeat)
- * runs at most about once per `ttlMs`.
+ * Single-flight probe whose result (success or failure) answers everyone for
+ * `ttlMs`, so the work behind `/health` runs at most about once per `ttlMs`.
  */
 export class CachedProbe<T> {
   private pending: Promise<T> | undefined;

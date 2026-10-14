@@ -1,12 +1,7 @@
 import { isIP } from "node:net";
 
-/**
- * The bucket a client address counts against in per-client limits (rate
- * limits, SSE per-IP caps, the Hyperliquid page budget). An IPv4 address is
- * its own bucket; an IPv6 address counts by its /64, since one subscriber is
- * routinely handed a whole /64 and rotating addresses inside it costs
- * nothing. IPv4-mapped IPv6 (`::ffff:1.2.3.4`) is the IPv4 address.
- */
+/** A client's bucket for per-client limits: IPv4 per address (incl. `::ffff:` mapped),
+ * IPv6 per /64 (rotating within a subscriber's /64 costs nothing). */
 export function clientKey(address: string | undefined | null): string {
   if (!address) return "unknown";
   const zoneless = address.split("%")[0];

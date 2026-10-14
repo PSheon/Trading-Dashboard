@@ -17,15 +17,9 @@ export interface AccountState {
 }
 
 /**
- * Latest positions and equity per address, across dexes.
- *
- * Each HIP-3 dex is a separate clearinghouse: `clearinghouseState` without
- * `dex` only shows main-dex positions. An address's HIP-3 dexes are learnt
- * from its stored fills (coins named "<dex>:<COIN>"), so a dex is queried
- * once the address has traded there.
- *
- * Every state read is also installed into the address's `PositionBook`,
- * which the feed fast path keeps current trade by trade.
+ * Latest positions and equity per address, across dexes. Each HIP-3 dex is a
+ * separate clearinghouse, learnt from stored fills ("<dex>:<COIN>"). Every
+ * state read is installed into the address's `PositionBook`.
  */
 @Injectable()
 export class AccountStateService {

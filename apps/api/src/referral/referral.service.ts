@@ -46,8 +46,8 @@ export class ReferralService {
   async getClaim(userId: number, claimId: string) { return this.repository.findClaim(owner(userId), uuid(claimId)); }
   async getClaimByKey(userId: number, key: string) { return this.repository.findClaimByKey(owner(userId), uuid(key)); }
   async claim(userId: number, idempotencyKey: string) {
-    // Existing requests are resolved by the DAL before capability checks. The
-    // unavailable payout integration must never hide an uncertain old claim.
+    // Resolve existing requests before capability checks: a missing payout integration
+    // must never hide an uncertain old claim.
     return this.repository.claim(owner(userId), uuid(idempotencyKey));
   }
 }

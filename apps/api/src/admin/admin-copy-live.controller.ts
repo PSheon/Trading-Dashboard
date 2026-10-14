@@ -7,12 +7,8 @@ import { ApiDoc, ResponseMessage } from "../common/decorators/http.decorator.js"
 import { CopyAdminLiveService } from "../copy/copy-admin-live.service.js";
 import { AdminLiveGrantParamsDto, AdminLiveLatencyQueryDto, AdminLiveOrdersQueryDto, AdminRevokeLiveGrantDto } from "./dto/copy-live.dto.js";
 
-/**
- * Testnet copy operations for the admin (B16) and copy latency (B18): every
- * execution wallet with its agent and grant, wallet transfers, orders whose
- * exchange outcome is open or unknown, P50/P95 leader fill → order. Reads
- * need copy.read; revoking a grant needs execution.pause and is audited.
- */
+/** Admin copy operations (B16) and latency (B18): wallets, transfers, open/unknown orders,
+ * P50/P95 fill → order. Reads need copy.read; revoking a grant execution.pause (audited). */
 @Controller("admin/copy/live")
 @RequirePermissions("admin.access", "copy.read")
 export class AdminCopyLiveController {

@@ -11,12 +11,7 @@ import { ALERT_EVERY_MS } from '../../config/constants/alerts.js';
 import { SETTLEMENT_OWNER_WINDOW_MS, SNAPSHOT_STALE_MS, WORKER_GUARD_CHECK_MS } from '../../config/constants/alerts.js';
 
 
-/**
- * What the `read` worker owns in a heartbeat once the roles are split: the
- * scheduler's snapshots and sweeps, discovery, the archive ingest and
- * Telegram (its dry run). The rest (feed, fills, budgets, the wallet
- * network's meter lanes, explorer, clock) is the `copy` worker's.
- */
+/** Heartbeat fields the `read` worker owns once roles are split; the rest is the `copy` worker's. */
 const READ_HEARTBEAT_FIELDS = ["lastSnapshotAt", "lastSnapshotAttemptAt", "lastSnapshotFailureAt", "lastSweepAt", "discovery", "archive", "dryRun"] as const;
 
 type WorkerMonitorSample = z.infer<typeof workerMonitorSchema>;
@@ -36,37 +31,17 @@ function mergeHeartbeats<T extends HeartbeatResponse | WireHeartbeat>(main: T, r
 }
 
 /**
- * The api's view of its workers. WORKER_URL is the `copy` worker (or the
- * single `all` worker); WORKER_READ_URL, when set, the `read` worker. The
- * api reads both for /health and the admin system overview and merges them
- * (mergeHeartbeats: snapshots, sweeps, discovery, archive and Telegram from
- * the read worker; with only WORKER_URL, the one worker's heartbeat as it
- * is). It also watches what no single process can see:
- *
- * - terminal_settlement_unowned: on a testnet copy deployment with the
- *   api's own terminal settlement loop off (API_TERMINAL_SETTLEMENT=off),
- *   some copy worker must run it (WORKER_TERMINAL_SETTLEMENT in effect,
- *   reported in its heartbeat's `worker.terminalSettlement`). When no
- *   heartbeat read in the last SETTLEMENT_OWNER_WINDOW_MS said so, nothing
- *   settles terminal copies.
- * - snapshots_stale (WORKER_READ_URL set): the read worker's heartbeats
- *   have shown no snapshot newer than SNAPSHOT_STALE_MS (it is down, on
- *   standby, or its snapshots fail).
- * - egress_identity_shared (HL_EGRESS_IDENTITY observe or enforce): a
- *   public IP the copy worker's heartbeat reports (its egressIdentity, every
- *   address seen in the last day) is also one of the api's own or one the
- *   read worker's heartbeat reports. The sets are compared, not one address:
- *   a static egress gateway has several. Until the copy worker reports an
- *   address the api's start counts as fine.
- *
- * Each is an ALERT log line at most every ALERT_EVERY_MS and the
- * admin overview's `alerts`. Every heartbeat the api reads counts (an admin
- * page, /health), and while a guard applies the api reads the workers
- * itself every WORKER_GUARD_CHECK_MS (not under NODE_ENV=test: tests call
- * check()). What it last saw is kept in memory; the api's start counts as
- * the last time all was well (for snapshots, until a read worker's
- * heartbeat shows one), so a restarted api waits a full window before it
- * alerts.
+ * The api's view of its workers: WORKER_URL (`copy` or `all`) and, when set,
+ * WORKER_READ_URL (`read`), merged for /health and the admin overview. It
+ * alerts on what no single process can see:
+ * - terminal_settlement_unowned: API_TERMINAL_SETTLEMENT=off and no copy
+ *   worker heartbeat within SETTLEMENT_OWNER_WINDOW_MS reports it settles.
+ * - snapshots_stale: no read-worker snapshot newer than SNAPSHOT_STALE_MS.
+ * - egress_identity_shared: a copy-worker public IP is also the api's or the
+ *   read worker's (sets compared: a static gateway has several).
+ * ALERT lines are rate-limited to ALERT_EVERY_MS; while a guard applies the api
+ * polls every WORKER_GUARD_CHECK_MS (not in tests). The api's start counts as
+ * the last time all was well, so a restarted api waits a full window.
  */
 @Injectable()
 export class WorkerFleetService implements OnApplicationBootstrap, OnModuleDestroy {
@@ -126,11 +101,9 @@ export class WorkerFleetService implements OnApplicationBootstrap, OnModuleDestr
   }
 
   /**
-   * The workers' private monitor samples (GET /health/monitor). `worker`
-   * is WORKER_URL's; while WORKER_READ_URL's is active, `worker`'s heartbeat
-   * carries the read worker's fields and its discovery settings are the
-   * read worker's (it runs discovery). `read` is WORKER_READ_URL's own
-   * sample, absent when that is not set.
+   * The workers' monitor samples (GET /health/monitor). While the read worker
+   * is active, `worker`'s heartbeat and settings carry its fields; `read` is
+   * its own sample, absent when WORKER_READ_URL is unset.
    */
   async monitors(): Promise<{ worker: WorkerProbe; read?: WorkerProbe }> {
     const readUrl = this.readUrl();

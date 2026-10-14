@@ -23,11 +23,8 @@ export interface PrivyProfile {
   embeddedWalletAddress?: string | null;
 }
 
-/**
- * The only thing the guard needs from Privy, behind an interface so tests
- * can stub it. `verifyAccessToken` throws on any invalid, expired or
- * foreign token, and when Privy isn't configured (fail closed).
- */
+/** `verifyAccessToken` throws on any invalid, expired or foreign token, and when Privy
+ * isn't configured (fail closed). */
 export interface PrivyVerifier {
   verifyAccessToken(accessToken: string): Promise<VerifiedPrivyToken>;
   /** Best effort; null when the profile can't be fetched. */
@@ -36,12 +33,9 @@ export interface PrivyVerifier {
 
 export const PRIVY_VERIFIER = Symbol("PRIVY_VERIFIER");
 
-/** Picks the email and an Ethereum wallet from a Privy user's linked
- * accounts. The email is the email-login address, else the one from a
- * Google or Apple login (verified by that provider). An external
- * (self-custodied) wallet wins over the embedded one: it's the address the
- * person trades from. The embedded wallet is also returned on its own: it is
- * the main account the wallet pages use. */
+/** Email (email login, else Google/Apple) and wallet from linked accounts. An external
+ * wallet wins for `walletAddress` (the person trades from it); the embedded one is also
+ * returned on its own as the Orbie main account. */
 export function profileFromLinkedAccounts(accounts: LinkedAccount[]): PrivyProfile {
   let email: string | null = null;
   let oauthEmail: string | null = null;
@@ -73,15 +67,8 @@ export function profileFromLinkedAccounts(accounts: LinkedAccount[]): PrivyProfi
   };
 }
 
-/**
- * `@privy-io/node` (0.35): `new PrivyClient({ appId, appSecret,
- * jwtVerificationKey? })`, `client.utils().auth().verifyAccessToken(token)`
- * → `{ user_id, app_id, session_id, issuer, issued_at, expiration }`, and
- * `client.users()._get(userId)` → `User` with `linked_accounts`. With
- * `PRIVY_VERIFICATION_KEY` set, verification is local (no network call);
- * without it the SDK fetches and caches the app's JWKS.
- */
-
+/** `@privy-io/node` (0.35). With `PRIVY_VERIFICATION_KEY` set, token verification is
+ * local; without it the SDK fetches and caches the app's JWKS. */
 @Injectable()
 export class SdkPrivyVerifier implements PrivyVerifier {
   private readonly logger = new Logger(SdkPrivyVerifier.name);
@@ -95,10 +82,8 @@ export class SdkPrivyVerifier implements PrivyVerifier {
       this.client = null;
       return;
     }
-    // The SDK's own default is a minute per call and two retries, far past
-    // the request's 20 s deadline (which it never sees). The profile read
-    // gets 8 s and one retry; the JWKS fetch behind token verification
-    // (without PRIVY_VERIFICATION_KEY) is jose's, bounded at 5 s.
+    // The SDK default (a minute, two retries) outlasts the request deadline; the JWKS
+    // fetch is jose's own, bounded at 5 s.
     this.client = new PrivyClient({
       appId,
       appSecret,

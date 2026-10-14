@@ -15,9 +15,7 @@ import { ProfileService } from "./profile.service.js";
 const ACCOUNT_DELETION_HEADER = "x-confirm-delete";
 const ACCOUNT_DELETION_CONFIRMATION = "delete-account";
 
-/** The signed-in user's own data. Not @Public: the guard returns 401
- * without a valid token; the service token gets 403 (it has no profile).
- * Telegram linking lives in telegram/telegram.controller.ts. */
+/** The signed-in user's own data: 401 without a valid token, 403 for the service token. */
 @Controller("me")
 export class MeController {
   constructor(
@@ -39,17 +37,9 @@ export class MeController {
     return this.profile.patch(userId, body);
   }
 
-  /** Deletes the caller's Orbie account (docs/account-deletion.md): personal
-   * data is erased, kept financial and audit records move to an anonymous
-   * tombstone. The Privy login and wallets are not touched. 409 with the
-   * blocker's code while something is in flight (a testnet copy, a stop, a
-   * setup, a transfer, an order, a non-empty copy account, a withdrawal or a
-   * reward claim), `last_admin` for the only enabled admin; 503
-   * `closure_check_unavailable` when a copy account can't be checked. A
-   * valid token alone is not enough: the request must
-   * carry `X-Confirm-Delete: delete-account`, which the settings page sends
-   * only after the person typed the confirmation word (428
-   * `confirmation_required` otherwise; audit C). */
+  /** Deletes the caller's account (docs/account-deletion.md); Privy login and wallets are
+   * untouched. 409 blocker code / `last_admin`; 503 `closure_check_unavailable`. Requires
+   * `X-Confirm-Delete: delete-account`, sent only after the typed confirmation (428 otherwise; audit C). */
   @ApiDoc("Delete my account", "Deletes the Orbie account and its personal data; kept financial and audit records are anonymised and purged after 365 days. Only in-flight state blocks it (409 with the blocker's code). The Privy wallets and funds are not affected. Requires the X-Confirm-Delete header.")
   @ApiHeader({ name: ACCOUNT_DELETION_HEADER, required: true, description: `Must be "${ACCOUNT_DELETION_CONFIRMATION}": the explicit confirmation of the person deleting their account.` })
   @Delete()

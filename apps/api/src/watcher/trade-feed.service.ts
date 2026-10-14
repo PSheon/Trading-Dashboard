@@ -48,17 +48,10 @@ interface Shard {
 }
 
 /**
- * Real-time fill discovery (W1) from the per-coin `trades` channel.
- *
- * User-specific subscriptions (`userFills`) are capped at 10 unique users
- * per IP, too few for 100 leaders. `trades` is per coin, not per user, and
- * every trade carries `users: [buyer, seller]`; subscribing to every perp
- * market (≈330 across all dexes on 2026-09-29) and filtering by address
- * sees every leader trade in about a second, whatever the number of leaders.
- *
- * A trade has no startPosition, closedPnl or fee: the caller derives the
- * position from its position book to alert at once, and stores the fill
- * itself from `userFillsByTime` afterwards.
+ * Real-time fill discovery (W1) from the per-coin `trades` channel: `userFills`
+ * allows only 10 users per IP, so every perp market is subscribed and trades
+ * are filtered by `users: [buyer, seller]`. A trade has no startPosition,
+ * closedPnl or fee; the caller derives the position from its book.
  */
 @Injectable()
 export class TradeFeedService {

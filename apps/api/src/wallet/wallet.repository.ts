@@ -20,9 +20,8 @@ export class WalletRepository {
     return row;
   }
 
-  /** Store the Privy embedded wallet once; a stored address is never
-   * replaced. Returns the address now on the row (null if the write lost to
-   * a unique conflict, which Privy's one-wallet-per-user rules out). */
+  /** Stores the embedded wallet once, never replacing it. Returns the row's address (null
+   * after a unique conflict). */
   async setEmbeddedWallet(userId: number, address: string): Promise<string | null> {
     try {
       await this.db.transaction(async tx => {

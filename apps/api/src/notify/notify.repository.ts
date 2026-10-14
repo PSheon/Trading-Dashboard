@@ -21,10 +21,8 @@ export const DELIVERY_BATCH = 100;
 export class NotifyRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
 
-  /** Owner events to queue for the trade bot: opted in (and only events
-   * since), linked and enabled chat, at most `maxAgeMs` old (the trade alerts'
-   * cut-off: a fill message is about now), with the owner's language and the
-   * copied trader. */
+  /** Owner events to queue for the trade bot: opted in (events since only),
+   * linked and enabled chat, at most `maxAgeMs` old. */
   copyCandidates(maxAgeMs: number) {
     return this.db.select({ event: copyEvents, chatId: notificationChannels.target, locale: users.locale, leaderAddress: copyStrategies.leaderAddress }).from(copyEvents)
       .innerJoin(users, and(eq(users.id, copyEvents.userId), isNull(users.disabledAt)))
@@ -40,17 +38,11 @@ export class NotifyRepository {
   }
 
   /**
-   * Actual copies write no owner events: their activity is the live rows.
-   * Each terminal one the trade bot sends — a settled leg that filled
-   * (`order_filled`, from its order's own fills), a refused leg
-   * (`order_rejected`, but not SILENT_LIVE_REFUSALS), a finished stop
-   * (`strategy_stopped`) and a credited return to the main wallet
-   * (`funds_returned` for a stop's sweep or an aborted setup's refund,
-   * else `funds_withdrawn`) — becomes one owner event keyed by
-   * `payload.liveSource`, which copyCandidates then queues like a paper one.
-   * Only for owners with copy alerts on, rows since the opt-in and at most
-   * `maxAgeMs` old (as copyCandidates): never a backfill of history. One
-   * projector at a time (transaction lock), so a row is never projected twice.
+   * Projects an actual copy's terminal live rows (filled leg, refused leg except
+   * SILENT_LIVE_REFUSALS, finished stop, credited return) into one owner event
+   * each, keyed by `payload.liveSource`, for copyCandidates to queue. Same
+   * opt-in and `maxAgeMs` filters as copyCandidates (never history); one
+   * projector at a time (transaction lock), so no row is projected twice.
    */
   async projectLiveCopyEvents(maxAgeMs: number): Promise<number> {
     return this.db.transaction(async tx => {
@@ -116,10 +108,8 @@ export class NotifyRepository {
     if (inserted.length) await this.insertAlertRows(ctx, payloadJson, "pending", tx);
   }
 
-  /** Due by the database's own clock: a row inserted a moment ago has an
-   * `available_at` with microseconds, which a millisecond JS time taken
-   * right after the commit can still be behind (the first drain then found
-   * nothing and the alert waited for the 5 s poll). */
+  /** Due by the database's own clock: a just-inserted `available_at` has
+   * microseconds a millisecond JS time can still be behind. */
   private due() {
     return or(
       and(eq(notificationOutbox.status, "pending"), lte(notificationOutbox.availableAt, sql`now()`)),

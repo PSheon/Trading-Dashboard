@@ -25,14 +25,9 @@ const toNumber = (value: string | undefined) => {
 };
 
 /**
- * The signed-in user's main account (their Privy embedded wallet) on the
- * wallet network (HYPERLIQUID_NETWORK): Hyperliquid perp/spot balances, the
- * deposit address's Arbitrum balances, and the deposit/withdraw ledger.
- *
- * The address comes from Privy's own user record (the verifier's
- * `fetchProfile`), never from the browser. Reads only: nothing here signs,
- * and no key or signer reference is stored. Every Hyperliquid call goes
- * through the shared budgeter; results are cached per address.
+ * The user's main account (Privy embedded wallet) on the wallet network: HL balances,
+ * Arbitrum balances and the ledger. The address comes from Privy, never the browser.
+ * Read-only: nothing signs, no key is stored. Cached per address.
  */
 @Injectable()
 export class WalletService {
@@ -57,9 +52,8 @@ export class WalletService {
   }
 
   /**
-   * The user's embedded wallet address (lowercase), or null while Privy has
-   * none. A missing address is fetched from Privy (throttled per user) and
-   * stored once.
+   * Embedded wallet address (lowercase), or null while Privy has none; a missing one is
+   * fetched (throttled per user) and stored once.
    * @throws NotFoundException when the user row is gone.
    */
   async address(userId: number): Promise<string | null> {
@@ -106,9 +100,8 @@ export class WalletService {
     });
   }
 
-  /** GET /me/wallet/history: the 90-day ledger of the main account on the
-   * wallet network, newest first (one page: a user wallet's ledger is small;
-   * `truncated` says when it wasn't). */
+  /** GET /me/wallet/history: the TRANSFERS_WINDOW_MS ledger, newest first, one page
+   * (`truncated` when it didn't fit). */
   async history(userId: number): Promise<WalletHistoryResponse> {
     const network = this.wallet.network;
     const address = await this.address(userId);

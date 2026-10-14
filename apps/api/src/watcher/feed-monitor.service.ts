@@ -12,7 +12,6 @@ import { FEED_DOWN_ALERT_MS } from '../config/constants/alerts.js';
  * The trade feed's own schedules, beside the feed (WatcherRuntimeModule: a
  * `copy` or `all` worker): every minute the §8 self-alert when the feed has
  * been down 10 min, and hourly the subscription of newly listed markets.
- * They were SchedulerService's; a `read` worker has no feed to check.
  */
 @Injectable()
 export class FeedMonitorService {

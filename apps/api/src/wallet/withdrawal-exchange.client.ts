@@ -8,9 +8,8 @@ import { HyperliquidGlobalTransport } from '../hyperliquid/hyperliquid-global-tr
 import { LiveBoundaryError } from '../copy/live/wallet-authorization.js';
 import { jsonDigest } from '../common/crypto/digest.js';
 
-/** Process-local evidence only, as copy funding's (CopyFundingExchangeClient):
- * the exact private error object is bound to the exact attempt captured by
- * this transport invocation, and proves its POST was never handed over. */
+/** Process-local proof (as CopyFundingExchangeClient's): this exact error object, bound to
+ * this exact attempt, proves its POST was never handed over. */
 const notDispatched = new WeakMap<object, string>();
 const attemptDigest = (row: WithdrawalRow) => jsonDigest(Object.fromEntries(Object.entries(row).sort(([a], [b]) => a.localeCompare(b))));
 export function isWithdrawalNotDispatched(error: unknown, attempt: WithdrawalRow): boolean {

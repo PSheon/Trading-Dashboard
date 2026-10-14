@@ -12,12 +12,9 @@ export interface AlertRecipient {
 }
 
 /**
- * One action, one recipient, one message. RulesService has already decided
- * this person gets it and why:
+ * One action, one recipient, one message (both reasons true still send one):
  * - `favorite`: their own alert on this trader matched (side, minimum);
  * - `rules`: default rules that matched, for an admin on an imported leader.
- * Both can be true for an admin who also set an alert; they still get one
- * message.
  */
 export interface AlertContext {
   action: ActionRow;

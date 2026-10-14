@@ -1,11 +1,7 @@
 import { BlockList, isIP } from "node:net";
 
-/**
- * Whether an address is one of API_TRUSTED_PROXY_CIDRS (explicit IPs or
- * CIDRs, validated by `validateEnvironment`), the list Express's
- * `trust proxy` uses. IPv4-mapped IPv6 peers (`::ffff:10.0.0.1`) match
- * their IPv4 entries. An empty list trusts nothing.
- */
+/** Whether an address is in API_TRUSTED_PROXY_CIDRS (Express `trust proxy`); `::ffff:`
+ * peers match their IPv4 entries; an empty list trusts nothing. */
 export function trustedProxyMatcher(cidrs: readonly string[]): (address: string | undefined) => boolean {
   const list = new BlockList();
   for (const cidr of cidrs) {

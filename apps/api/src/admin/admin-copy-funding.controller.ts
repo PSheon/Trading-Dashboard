@@ -7,13 +7,8 @@ import { ApiDoc, ResponseMessage } from "../common/decorators/http.decorator.js"
 import { CopyFundingService } from "../copy/copy-funding.service.js";
 import { AdminCopyFundingParamsDto, AdminResolveCopyFundingDto } from "./dto/copy-live.dto.js";
 
-/**
- * A copy wallet transfer (deposit or return, listed by GET
- * /admin/copy/live/transfers) whose outcome stays unresolved: until it has a
- * terminal state the main wallet cannot withdraw, deposit or take a return.
- * An operator's resolution needs users.manage, as a main-wallet withdrawal's
- * (AdminWithdrawalController), and is audited.
- */
+/** Resolves an unresolved copy wallet transfer (it blocks the main wallet until terminal).
+ * Needs users.manage, as AdminWithdrawalController; audited. */
 @Controller("admin/copy/live/transfers")
 @RequirePermissions("admin.access", "copy.read", "users.manage")
 export class AdminCopyFundingController {

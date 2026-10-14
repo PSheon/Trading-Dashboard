@@ -5,11 +5,8 @@ import { sendHttpError } from "./response-contract.js";
 const codes: Record<number, string> = { 400: "bad_request", 401: "unauthorized", 403: "forbidden", 404: "not_found",
   409: "conflict", 413: "payload_too_large", 429: "rate_limited", 500: "internal_error", 502: "bad_gateway", 503: "unavailable", 504: "deadline_exceeded" };
 
-/**
- * What the log keeps of a failure: where it was thrown and the database's
- * own complaint. Never the thrown message of a query error, which carries
- * the SQL and its bind values.
- */
+/** What the log keeps of a failure: where it was thrown and the DB's own complaint, never
+ * a query error's message (it carries SQL and bind values). */
 function describeError(error: unknown): Record<string, unknown> {
   if (!(error instanceof Error)) return { thrown: typeof error };
   const cause = error.cause instanceof Error ? error.cause : undefined;

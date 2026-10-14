@@ -57,9 +57,8 @@ export function inRetentionWindow(now: Date): boolean {
 }
 
 /**
- * Data retention (review findings 3 and 20; privacy policy §6). Once a day,
- * off-peak, the worker deletes what is older than the periods in
- * RETENTION_* (deploy-time, read at startup):
+ * Data retention (review 3, 20; privacy policy §6): once a day, off-peak, the worker
+ * deletes what is older than RETENTION_* (deploy-time):
  *
  * | data | default |
  * | --- | --- |
@@ -72,11 +71,8 @@ export function inRetentionWindow(now: Date): boolean {
  * | alert delivery records (`alerts`) | 30 days |
  * | closed Hyperliquid socket leases (`hyperliquid_ws_leases`) | 1 day after closing (fixed) |
  *
- * Deletes are bounded (`RETENTION_LIMITS`): a table that has more to remove
- * than one run allows is finished by the next runs ("partial"). A lease row
- * (`retention_state`) keeps two workers from cleaning at once and carries
- * the last run for the admin system page; each run also writes one admin
- * audit entry (`retention.run`) with the rows removed per table.
+ * Deletes are bounded (`RETENTION_LIMITS`); leftovers wait for the next run ("partial").
+ * A lease row (`retention_state`) keeps two workers apart; each run is audited (`retention.run`).
  */
 @Injectable()
 export class RetentionService {

@@ -25,15 +25,10 @@ function bearerToken(request: Request): string | undefined {
 }
 
 /**
- * Global guard (applied in AppModule). Sets `request.user` (see
- * `RequestUser`) and enforces:
- * - `@Public()`: anyone. No token, or one that doesn't give a caller
- *   (invalid, expired, disabled user, sign-ups closed) → anonymous — a
- *   stale token must not block browsing; a valid one → caller attached.
- * - everything else: 401 without a caller, except a new Privy user while
- *   sign-ups are closed: 403 `{ code: "signups_closed" }`.
- * - `@Roles(...)`: human-role restriction; service principals cannot satisfy it.
- * - Permission metadata also overrides @Public; PermissionGuard runs next.
+ * Global guard: sets `request.user` and enforces
+ * - `@Public()`: anyone; a token that gives no caller → anonymous (a stale token must not block browsing);
+ * - everything else: 401 without a caller (403 `signups_closed` for a new user while closed);
+ * - `@Roles(...)`: humans only. Permission metadata overrides @Public; PermissionGuard runs next.
  */
 @Injectable()
 export class AuthGuard implements CanActivate {
@@ -60,8 +55,7 @@ export class AuthGuard implements CanActivate {
       try {
         outcome = await this.auth.authenticate(token, { locale: preferredLocale(request.headers["accept-language"]) });
       } catch (error) {
-        // Only infrastructure failures get here (e.g. the database is down
-        // while signing a user in). Public data stays reachable.
+        // Infrastructure failure only (e.g. DB down): public data stays reachable.
         if (!open) throw error;
         this.logger.warn(`Treating caller as anonymous on a public route: ${safeErrorText(error)}`);
       }

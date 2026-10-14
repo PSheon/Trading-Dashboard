@@ -21,10 +21,7 @@ function addDays(day: string, days: number): string {
   return new Date(Date.parse(`${day}T00:00:00Z`) + days * DAY_MS).toISOString().slice(0, 10);
 }
 
-/**
- * First UTC day in the range, or null for "all". "7d" is today and the 6
- * days before it, and so on.
- */
+/** First UTC day in the range ("7d" = today and the 6 days before), or null for "all". */
 export function rangeStartDay(range: RevenueRange, now: Date): string | null {
   if (range === "all") return null;
   return addDays(utcDay(now), -(RANGE_DAYS[range] - 1));
@@ -44,25 +41,12 @@ interface DailyRevenue {
 }
 
 /**
- * Revenue earned per UTC day from cumulative snapshots.
- *
- * For each day with snapshots: the day's last snapshot minus the last
- * snapshot before that day, per series, clamped at 0. Builder and referral
- * totals are cumulative and don't move when rewards are claimed (a claim
- * only shifts unclaimed → claimed), so a claim earns nothing; a series that
- * goes down (it shouldn't) counts as 0 rather than negative revenue.
- *
- * - The first day ever tracked has no earlier snapshot; its first snapshot
- *   is the baseline, so income from before tracking began is not booked on
- *   that day.
- * - A day with no snapshot gets 0, and what was earned during the gap is
- *   booked on the next day that has one.
- * - Days run from `fromDay` (or the first snapshot's day) to the last
- *   snapshot's day, without holes.
- *
- * `points` must be sorted by `takenAt` and may start with snapshots before
- * `fromDay`: the last of those is the baseline for `fromDay`. `total` is
- * the exact sum of the returned days; `totalUnits` is builder + referral.
+ * Revenue per UTC day from cumulative snapshots: the day's last snapshot minus the last one
+ * before it, per series, clamped at 0 (claims don't move the cumulative totals).
+ * - The first tracked day's first snapshot is its baseline (pre-tracking income isn't booked).
+ * - A day without snapshots gets 0; the gap's income lands on the next day with one.
+ * - Days run without holes from `fromDay` (or the first snapshot's day) to the last snapshot's.
+ * `points` sorted by `takenAt`; ones before `fromDay` give its baseline. `totalUnits` = builder + referral.
  */
 export function dailyRevenue(
   points: RevenuePoint[],

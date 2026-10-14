@@ -18,12 +18,8 @@ export class WatcherRuntime implements OnApplicationBootstrap {
   }
 }
 
-/**
- * The running watcher: the one trade feed of the deployment, and its
- * schedules (FeedMonitorService). The `copy` worker (its signal source and
- * the fast source's feed status) and the `all` worker import it; a `read`
- * worker uses WatcherModule's capabilities without a second feed.
- */
+/** The running watcher: the deployment's one trade feed and its schedules.
+ * Imported by the `copy` and `all` workers only (no second feed on `read`). */
 @Module({
   imports: [WatcherModule, NotifyModule],
   providers: [WatcherRuntime, FeedMonitorService],

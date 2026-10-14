@@ -20,9 +20,7 @@ const adminUserColumns = {
   createdAt: users.createdAt,
   lastLoginAt: users.lastLoginAt,
   disabledAt: users.disabledAt,
-  // Spelled out: drizzle renders columns unqualified in a single-table
-  // select, so `${users.id}` inside the subquery would bind to the inner
-  // table's "id".
+  // Spelled out: drizzle renders `${users.id}` unqualified, which would bind to the inner table.
   favorites: sql<number>`(select count(*)::int from "user_favorites" uf where uf."user_id" = "users"."id")`,
   telegramEnabled: sql<boolean>`exists (select 1 from "notification_channels" nc where nc."user_id" = "users"."id" and nc."kind" = 'telegram' and nc."enabled")`,
 };

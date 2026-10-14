@@ -23,11 +23,8 @@ export class WorkerHeartbeatService {
   constructor(
     private readonly config: AppConfig,
     private readonly watcher: WatcherService,
-    // Absent on a `copy` worker (the snapshots are the `read` worker's).
-    // The explicit token matters: a union's design:paramtypes is `Object`,
-    // which no provider answers, so `@Optional()` alone injected nothing and
-    // /health showed no snapshot on `read` and `all` (Stage, 2026-10-14;
-    // test/injection-metadata.spec.ts).
+    // Absent on a `copy` worker. The explicit token is required: a union's paramtype is
+    // `Object`, so `@Optional()` alone injects nothing (Stage 2026-10-14; test/injection-metadata.spec.ts).
     @Optional() @Inject(SchedulerService) private readonly scheduler: SchedulerService | null,
     private readonly budgeter: RequestBudgeterService,
     @Optional() private readonly archive?: ArchiveIngestService,
@@ -88,14 +85,10 @@ export class WorkerHeartbeatService {
       dryRun: this.config.value.telegram.dryRun,
       // Progress of the S3 archive ingest; a failed read must not fail the heartbeat.
       archive: this.archive?.enabled ? await this.archive.status().catch(() => undefined) : undefined,
-      // What this worker runs (WORKER_ROLE) and the leases it holds: an
-      // active worker holds all its role's leases (runtime/worker-role.ts).
-      // terminalSettlement: whether it runs the terminal settlement loop
-      // (WORKER_TERMINAL_SETTLEMENT as it takes effect here), which the api's
-      // guard needs to see while API_TERMINAL_SETTLEMENT=off (WorkerFleetService).
+      // WORKER_ROLE and its leases; terminalSettlement is what the api's guard checks while
+      // API_TERMINAL_SETTLEMENT=off (WorkerFleetService).
       worker: { role: this.config.value.app.workerRole, leases: [...roleLeases(this.config.value.app.workerRole)], terminalSettlement: terminalSettlementRuns(this.config) },
-      // Its public IPs (HL_EGRESS_IDENTITY): the api compares the copy
-      // worker's with its own and the read worker's (WorkerFleetService).
+      // Public IPs (HL_EGRESS_IDENTITY), compared across processes by WorkerFleetService.
       egressIdentity: this.identity.mode === "off" ? undefined : this.identity.snapshot(),
       // Hyperliquid's rate limits met here, and those while our own meter
       // held under 80 % of the window (foreign_usage_suspected).

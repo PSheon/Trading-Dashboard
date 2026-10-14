@@ -43,19 +43,13 @@ interface RangeRead {
   dense: number[];
 }
 
-/** The earliest fill an endpoint returns, and whether that can be where its
- * retained history was cut off. Hyperliquid keeps an address's most recent
- * 10,000 fills per endpoint. `bounded` is false when the read from the
- * beginning came back short (the endpoint returned everything it has: fewer
- * fills than one page, far fewer than are retained) and, for ordinary
- * fills, the first one starts from a flat position: nothing older was
- * dropped, and that first fill is no limit on the span. */
+/** The earliest fill an endpoint returns (Hyperliquid keeps the latest 10,000
+ * per endpoint). `bounded` is false when the read from 0 came back short and,
+ * for ordinary fills, starts flat: nothing older was dropped. */
 interface RetentionProbe { time: number; bounded: boolean }
 
-/** What bounds the verified span from below: the latest first fill among
- * the endpoints whose history may have been cut (review 45). An endpoint
- * that is not bounded says nothing: an account whose first TWAP was last
- * week still has its year of ordinary fills backfilled. */
+/** The verified span's lower bound: the latest first fill among bounded
+ * endpoints; an unbounded endpoint says nothing (review 45). */
 function retainedFrom(probe: { regular: RetentionProbe | null; twap: RetentionProbe | null }): number {
   return Math.max(probe.regular?.bounded ? probe.regular.time : 0, probe.twap?.bounded ? probe.twap.time : 0);
 }
@@ -82,8 +76,7 @@ async function readPages(
  * - `confirm`: after the fast path alerted on feed trades, store their fills
  *   and check its actions (background lane; live for a copied leader, see
  *   `FillSyncService.lane`).
- * - `live`: store an address's fills at live priority and alert on them
- *   (the pre-fast-path route; kept for callers that need it).
+ * - `live`: store an address's fills at live priority and alert on them.
  * - `sweep`: the hourly safety net, and catch-up after a feed outage.
  * - `reconcile`: a 5-minute snapshot showed a position change with no fill.
  * - `backfill`: A5, full history of a newly added address.
@@ -118,17 +111,10 @@ export interface SyncResult {
 }
 
 /**
- * Pulls an address's fills from `startTime` to now into `fills`, and turns
- * fills not already covered by actions into `actions`.
- *
- * Windows overlap on purpose (every caller starts a little before the time it
- * cares about): the fill primary key dedupes raw data, and the
- * address action lock dedupes derived actions. Replaying a window also
- * repairs action creation interrupted after raw fills were committed.
- *
- * Syncs of one address run one at a time (except backfill, which only
- * touches history and runs alongside), so two overlapping windows never race
- * to classify the same burst.
+ * Pulls an address's fills into `fills` and turns uncovered ones into `actions`.
+ * Windows overlap on purpose: the fill primary key and the address action lock
+ * dedupe, and a replay repairs action creation interrupted after fills committed.
+ * Syncs of one address run one at a time (backfill alongside, history only).
  */
 @Injectable()
 export class FillSyncService {
@@ -177,19 +163,10 @@ export class FillSyncService {
   }
 
   /**
-   * The budget lane and rank of one read in an address's sync chain.
-   *
-   * Stored fills of a copied leader are copy signals, and an open older
-   * than the risk policy's maxSignalAgeSeconds (120 s) is refused as
-   * `stale_signal`. In the background lane a confirm queues, unranked,
-   * behind every pool, cohort, sweep and backfill call waiting for its
-   * worst-case weight (2026-10-01 19:51Z: a copied leader's ZEC fills were
-   * stored 157 s late and three opens were rejected). So every read in a
-   * copied leader's chain goes in the live lane: the confirm, and the
-   * sweep, reconcile and continuity reads the confirm would otherwise wait
-   * behind (one sync per address at a time). They rank by arrival time,
-   * after the watcher's fast-path calls, which rank by an earlier time.
-   * History backfill stays in the background lane.
+   * The budget lane and rank of one read in an address's sync chain. A copied
+   * leader's fills are copy signals (stale after maxSignalAgeSeconds), so every
+   * non-backfill read in its chain goes live, ranked by arrival after the
+   * fast path (2026-10-01: background-lane fills stored 157 s late).
    */
   private async lane(address: string, reason: SyncReason, rank?: number): Promise<{ priority: RequestPriority; rank: number | undefined }> {
     if (reason === "live") return { priority: "live", rank };
@@ -219,14 +196,10 @@ export class FillSyncService {
   }
 
   /**
-   * Time-ascending pages of one endpoint from `start`. A page is read from
-   * the last fill's millisecond inclusive, so a millisecond that alone
-   * holds a whole page returns the same page again and cannot be paged
-   * through. Backward backfill stops there (`blocked`). With `passDense`
-   * (the forward cursor) the read steps over that millisecond instead: its
-   * first PAGE_SIZE fills are kept, it is listed in `dense`, and the cursor
-   * goes on, where before it stayed on that millisecond for ever and every
-   * sweep re-read the same page (review 45).
+   * Time-ascending pages of one endpoint from `start`. A millisecond holding a
+   * whole page cannot be paged through: backward backfill stops (`blocked`);
+   * with `passDense` the forward cursor keeps its first page, lists it in
+   * `dense` and steps over it (review 45).
    */
   private async readRange(address: string, twap: boolean, start: number, end: number | undefined, maxPages: number, rank?: number, priority: RequestPriority = "background", passDense = false): Promise<RangeRead> {
     const byTid = new Map<number, HlUserFill>();
@@ -263,11 +236,9 @@ export class FillSyncService {
   }
 
   /**
-   * Reads both fill endpoints from the address's verified cursor (not from
-   * a fixed window) and moves the cursor only over what a completed read
-   * returned. A failure, a restart or any length of downtime leaves the
-   * cursor where it was, so the next call resumes there and no fill is
-   * skipped. Runs in the address's sync chain.
+   * Reads both fill endpoints from the address's verified cursor and moves it
+   * only over what a completed read returned, so failure or downtime never
+   * skips a fill. Runs in the address's sync chain.
    */
   catchUp(address: string, callerRank?: number): Promise<CatchUpResult> {
     if (this.jobs.stopping) return Promise.reject(new Error("Shutting down"));
@@ -287,9 +258,8 @@ export class FillSyncService {
       }
       const dense = [...regular.dense, ...twap.dense];
       if (dense.length > 0) {
-        // Not silent: the fills past the first page of that millisecond are
-        // not stored. The continuity check below records the position break
-        // they leave, if any, as unexplained.
+        // Fills past that millisecond's first page are not stored; the
+        // continuity check records any break they leave as unexplained.
         this.logger.warn(`${address}: ${dense.length} millisecond(s) hold more than ${PAGE_SIZE} fills (${dense.map((t) => new Date(t).toISOString()).join(", ")}); the cursor moved past them`);
       }
       if (twap.fills.length > 0) this.twapSeenAt.set(address, Date.now());
@@ -306,10 +276,9 @@ export class FillSyncService {
   }
 
   /**
-   * One backward window: every fill of both endpoints in `[verified_from −
-   * span, verified_from]`, stored, then the span's start moves back. The
-   * window is sized from the density just read; one too dense for a step
-   * is retried shorter and stores nothing, so the span never has a hole.
+   * One backward window `[verified_from − span, verified_from]` of both
+   * endpoints. A window too dense for a step is retried shorter and stores
+   * nothing, so the span never has a hole.
    */
   async backfillStep(address: string, rank?: number, maxFills = BACKFILL_MAX_FILLS): Promise<{ status: string; inserted: number }> {
     let state = await this.repository.coverage(address);
@@ -334,10 +303,8 @@ export class FillSyncService {
       this.retention.set(address, probe);
     }
     const finish = async (status: "complete" | "capped" | "blocked") => {
-      // Retention only moves forward: a window read earlier is certain
-      // only if each endpoint's history still reaches the span's start now.
-      // One narrow read per endpoint answers that; the full probe is
-      // repeated only when one no longer does.
+      // Retention moves forward: re-check each endpoint still reaches the
+      // span's start; re-probe fully only when one no longer does.
       this.retention.delete(address);
       const spanFrom = (await this.repository.coverage(address))?.verifiedFrom?.getTime() ?? end;
       // An endpoint that was not bounded returned its whole history: there is nothing to re-check.
@@ -388,10 +355,8 @@ export class FillSyncService {
     return { status: "pending", inserted: stored.inserted };
   }
 
-  /** The earliest fill an endpoint still returns up to `end`, read from
-   * the beginning; null when it returns none. A full first page means the
-   * endpoint has more than a page and its start may be where retention cut
-   * it (`bounded`); a short one is the endpoint's whole history. */
+  /** The earliest fill an endpoint returns up to `end`, or null. A full first
+   * page means retention may have cut it (`bounded`). */
   private async earliestFill(address: string, twap: boolean, end: number | undefined, rank?: number): Promise<RetentionProbe | null> {
     const batch = twap
       ? (await this.info.userTwapSliceFillsByTime(address, 0, end, "background", rank)).map(twapSliceToFill)
@@ -405,9 +370,7 @@ export class FillSyncService {
     return { time: first.time, bounded: batch.length >= PAGE_SIZE || midPosition };
   }
 
-  /** Where each endpoint's retained history starts for the address. REST
-   * keeps a moving window per endpoint; {@link retainedFrom} turns the two
-   * into the span's lower bound. */
+  /** Where each endpoint's retained history starts; see {@link retainedFrom}. */
   private async retentionStart(address: string, rank?: number): Promise<{ regular: RetentionProbe | null; twap: RetentionProbe | null }> {
     return { regular: await this.earliestFill(address, false, undefined, rank), twap: await this.earliestFill(address, true, undefined, rank) };
   }
@@ -433,19 +396,16 @@ export class FillSyncService {
   }
 
   /**
-   * The gap detector. Checks per-coin position continuity of the stored
-   * fills in the verified span (new fills only, or the whole span when
-   * `full`). Each break is a hole between two stored fills of a coin: both
-   * endpoints are re-read for exactly that interval and what was missing
-   * is stored. A break that a completed re-read does not close is recorded
-   * as unexplained (upstream has no fill there) and not retried.
+   * The gap detector: per-coin position continuity over the verified span (new
+   * fills only unless `full`). Each break is re-read on both endpoints; one a
+   * re-read does not close is recorded as unexplained and not retried.
    */
   async checkContinuity(address: string, full = false, rank?: number, priority: RequestPriority = "background"): Promise<{ breaks: number; repaired: number; unexplained: number }> {
     const state = await this.repository.coverage(address);
     if (!state?.verifiedFrom || !state.verifiedThrough) return { breaks: 0, repaired: 0, unexplained: 0 };
     const from = full || !state.checkedThrough || state.checkedThrough < state.verifiedFrom ? state.verifiedFrom : state.checkedThrough;
     const known = new Set(state.breaks.map((b) => b.tid));
-    // Page by page: a span is no longer bounded by a 50,000-fill backfill cap.
+    // Page by page: a span can hold up to BACKFILL_MAX_FILLS fills.
     const load = async () => {
       const breaks: ReturnType<typeof positionBreaks> = [];
       for await (const batch of this.repository.fillPagesForCheck(address, state.verifiedFrom!, from, state.verifiedThrough!)) breaks.push(...positionBreaks(batch));
@@ -520,9 +480,8 @@ export class FillSyncService {
           },
         );
       } catch (error) {
-        // The fills stored so far still become actions below (they are
-        // stored now, so no later sync would see them as new); what is
-        // still missing is looked for again by the caller's retry.
+        // Fills stored so far still become actions below; the caller's retry
+        // looks for what is missing.
         this.logger.warn(`TWAP slice fills for ${address} failed: ${safeErrorText(error)}`);
       }
       if (slices > 0) this.twapSeenAt.set(address, Date.now());
@@ -538,12 +497,9 @@ export class FillSyncService {
   }
 
   /**
-   * Without expected tids, whether a sync should also read TWAP slices:
-   * always for backfill (history) and reconcile (a position moved with no
-   * fill, which is what a TWAP looks like to userFillsByTime); for the
-   * hourly sweep only when the address used a TWAP in the last two days,
-   * since slices cost a second request per address. The feed plus the
-   * 5-minute reconcile cover an address's first TWAP.
+   * Without expected tids, whether to also read TWAP slices: always for
+   * backfill and reconcile (a TWAP looks like a fill-less position move); for
+   * the sweep only after a recent TWAP, since slices cost a second request.
    */
   private async wantsTwapSlices(address: string, reason: SyncReason): Promise<boolean> {
     if (reason === "backfill" || reason === "reconcile") return true;
@@ -577,11 +533,9 @@ export class FillSyncService {
   }
 
   /**
-   * Fresh fills → actions. A fill the fast path already made an action for
-   * (its tid is in one of the address's `fill_ids`) gets no second one; once
-   * all of such an action's fills are stored, it is re-derived from them and
-   * corrected in place, without an alert, if the fast path got it wrong.
-   * Fills no action covers (the feed missed them) become actions as before.
+   * Fresh fills → actions. A fill already in a fast-path action's `fill_ids`
+   * gets no second one; that action is re-derived once all its fills are
+   * stored and corrected in place without an alert.
    */
   private async createActions(address: string, reason: SyncReason, newFills: HlUserFill[], freshTids: Set<bigint>, rank?: number): Promise<number> {
     const leverage = (coin: string) => this.accounts.leverageFor(address, coin);
@@ -626,11 +580,9 @@ export class FillSyncService {
     return rows.length;
   }
 
-  /** Re-derives a fast-path action from its real fills once all are stored,
-   * and corrects kind/side (a liquidation, or a book that was off) in place.
-   * No `action.created`: the alert already went out, and a second one would
-   * read as a new trade. The changed rows are collected in `corrections`
-   * for `action.corrected` once the transaction commits. */
+  /** Re-derives a fast-path action from its real fills and corrects kind/side
+   * in place. No `action.created` (a second alert reads as a new trade);
+   * changed rows go to `corrections` for `action.corrected` after commit. */
   private async verify(
     tx: DbTransaction,
     address: string,

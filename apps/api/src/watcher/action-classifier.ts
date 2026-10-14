@@ -84,14 +84,9 @@ export function liquidates(fill: HlUserFill, address: string): boolean {
 }
 
 /**
- * Sorts one coin's fills by time, and fills sharing a millisecond into the
- * order they executed in. `tid` is NOT that order (checked live 2026-09-29:
- * same-millisecond fills sorted by tid broke the startPosition chain in about
- * half the cases); the info API and the trade feed both list fills in
- * execution order, and within a millisecond each fill starts where the
- * previous one ended. So a same-millisecond run is chained by startPosition
- * when that is unambiguous (fills read back from the database come in no
- * particular order), and otherwise keeps the order it was given in.
+ * Sorts one coin's fills by time, and a same-millisecond run into execution
+ * order: chained by startPosition when unambiguous, else the given order.
+ * `tid` is NOT execution order (checked live 2026-09-29).
  */
 export function executionOrder(fills: HlUserFill[]): HlUserFill[] {
   const sorted = [...fills].sort((x, y) => x.time - y.time);

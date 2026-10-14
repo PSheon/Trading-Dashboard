@@ -27,13 +27,8 @@ import { AdminController, PublicSettingsController } from "./admin.controller.js
 import { RevenueModule } from "./revenue.module.js";
 import { WorkerFleetModule } from "../api/health/worker-fleet.module.js";
 
-/**
- * `/admin/*` (settings, users, overview, revenue, copy trading) and the public
- * `GET /settings`. The hourly revenue snapshot is RevenueWorkerModule's
- * (the worker process); this module only reads and triggers snapshots.
- * SettingsModule and DbModule are global; AuthModule gives AuthService, so
- * role and disable changes apply at once (`invalidateUser`).
- */
+/** `/admin/*` and the public `GET /settings`. The hourly revenue snapshot runs in the
+ * worker (RevenueWorkerModule); AuthModule is imported for `invalidateUser`. */
 @Module({
   imports: [BackfillJobsModule, AuthModule, HyperliquidModule, CopyModule, RevenueModule, WorkerFleetModule],
   controllers: [AdminCopyController, AdminCopyLiveController, AdminCopyFundingController, AdminSourcesController, AdminTraderController, AdminAuditController, AdminSettingsRuntimeController, AdminJobsController, AdminSystemController, AdminController, PublicSettingsController],

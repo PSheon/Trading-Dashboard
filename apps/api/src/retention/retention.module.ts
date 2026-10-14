@@ -14,9 +14,8 @@ class RetentionWorker {
   private readonly logger = new Logger(RetentionWorker.name);
   constructor(private readonly retention: RetentionService) {}
 
-  /** Three times an hour; the service runs only in its off-peak window and
-   * once a day, so most ticks return at once. The retries inside the window
-   * pick up a run that a deploy or a lost lease cut short. */
+  /** Three times an hour; the service runs once a day in its window, so later ticks
+   * pick up a run a deploy or lost lease cut short. */
   @Cron("0 7,27,47 * * * *")
   async tick(): Promise<void> {
     try {

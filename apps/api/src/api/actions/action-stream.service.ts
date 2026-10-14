@@ -62,14 +62,10 @@ export function defaultActionStreamOptions(config: AppConfig): ActionStreamOptio
 }
 
 /**
- * The caller's address for the per-IP limit. With `hops` trusted proxies in
- * front of the api (e.g. the web forwarder and the platform's edge), each
- * appended one X-Forwarded-For entry; the client is the entry `hops` places
- * from the right of `[...X-Forwarded-For, socket peer]`. Entries further left
- * are client-supplied and never trusted. The header is read only when the
- * socket peer is a trusted proxy (`trustedPeer`, API_TRUSTED_PROXY_CIDRS, as
- * for the rest of the api): a caller reaching the api directly would
- * otherwise pick its own address per connection.
+ * The caller's address for the per-IP limit: the entry `hops` places from the
+ * right of `[...X-Forwarded-For, socket peer]`. Entries further left are
+ * client-supplied. The header is read only when the socket peer is a trusted
+ * proxy, or a direct caller could pick its own address per connection.
  */
 export function clientAddress(
   req: Pick<Request, "headers" | "socket">,
@@ -115,12 +111,9 @@ interface Subscriber {
 const bigintJson = (_key: string, value: unknown) => (typeof value === "bigint" ? value.toString() : value);
 
 /**
- * GET /actions/stream: pushes feed rows to open pages as the watcher
- * creates them (`action.created`) and when the slow path corrects them
- * (`action.corrected`), filtered per stream like GET /actions.
- *
- * Events are validated against the shared contract
- * (`actionStreamEventSchemas`) and serialized once per action, then fanned out.
+ * GET /actions/stream: pushes created and corrected feed rows to open pages,
+ * filtered like GET /actions; each event is validated against the shared
+ * contract and serialized once, then fanned out.
  */
 @Injectable()
 export class ActionStreamService implements OnModuleDestroy {

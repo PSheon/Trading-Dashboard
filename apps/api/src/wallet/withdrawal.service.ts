@@ -18,12 +18,9 @@ import type { HlLedgerUpdate } from "../hyperliquid/types.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
 import { BUSY_RETRY_AFTER_MS } from '../config/constants/http.js';
 
-/** A ledger read returns at most this many updates; a full page means
- * there may be more after it (read on from its last time). */
+/** A ledger page of this many updates may have more after it. */
 const LEDGER_PAGE = 500;
-/** Pages read before an operator resolution gives up (too much activity to
- * prove an absence; the operator retries later or resolves by hand in the
- * database with the evidence). */
+/** Pages read before an operator resolution gives up (too much activity to prove absence). */
 const LEDGER_MAX_PAGES = 20;
 
 const wire = (row: WithdrawalRow): WalletWithdrawal => ({ id: row.id, network: row.network, address: row.address, destination: row.destination, amount: row.amount, nonce: row.nonce, status: row.status, canCancel: row.status === "prepared" || (row.status === "unknown" && row.origin === "client" && !row.attemptedAt), createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() });
@@ -36,9 +33,7 @@ const evidenceHash = (value: unknown) => createHash("sha256").update(JSON.string
 export class WithdrawalService {
   private readonly logger = new Logger("Withdrawal");
   private readonly lookupCache = new TtlCache<string | null>(30_000);
-  /** One line per state change of a withdrawal (the request id is added by
-   * the logger): what an incident needs when the database row is not enough.
-   * Never the signature or the destination address. */
+  /** One log line per state change. Never the signature or the destination address. */
   private note(event: string, row: Pick<WithdrawalRow, "id" | "userId" | "network" | "nonce" | "status" | "amount"> & { evidenceHash?: string | null }, extra: Record<string, unknown> = {}, level: "log" | "warn" = "log") {
     this.logger[level]({ event, withdrawalId: row.id, userId: row.userId, network: row.network, nonce: row.nonce, status: row.status, amount: row.amount,
       ...(row.evidenceHash ? { evidenceHash: row.evidenceHash.slice(0, 16) } : {}), ...extra });
@@ -65,8 +60,7 @@ export class WithdrawalService {
     const row = await this.repository.latest({ userId, network: this.network, address });
     if (!row) return null;
     if (row.status === "unknown") {
-      // Polling may confirm a positive match. Read failures still expose the
-      // durable pending state; manual reconciliation reports the retry error.
+      // A read failure still shows the durable pending state.
       try { return await this.reconcile(userId, row.id); }
       catch (error) { this.note("withdrawal.reconcile.deferred", row, { error: safeErrorText(error) }, "warn"); return wire(row); }
     }
@@ -83,8 +77,7 @@ export class WithdrawalService {
     const parsed = walletWithdrawalImportSchema.safeParse(body);
     if (!parsed.success || parsed.data.nonce > Date.now() + 5_000) throw new BadRequestException("Invalid legacy withdrawal");
     const { nonce, ...input } = parsed.data;
-    // Old unknown metadata must survive upgrades, including records older than
-    // the upstream ledger window. Never mint a fresh nonce for an import.
+    // Never mint a fresh nonce for an import.
     const row = await this.repository.reserve(await this.scope(userId), input, nonce);
     this.note("withdrawal.imported", row, { origin: row.origin });
     return wire(row);
@@ -116,8 +109,7 @@ export class WithdrawalService {
     if (operation.attemptedAt) return wire(operation);
     try { await this.exchange.acquire(); }
     catch {
-      // No exchange bytes have been sent. The CAS cannot release an operation
-      // whose competing request already started its actual attempt.
+      // Nothing sent yet; the CAS won't release one a competing request already attempted.
       await this.repository.restoreUnsent(userId, id);
       this.note("withdrawal.submit.deferred", operation, { reason: "exchange_budget_busy" }, "warn");
       throw new BusyException(BUSY_RETRY_AFTER_MS);
@@ -134,8 +126,7 @@ export class WithdrawalService {
         claimed.amount !== operation.amount || claimed.nonce !== operation.nonce) throw new ConflictException('withdrawal_identity_evidence_expired');
     }); }
     catch (error) {
-      // Proven never handed over (quota, proof or permit refused first): back
-      // to prepared, so the owner can retry or cancel.
+      // Proven never handed over: back to prepared so the owner can retry or cancel.
       if (isWithdrawalNotDispatched(error, claimed)) {
         const restored = await this.repository.restoreNotDispatched(userId, claimed, error);
         if (restored) {
@@ -192,12 +183,9 @@ export class WithdrawalService {
   }
 
   /**
-   * Admin (users.manage): gives an unknown withdrawal its terminal state so
-   * the address can withdraw and fund again. Only once Hyperliquid's nonce
-   * window has passed (the signed action can no longer execute), and only
-   * from a complete ledger read made now: a matching withdraw → accepted;
-   * none → not_executed. Audited (wallet.withdrawal.resolve) with the
-   * operator's reason, in the same transaction.
+   * Admin (users.manage): terminal state for an unknown withdrawal, only after the nonce
+   * window (the signed action can no longer execute) and from a complete ledger read now:
+   * match → accepted, none → not_executed. Audited (wallet.withdrawal.resolve) in the same tx.
    */
   async resolveByOperator(id: string, input: unknown, actor: RequestUser): Promise<AdminResolvedWithdrawal> {
     const { reason } = parseOr400(adminResolveWithdrawalSchema, input);
@@ -207,10 +195,8 @@ export class WithdrawalService {
     if (now < operation.nonce + WITHDRAWAL_NONCE_WINDOW_MS) throw new ConflictException({ statusCode: 409, code: "withdrawal_nonce_window_open", message: "Hyperliquid may still execute this withdrawal; resolve it after its nonce window" });
     const rows: HlLedgerUpdate[] = [];
     try {
-      // A full page can end partway through a millisecond, so the next page
-      // starts at the page's last time again (not last + 1) and repeated
-      // updates are dropped; a page that cannot move past its start is not
-      // a complete read.
+      // A full page can end mid-millisecond: the next page restarts at its last time and
+      // duplicates are dropped; a page that can't advance is not a complete read.
       const seen = new Set<string>();
       let start = Math.max(0, operation.nonce - 60_000);
       for (let page = 0; ; page++) {
@@ -221,11 +207,8 @@ export class WithdrawalService {
           if (!seen.has(key)) { seen.add(key); rows.push(row); }
         }
         if (batch.length < LEDGER_PAGE) break;
-        // Hyperliquid answers oldest first and caps a long range at its
-        // earliest rows (checked 2026-10-05 on mainnet: 2000 ascending rows
-        // from the start time), so the next page starts where this one ended.
-        // A full page that isn't oldest first could be the range's newest
-        // rows instead, with earlier ones missing: not a complete read.
+        // Hyperliquid answers oldest first and caps a long range at its earliest rows
+        // (mainnet 2026-10-05); a full page not oldest first is not a complete read.
         if (batch.some((row, i) => i > 0 && row.time < batch[i - 1]!.time) || Math.min(...batch.map((row) => row.time)) < start)
           throw new ConflictException({ statusCode: 409, code: "withdrawal_ledger_incomplete", message: "The ledger did not come oldest first" });
         const last = Math.max(...batch.map((row) => row.time));
@@ -238,10 +221,7 @@ export class WithdrawalService {
       throw new BadGatewayException("Withdrawal status unavailable");
     }
     const match = ledgerMatch(operation, rows, now);
-    // Fail closed: only a withdraw with a different, readable nonce proves
-    // it is another withdrawal. One with this nonce that does not match
-    // exactly (amount, fee, hash format), or one whose nonce is missing or
-    // unreadable, is not proof of absence.
+    // Fail closed: only a withdraw with a different, readable nonce proves it is another one.
     if (!match && rows.some(row => row.delta.type === 'withdraw' && !provablyOtherWithdrawal(row, operation.nonce)))
       throw new ConflictException({ statusCode: 409, code: "withdrawal_ledger_ambiguous", message: "The ledger has a withdrawal that may be this one; resolve it by hand" });
     const evidence = match ? "ledger_match" as const : "ledger_absent_after_nonce_window" as const;
@@ -254,8 +234,7 @@ export class WithdrawalService {
   }
 }
 
-/** A withdraw whose nonce is a safe integer that is neither this nonce in
- * ms nor in µs. */
+/** A withdraw whose nonce is readable and is neither this nonce in ms nor in µs. */
 function provablyOtherWithdrawal(row: HlLedgerUpdate, nonce: number): boolean {
   const value = row.delta.nonce;
   if (typeof value !== "number" || !Number.isSafeInteger(value)) return false;
@@ -267,8 +246,7 @@ function provablyOtherWithdrawal(row: HlLedgerUpdate, nonce: number): boolean {
 function ledgerMatch(operation: WithdrawalRow, rows: HlLedgerUpdate[], now: number): string | null {
   const match = rows.find((row) => {
     if (row.delta.type !== "withdraw" || typeof row.delta.nonce !== "number" || !Number.isSafeInteger(row.delta.nonce) || !Number.isSafeInteger(row.time) || row.time < operation.nonce - 60_000 || row.time > now + 5_000 || !/^0x[0-9a-fA-F]{64}$/.test(row.hash) || typeof row.delta.usdc !== "string") return false;
-    // Live ledger samples encode the action's millisecond nonce in
-    // microseconds. Retain compatibility with the unscaled format too.
+    // The live ledger reports the ms nonce in µs; the unscaled form is accepted too.
     const nonce = BigInt(row.delta.nonce);
     if (nonce !== BigInt(operation.nonce) && nonce !== BigInt(operation.nonce) * 1000n) return false;
     try {

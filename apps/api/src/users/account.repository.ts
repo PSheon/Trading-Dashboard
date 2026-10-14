@@ -68,16 +68,9 @@ export class AccountRepository {
     return row;
   }
 
-  /**
-   * Cancels what was prepared but never sent, so it doesn't block: a
-   * one-click setup still before its deposit was attempted (and the start's
-   * empty copy), copy deposits/returns and main-wallet withdrawals never
-   * attempted, a testnet copy that never ran a generation (a start that
-   * ended before its consent, or failed or expired after its deposit was
-   * credited: what arrived is checked on the exchange, copy_account_not_empty),
-   * and a consent generation never activated. Anything still in flight is
-   * left for the blockers.
-   */
+  /** Cancels what was prepared but never attempted (setups before their deposit, transfers,
+   * withdrawals, a testnet copy that never ran, an unactivated mandate) so it doesn't block.
+   * Funds that did arrive are caught by the exchange check (copy_account_not_empty). */
   async cancelUnsent(tx: DbTransaction, userId: number): Promise<UnsentCancelled> {
     const setups = await tx.execute<{ id: string }>(sql`
       update copy_live_setups s set stage = 'cancelled', issue = null, revision = s.revision + 1, updated_at = now()
@@ -119,9 +112,7 @@ export class AccountRepository {
     const setups = await tx.execute<{ strategy_id: number }>(sql`select strategy_id from copy_live_setups where user_id = ${userId} and stage not in ('running', 'failed', 'expired', 'cancelled')
       union select strategy_id from copy_live_setup_aborts where user_id = ${userId} and state <> 'done'`);
     if (setups.rows.length) found.push(["setup_in_progress", ids(setups.rows)]);
-    // A setup's deposit whose credit was never seen once the setup ended at
-    // its deadline doesn't hold the account: what arrived is checked on the
-    // exchange (copy_account_not_empty).
+    // An accepted deposit of an ended setup doesn't block: the exchange check covers it.
     const transfers = await tx.execute<{ strategy_id: number }>(sql`select strategy_id from copy_funding_operations f where f.user_id = ${userId} and f.status in ('prepared', 'unknown', 'accepted')
       and not (f.status = 'accepted' and exists (select 1 from copy_live_setups x where x.id = f.live_setup_id and x.stage in ('expired', 'cancelled', 'failed')))`);
     if (transfers.rows.length) found.push(["transfer_pending", ids(transfers.rows)]);
@@ -211,14 +202,8 @@ export class AccountRepository {
     return { role, favorites: fav?.n ?? 0, alerts: alerts?.n ?? 0, groups: groups?.n ?? 0, telegramLinked: (telegram?.n ?? 0) > 0 };
   }
 
-  /**
-   * Deletes the user row. Call after {@link repoint}: what is left cascades
-   * (favorites, groups and members, alert rules and history, Telegram link
-   * and tokens, queued notifications, paper copies and the paper balance);
-   * referral codes nobody was invited with go first (RESTRICT); settings the
-   * user edited keep their value with `updated_by_user_id` null. The watch
-   * list is released afterwards ({@link unwatch}).
-   */
+  /** Deletes the user row; call after {@link repoint} so only personal data cascades.
+   * Unused referral codes go first (RESTRICT). */
   async deleteUser(tx: DbTransaction, userId: number): Promise<boolean> {
     for (const statement of Object.values(deletedBeforeUser(userId))) await tx.execute(statement);
     await tx.delete(referralCodes).where(eq(referralCodes.userId, userId));

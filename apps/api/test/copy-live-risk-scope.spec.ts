@@ -172,6 +172,12 @@ describe('distributed user and account risk serialization', () => {
       const refused = await scopes.run(identity, async () => 'unsafe').catch((error: unknown) => error) as LiveRiskBusyError;
       expect(refused.detail).toMatchObject({ lock: 'user', holders: [], sessions: [{ state: 'idle in transaction' }] });
       expect(refused.detail.sessions![0]!.heldMs).toBeGreaterThanOrEqual(0);
+      // Which code path: the table (or lock function) of its latest statement
+      // (gate run 10: an idle-in-transaction holder nothing could name).
+      expect(refused.detail.sessions![0]!.last).toBe('pg_advisory_xact_lock');
+      await writer.query('select count(*) from copy_live_dispatches');
+      const again = await scopes.run(identity, async () => 'unsafe').catch((error: unknown) => error) as LiveRiskBusyError;
+      expect(again.detail.sessions![0]).toMatchObject({ state: 'idle in transaction', last: 'copy_live_dispatches' });
     } finally { await writer.query('rollback'); writer.release(); }
   });
   it('allows independent users/accounts but serializes a user across networks', async () => {

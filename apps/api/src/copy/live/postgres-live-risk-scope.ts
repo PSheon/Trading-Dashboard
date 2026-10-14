@@ -56,7 +56,12 @@ export interface LiveRiskHolder { readonly kind: string; readonly id?: string }
 export interface LiveRiskBusyDetail {
   readonly lock: 'policy' | 'platform' | 'user' | 'account' | 'source';
   readonly holders: readonly { kind: string; id: string | null; heldMs: number }[];
-  readonly sessions: readonly { pid: number; application: string; state: string; heldMs: number | null }[] | null;
+  /** `heldMs`: the session's open transaction's age (else since its last
+   * state change), not how long it has held the lock: a session lock outlives
+   * its transactions. `last`: the table (or advisory-lock function) its
+   * latest statement named, which tells the code path apart (gate run 10:
+   * an `idle in transaction` holder no process name could identify). */
+  readonly sessions: readonly { pid: number; application: string; state: string; heldMs: number | null; last: string }[] | null;
 }
 export class LiveRiskBusyError extends LiveBoundaryError {
   constructor(readonly detail: LiveRiskBusyDetail) { super('live_risk_busy'); }
@@ -146,8 +151,10 @@ export class PostgresLiveRiskScope {
         let timer: ReturnType<typeof setTimeout> | undefined;
         try {
           const rows = await Promise.race([
-            client.query<{ pid: number; application: string | null; state: string | null; held_ms: string | null }>(
+            client.query<{ pid: number; application: string | null; state: string | null; held_ms: string | null; last: string | null }>(
               `select l.pid, a.application_name as application, a.state,
+                 coalesce(substring(lower(a.query) from '(?:from|into|update)\\s+"?([a-z_][a-z0-9_]*)'),
+                   substring(lower(a.query) from '(pg_[a-z_]*lock[a-z_]*)')) as last,
                  (extract(epoch from clock_timestamp() - coalesce(a.xact_start, a.state_change)) * 1000)::bigint as held_ms
                from pg_locks l left join pg_stat_activity a on a.pid = l.pid
                where l.locktype = 'advisory' and l.granted and l.pid <> pg_backend_pid() and ${lock.match}
@@ -155,7 +162,7 @@ export class PostgresLiveRiskScope {
               [lock.values[0] ?? 0]),
             new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error()), 1000); }),
           ]);
-          sessions = rows.rows.map(r => ({ pid: Number(r.pid), application: label(r.application ?? ''), state: label(r.state ?? ''), heldMs: r.held_ms === null ? null : Number(r.held_ms) }));
+          sessions = rows.rows.map(r => ({ pid: Number(r.pid), application: label(r.application ?? ''), state: label(r.state ?? ''), heldMs: r.held_ms === null ? null : Number(r.held_ms), last: label(r.last ?? '') }));
         } catch { sessions = null; } finally { clearTimeout(timer); }
       }
       throw new LiveRiskBusyError({ lock: lock.lock, holders: mine, sessions });

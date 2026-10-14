@@ -4,7 +4,7 @@ import type { CopyLiveSourceRepository } from '../copy-live-source.repository.js
 import type { UnitOfWork } from '../../db/unit-of-work.js';
 import { UNHELD_REJECTED, type LiveExecutionRecord } from '../live/live-execution.js';
 import type { LiveExecutionHooks, LiveExecutionRequest } from '../live/live-execution-runtime.js';
-import { canonicalLiveSourceLegs, decodeLiveSourceFill, liveSourceDigest } from '../live/copy-live-source-evidence.js';
+import { canonicalLiveSourceLegs, decodeLiveSourceFill, liveSourceDigest, liveSourceEvidenceDetail } from '../live/copy-live-source-evidence.js';
 import { liveSourceExecutionAttempt, liveSourceExecutionCloid } from '../live/copy-live-leg-attempt.js';
 import { describeUnexpected, errorCode } from '../../runtime/safe-error-text.js';
 import { TERMINAL_STATES, type LiveSettleOutcome, type LiveSettleRequest } from './copy-live-settler.js';
@@ -130,6 +130,8 @@ import { LIVE_STANDBY_RENEW_MS, SHARED_CAPACITY_RETRY_MS } from '../../config/co
 import { ABSTRACTION_ATTEMPT_LIMIT, CLOSE_ATTEMPT_LIMIT, MAX_LIVE_LEG_ATTEMPTS } from '../../config/constants/limits.js';
 import { HOLD_MARGIN_MS, PLANNING_MARGIN_MS } from '../../config/constants/timings.js';
 const reasonOf = (error: unknown) => errorCode(error);
+/** A source read's failure for the log: its code, and which evidence check refused it (if one did). */
+const sourceReason = (error: unknown) => [reasonOf(error), liveSourceEvidenceDetail(error)].filter(Boolean).join(' ');
 
 /**
  * One pass of copy execution on the deployment's network, in this order: start funded
@@ -162,7 +164,7 @@ export class CopyLiveEngine {
     // required cursor when deciding whether shared coverage can restart.
     for (const stream of this.deps.repository.streams(eligible)) {
       try { await this.ingest(stream, mandates); }
-      catch (error) { this.deps.log?.(`source ${stream.network}:${stream.leaderAddress} not read: ${reasonOf(error)}`); }
+      catch (error) { this.deps.log?.(`source ${stream.network}:${stream.leaderAddress} not read: ${sourceReason(error)}`); }
     }
   }
 
@@ -191,7 +193,7 @@ export class CopyLiveEngine {
       const poll = this.fastLeader(stream) && this.deps.fast!.feedUp?.() === false &&
         started - (this.lastFastRead.get(stream.leaderAddress) ?? 0) >= (this.options.fastPollMs ?? 7_500);
       try { await budgetConsumer('copy.source', () => this.ingest(stream, mandates, poll)); }
-      catch (error) { this.deps.log?.(`source ${stream.network}:${stream.leaderAddress} not read: ${reasonOf(error)}`); }
+      catch (error) { this.deps.log?.(`source ${stream.network}:${stream.leaderAddress} not read: ${sourceReason(error)}`); }
     }
     const limit = await this.deps.repository.signalAgeLimitMs();
     const held = await this.prepareWork(mandates.filter(mirrorsLeader));
@@ -286,7 +288,7 @@ export class CopyLiveEngine {
     let outcome: IngestOutcome | null = null;
     for (const stream of streams) {
       try { outcome = await this.ingest(stream, mandates, true); }
-      catch (error) { this.deps.log?.(`source ${stream.network}:${stream.leaderAddress} not read: ${reasonOf(error)}`); }
+      catch (error) { this.deps.log?.(`source ${stream.network}:${stream.leaderAddress} not read: ${sourceReason(error)}`); }
     }
     const ingestedAt = this.now();
     for (const m of mandates.filter(mirrorsLeader)) {
@@ -350,7 +352,7 @@ export class CopyLiveEngine {
     if (fast && this.fastLeader(stream)) {
       this.lastFastRead.set(leaderAddress, now);
       try { result = await this.deps.fast!.source.read(leaderAddress, from); viaFast = result !== null; }
-      catch (error) { this.deps.log?.(`fast source ${leaderAddress} not read: ${reasonOf(error)}`); }
+      catch (error) { this.deps.log?.(`fast source ${leaderAddress} not read: ${sourceReason(error)}`); }
     }
     if (!result) {
       if (network === 'mainnet') result = await this.deps.watched.read(leaderAddress, from, to);

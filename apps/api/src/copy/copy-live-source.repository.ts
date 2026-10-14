@@ -5,23 +5,25 @@ import { DRIZZLE_CLIENT } from '../db/db.constants.js';
 import type { DrizzleDb } from '../db/drizzle.provider.js';
 import type { DbTransaction } from '../db/unit-of-work.js';
 import type { LiveSourceReadResult } from './copy-live-source.client.js';
-import { decodeLiveSourceFill, liveSourceDigest, reconcileLiveSourceFills, type LiveSourceNetwork } from './live/copy-live-source-evidence.js';
+import { decodeLiveSourceFill, InvalidLiveSourceEvidence, liveSourceDigest, reconcileLiveSourceFills, type LiveSourceNetwork } from './live/copy-live-source-evidence.js';
 import { address, LiveBoundaryError } from './live/wallet-authorization.js';
 import { LIVE_EVIDENCE_MAX_AGE_MS } from '../config/constants/timings.js';
 export type LiveSourceStream = typeof copyLiveSourceStreams.$inferSelect;
+/** Refuses a source result, naming the check and the values it compared. */
+function invalid(check: string, values?: Record<string, unknown>): never { throw new InvalidLiveSourceEvidence(check, values); }
 export type SourceApplyResult = { kind: 'recorded' | 'stale' | 'quarantined'; stream: LiveSourceStream };
 @Injectable()
 export class CopyLiveSourceRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
   /** Ingestion owns only the source lock. Never acquire user/account locks after it. */
   async ensure(tx: DbTransaction, leader: string, network: LiveSourceNetwork = 'testnet'): Promise<LiveSourceStream> {
-    if (!['testnet', 'mainnet'].includes(network)) throw new LiveBoundaryError('invalid_live_source_evidence');
+    if (!['testnet', 'mainnet'].includes(network)) invalid('network', { network });
     const leaderAddress = address(leader), id = `${network}:${leaderAddress}`;
     // The same key as PostgresLiveRiskScope's source lock for this network.
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`live-risk-source:${network}:${leaderAddress}`}, 8))`);
     await tx.insert(copyLiveSourceStreams).values({ id, network, leaderAddress }).onConflictDoNothing();
     const [stream] = await tx.select().from(copyLiveSourceStreams).where(eq(copyLiveSourceStreams.id, id)).for('update');
-    if (!stream || stream.network !== network || stream.leaderAddress !== leaderAddress) throw new LiveBoundaryError('invalid_live_source_evidence');
+    if (!stream || stream.network !== network || stream.leaderAddress !== leaderAddress) invalid('stream_identity', { found: !!stream, network: stream?.network ?? null });
     return stream;
   }
   async apply(tx: DbTransaction, expectedRevision: number, input: LiveSourceReadResult, now: number): Promise<SourceApplyResult> {
@@ -30,26 +32,52 @@ export class CopyLiveSourceRepository {
     // and TWAP), so up to two requests can fail without an observation: with
     // the first one refused, the read stops with neither observed (gate run 9,
     // 2026-10-14). Any later request is sent alone and stops the read.
-    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1 || !['testnet', 'mainnet'].includes(result.network) || sourceDigest !== liveSourceDigest(body) ||
-      ![result.from,result.to,result.observedAt,result.completedAt,now].every(v => Number.isSafeInteger(v) && v >= 0) ||
-      result.from > result.to || result.to > result.observedAt || result.observedAt > result.completedAt || result.completedAt > now ||
-      result.fills.length > 10000 || result.observations.length > 64 || !Number.isSafeInteger(result.requestsUsed) || result.requestsUsed < result.observations.length || result.requestsUsed > result.observations.length + 2 || result.requestsUsed > 64 ||
-      result.historicalCompleteness !== 'unproven' || (result.complete && (!result.fresh || result.unresolved.length !== 0))) throw new LiveBoundaryError('invalid_live_source_evidence');
+    const times = { from: result.from, to: result.to, observedAt: result.observedAt, completedAt: result.completedAt, now };
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1) invalid('expected_revision', { expectedRevision });
+    if (!['testnet', 'mainnet'].includes(result.network)) invalid('network', { network: result.network });
+    if (sourceDigest !== liveSourceDigest(body)) invalid('source_digest');
+    if (![result.from,result.to,result.observedAt,result.completedAt,now].every(v => Number.isSafeInteger(v) && v >= 0)) invalid('times', times);
+    if (result.from > result.to || result.to > result.observedAt || result.observedAt > result.completedAt || result.completedAt > now) invalid('time_order', times);
+    if (result.fills.length > 10000 || result.observations.length > 64) invalid('size', { fills: result.fills.length, observations: result.observations.length });
+    if (!Number.isSafeInteger(result.requestsUsed) || result.requestsUsed < result.observations.length || result.requestsUsed > result.observations.length + 2 || result.requestsUsed > 64)
+      invalid('requests_used', { requestsUsed: result.requestsUsed, observations: result.observations.length });
+    if (result.historicalCompleteness !== 'unproven') invalid('historical_completeness', { historicalCompleteness: result.historicalCompleteness });
+    if (result.complete && (!result.fresh || result.unresolved.length !== 0)) invalid('complete_flags', { complete: result.complete, fresh: result.fresh, unresolved: result.unresolved.length });
     const leader = address(result.leaderAddress), decoded = result.fills.map(fill => decodeLiveSourceFill({ ...fill, normalized: { ...fill.normalized }, providerTime: new Date(fill.providerTime), receivedAt: new Date(fill.receivedAt) }));
-    if (new Set(decoded.map(fill => fill.id)).size !== decoded.length || decoded.some(fill => fill.network !== result.network || fill.leaderAddress !== leader || fill.providerTime < result.from || fill.providerTime > result.to || fill.receivedAt < result.observedAt || fill.receivedAt > result.completedAt)) throw new LiveBoundaryError('invalid_live_source_evidence');
-    for (const window of result.observations) if (!['fills','twap'].includes(window.kind) || ![window.from,window.to,window.depth,window.observedAt,window.completedAt,window.count].every(Number.isSafeInteger) ||
-      window.from < result.from || window.to > result.to || window.from > window.to || window.depth < 0 || window.depth > 48 || window.observedAt < result.observedAt || window.completedAt < window.observedAt || window.completedAt > result.completedAt ||
-      window.count < 0 || window.count > 2000 || window.saturated !== (window.count >= 500 && window.sealed !== true) || !/^[a-f0-9]{64}$/.test(window.responseDigest) ||
+    const unique = new Set(decoded.map(fill => fill.id)).size;
+    if (unique !== decoded.length) invalid('duplicate_fill', { fills: decoded.length, unique });
+    for (const fill of decoded) {
+      if (fill.network !== result.network || fill.leaderAddress !== leader) invalid('fill_stream', { tid: fill.tid, network: fill.network });
+      if (fill.providerTime < result.from || fill.providerTime > result.to)
+        invalid('fill_provider_time', { tid: fill.tid, providerTime: fill.providerTime, from: result.from, to: result.to });
+      if (fill.receivedAt < result.observedAt || fill.receivedAt > result.completedAt)
+        invalid('fill_received_at', { tid: fill.tid, receivedAt: fill.receivedAt, observedAt: result.observedAt, completedAt: result.completedAt });
+    }
+    result.observations.forEach((window, index) => {
+      const at = { index, kind: window.kind, from: window.from, to: window.to, depth: window.depth, observedAt: window.observedAt, completedAt: window.completedAt, count: window.count };
+      if (!['fills','twap'].includes(window.kind)) invalid('window_kind', at);
+      if (![window.from,window.to,window.depth,window.observedAt,window.completedAt,window.count].every(Number.isSafeInteger)) invalid('window_integers', at);
+      if (window.from < result.from || window.to > result.to || window.from > window.to || window.depth < 0 || window.depth > 48)
+        invalid('window_range', { ...at, resultFrom: result.from, resultTo: result.to });
+      if (window.observedAt < result.observedAt || window.completedAt < window.observedAt || window.completedAt > result.completedAt)
+        invalid('window_time', { ...at, resultObservedAt: result.observedAt, resultCompletedAt: result.completedAt });
+      if (window.count < 0 || window.count > 2000 || window.saturated !== (window.count >= 500 && window.sealed !== true))
+        invalid('window_count', { ...at, saturated: window.saturated, sealed: window.sealed ?? null });
+      if (!/^[a-f0-9]{64}$/.test(window.responseDigest)) invalid('window_digest', at);
       // Only a single millisecond read whole, under the provider's page cap, is sealed.
-      (window.sealed !== undefined && (window.sealed !== true || window.from !== window.to || window.count < 500 || window.count >= 2000))) throw new LiveBoundaryError('invalid_live_source_evidence');
+      if (window.sealed !== undefined && (window.sealed !== true || window.from !== window.to || window.count < 500 || window.count >= 2000))
+        invalid('window_sealed', { ...at, sealed: window.sealed });
+    });
     const kinds = result.kinds ?? ['fills', 'twap'];
-    if (!Array.isArray(kinds) || kinds.length < 1 || kinds.length > 2 || new Set(kinds).size !== kinds.length || kinds.some(kind => !['fills','twap'].includes(kind)) ||
-      result.observations.some(window => !kinds.includes(window.kind))) throw new LiveBoundaryError('invalid_live_source_evidence');
+    if (!Array.isArray(kinds) || kinds.length < 1 || kinds.length > 2 || new Set(kinds).size !== kinds.length || kinds.some(kind => !['fills','twap'].includes(kind)))
+      invalid('kinds', { kinds: Array.isArray(kinds) ? kinds.join(',') : typeof kinds });
+    const unlisted = result.observations.find(window => !kinds.includes(window.kind));
+    if (unlisted) invalid('window_kind_unlisted', { kind: unlisted.kind, kinds: kinds.join(',') });
     if (result.complete) for (const kind of kinds) {
       const leaves = result.observations.filter(window => window.kind === kind && !window.saturated).sort((a,b) => a.from - b.from);
       let next = result.from;
-      for (const leaf of leaves) { if (leaf.from !== next) throw new LiveBoundaryError('invalid_live_source_evidence'); next = leaf.to + 1; }
-      if (next !== result.to + 1) throw new LiveBoundaryError('invalid_live_source_evidence');
+      for (const leaf of leaves) { if (leaf.from !== next) invalid('coverage_gap', { kind, expectedFrom: next, leafFrom: leaf.from, leafTo: leaf.to }); next = leaf.to + 1; }
+      if (next !== result.to + 1) invalid('coverage_end', { kind, coveredThrough: next - 1, to: result.to });
     }
     const stream = await this.ensure(tx, leader, result.network);
     if (stream.state === 'quarantined') return { kind: 'quarantined', stream };
@@ -76,7 +104,8 @@ export class CopyLiveSourceRepository {
     return { kind: 'recorded', stream: next };
   }
   async fail(tx: DbTransaction, leader: string, expectedRevision: number, issue: NonNullable<LiveSourceStream['lastIssue']>, now: number, network: LiveSourceNetwork = 'testnet'): Promise<SourceApplyResult> {
-    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1 || !Number.isSafeInteger(now) || now < 0 || !['source_unavailable','incomplete_coverage','duplicate_conflict','invalid_fill','cursor_regression'].includes(issue)) throw new LiveBoundaryError('invalid_live_source_evidence');
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1 || !Number.isSafeInteger(now) || now < 0 || !['source_unavailable','incomplete_coverage','duplicate_conflict','invalid_fill','cursor_regression'].includes(issue))
+      invalid('fail_arguments', { expectedRevision, now, issue });
     const stream = await this.ensure(tx, leader, network);
     if (stream.state === 'quarantined') return { kind: 'quarantined', stream };
     if (stream.revision !== expectedRevision) return { kind: 'stale', stream };

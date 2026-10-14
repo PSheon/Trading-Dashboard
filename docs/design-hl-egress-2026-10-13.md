@@ -276,8 +276,8 @@ One `HyperliquidEgress` per HL host (mainnet, testnet) in worker-copy. It implem
 | Service | Runs | Replicas | Egress | Env |
 |---|---|---|---|---|
 | web | Next | n | any | — |
-| api | HTTP, pages, delegation client | 1 (the limiter and rate-limit docs assume a single replica: `docs/rate-limits.md`) | **C** (or B) | `HYPERLIQUID_EGRESS_KEY=<env>-C`, `API_SETUP_DRIVE=worker`, `WORKER_COPY_URL` |
-| worker-copy | live engine, setup driver, aborts, stops, funding monitor, settlement, watcher runtime (feed), fast source, exchange POSTs | 1 active (lease `(73106,1)`) + standby during deploys | **A, static** | `IS_WORKER=true`, `WORKER_ROLE=copy`, `HYPERLIQUID_EGRESS_KEY=<env>-A`, `HYPERLIQUID_EGRESS_BACKEND=memory` (Phase 2) |
+| api | HTTP, pages, delegation client | 1 (the limiter and rate-limit docs assume a single replica: `docs/rate-limits.md`) | **C** (or B) | `HYPERLIQUID_EGRESS_KEY=<env>-C`, `API_SETUP_DRIVE=worker`, `API_TERMINAL_SETTLEMENT=off`, `WORKER_URL` (worker-copy), `WORKER_READ_URL` (worker-read) |
+| worker-copy | live engine, setup driver, aborts, stops, funding monitor, settlement, watcher runtime (feed), fast source, exchange POSTs, **RulesModule** (alerts for the feed fast path are evaluated in-process: the actions the fast path stores reach the rules engine as in-process events, so it must run where the feed runs) | 1 active (lease `(73106,1)`) + standby during deploys | **A, static** | `IS_WORKER=true`, `WORKER_ROLE=copy`, `WORKER_TERMINAL_SETTLEMENT` (default `on` for `copy`), `HYPERLIQUID_EGRESS_KEY=<env>-A`, `HYPERLIQUID_EGRESS_BACKEND=memory` (Phase 2) |
 | worker-read | scheduler crons, traders, discovery, cohorts, revenue, follower snapshots and receipts, paper copy, outbox, Telegram, retention, archive | 1 active (lease `(73106,2)`) | **B, static** | `IS_WORKER=true`, `WORKER_ROLE=read`, `HYPERLIQUID_EGRESS_KEY=<env>-B` |
 | Postgres | — | — | — | — |
 
@@ -286,6 +286,23 @@ One `HyperliquidEgress` per HL host (mainnet, testnet) in worker-copy. It implem
 - `copy` holds lease 1; `read` holds lease 2.
 - So a new `read` service stays on standby until the old `all` worker is redeployed as `copy`.
 - `AppModule.worker(role)` picks module sets. This needs splitting `WatcherModule` into capabilities (fill sync, account state, repositories) and runtime (`onApplicationBootstrap` start), so worker-read can use them without starting a second feed. `SchedulerModule` imports `WatcherModule` today (`scheduler.module.ts:11`).
+- `COPY_LEADER_VERIFIED_EVENT` (a copied leader's catch-up finished, so its copy stream is audited) is an in-process event whose listener is on worker-copy. Only a started watcher emits it, so worker-read's sweeps do not; worker-copy's `catchUpCopied` (every 2 min) audits every watched copied leader.
+
+**Flags (as built, 2026-10-14; each defaults to today's behaviour):**
+
+| Flag | Process | Values | Effect |
+|---|---|---|---|
+| `WORKER_ROLE` | worker (refused on the api) | `all` (unset), `copy`, `read` | module set and leases: `all` holds `(73106,1)` and `(73106,2)`, `copy` lease 1, `read` lease 2; a role takes all its leases or none |
+| `API_SETUP_DRIVE` | api | `local` (default), `worker` | `worker`: confirm and advance record, mark the setup due and `NOTIFY copy_setup_due`; worker-copy drives it (and reconciles the deposit). The api makes no Hyperliquid call for a setup step |
+| `API_TERMINAL_SETTLEMENT` | api | `on` (default), `off` | the api's terminal settlement loop (testnet copy deployments only) |
+| `WORKER_TERMINAL_SETTLEMENT` | worker | `on`/`off`; default `on` for `copy`, `off` for `all`; never on `read` | the same loop on worker-copy; claims are fenced in the database, so both may run during the cutover. Reported in the heartbeat's `worker.terminalSettlement` |
+| `WORKER_URL` | api | URL | worker-copy (or the single `all` worker): /health's feed and the admin overview's `worker` |
+| `WORKER_READ_URL` | api | URL, optional | worker-read. The api reads both heartbeats and merges them: snapshots, sweeps, discovery, archive and Telegram dry run come from worker-read. Unset: `WORKER_URL`'s heartbeat as it is |
+
+**Guards (the api, `WorkerFleetService`; ALERT log lines at most every 10 min, and the admin overview's `alerts`):**
+- `terminal_settlement_unowned`: on a testnet copy deployment with `API_TERMINAL_SETTLEMENT=off`, no copy (or `all`) worker heartbeat in the last 2 minutes reported its loop on. Then nothing settles terminal copies. Check this before turning the api's loop off.
+- `snapshots_stale` (only with `WORKER_READ_URL`): worker-read's heartbeats have shown no snapshot for 15 minutes (it is down, on standby, or its snapshots fail).
+- While a guard applies the api reads the workers itself every 30 s. Its start counts as the last good reading, so a restarted api waits a full window before it alerts.
 
 **Egress identity guard:**
 - At startup each process records `(service role, egress key, observed public IP)` in a `hl_egress_identity` table, using an optional IP echo behind a flag.

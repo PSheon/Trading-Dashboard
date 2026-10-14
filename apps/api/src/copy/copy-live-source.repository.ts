@@ -26,10 +26,14 @@ export class CopyLiveSourceRepository {
   }
   async apply(tx: DbTransaction, expectedRevision: number, input: LiveSourceReadResult, now: number): Promise<SourceApplyResult> {
     const result = structuredClone(input), { sourceDigest, ...body } = result;
+    // The reader sends both channels' first requests together (ordinary fills
+    // and TWAP), so up to two requests can fail without an observation: with
+    // the first one refused, the read stops with neither observed (gate run 9,
+    // 2026-10-14). Any later request is sent alone and stops the read.
     if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1 || !['testnet', 'mainnet'].includes(result.network) || sourceDigest !== liveSourceDigest(body) ||
       ![result.from,result.to,result.observedAt,result.completedAt,now].every(v => Number.isSafeInteger(v) && v >= 0) ||
       result.from > result.to || result.to > result.observedAt || result.observedAt > result.completedAt || result.completedAt > now ||
-      result.fills.length > 10000 || result.observations.length > 64 || !Number.isSafeInteger(result.requestsUsed) || result.requestsUsed < result.observations.length || result.requestsUsed > result.observations.length + 1 || result.requestsUsed > 64 ||
+      result.fills.length > 10000 || result.observations.length > 64 || !Number.isSafeInteger(result.requestsUsed) || result.requestsUsed < result.observations.length || result.requestsUsed > result.observations.length + 2 || result.requestsUsed > 64 ||
       result.historicalCompleteness !== 'unproven' || (result.complete && (!result.fresh || result.unresolved.length !== 0))) throw new LiveBoundaryError('invalid_live_source_evidence');
     const leader = address(result.leaderAddress), decoded = result.fills.map(fill => decodeLiveSourceFill({ ...fill, normalized: { ...fill.normalized }, providerTime: new Date(fill.providerTime), receivedAt: new Date(fill.receivedAt) }));
     if (new Set(decoded.map(fill => fill.id)).size !== decoded.length || decoded.some(fill => fill.network !== result.network || fill.leaderAddress !== leader || fill.providerTime < result.from || fill.providerTime > result.to || fill.receivedAt < result.observedAt || fill.receivedAt > result.completedAt)) throw new LiveBoundaryError('invalid_live_source_evidence');

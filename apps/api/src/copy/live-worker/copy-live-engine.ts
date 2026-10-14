@@ -475,8 +475,10 @@ export class CopyLiveEngine {
     // of the leg's attempts (never written here) falls back to the original
     // order, as before attempts existed.
     if (!TERMINAL_STATES.has(state)) { await this.execute(row, mandate, undefined, attempt ?? 0); return; }
-    // API owns only durable terminal testnet work; offline leaves this row
-    // submitted. One it released as never sent comes back for its next attempt.
+    // The terminal settlement loop (CopyLiveApiSettlementService, on the api
+    // and/or the copy worker: terminalSettlementRuns) owns only durable
+    // terminal testnet work; with neither running this row stays submitted.
+    // One it released as never sent comes back for its next attempt.
     if (this.deps.network === 'testnet' && this.deps.apiTerminalSettlement) {
       if (row.reason === UNSENT_RELEASED) await this.afterUnsent(row, mandate, signalAgeMs);
       return;

@@ -2036,7 +2036,11 @@ describe('API_SETUP_DRIVE=worker: the api records, the copy worker drives (desig
     expect(drive).toHaveBeenCalledTimes(1);
   });
 
-  it('advance reconciles the deposit as before, then marks the setup due now and wakes the worker: it never drives', async () => {
+  /** Every call that reaches Hyperliquid (or signs) through the setup's collaborators. */
+  const providerCalls = () => [fakes.funding.reconcile, fakes.modes.reconcile, fakes.agents.reconcile, fakes.wallets.reconcile, fakes.leaderActivity.copyActivity, workerSign]
+    .reduce((n, mock) => n + mock.mock.calls.length, 0);
+
+  it('advance makes no Hyperliquid call: it marks the setup due now and wakes the worker, whose drive reconciles the deposit (the api did before)', async () => {
     setupDrive = 'worker';
     const setup = await start();
     await service.confirm(uid, setup.id, await sign(setup.consent!));
@@ -2046,15 +2050,28 @@ describe('API_SETUP_DRIVE=worker: the api records, the copy worker drives (desig
     expect((await dueAt(setup.id))!.getTime()).toBeGreaterThan((await dbNow()).getTime());
     const drive = vi.spyOn(service, 'drive'), heard = await hear();
     await credit();
+    vi.clearAllMocks();
     const answered = await service.advance(uid, setup.id);
     expect(answered).toMatchObject({ stage: 'funding_submitted' });
-    expect(fakes.funding.reconcile).toHaveBeenCalledTimes(1);
+    // Nothing on the api's egress: no deposit reconcile, no step, no signature.
+    expect(fakes.funding.reconcile).not.toHaveBeenCalled();
+    expect(providerCalls()).toBe(0);
     expect(drive).not.toHaveBeenCalled();
     expect((await dueAt(setup.id))!.getTime()).toBeLessThanOrEqual((await dbNow()).getTime());
     await expect.poll(() => heard).toEqual([setup.id]);
-    // Due now: the worker's regular pass (the fallback) picks it up and finishes it.
-    expect(await service.tick()).toBe(1);
+    // The copy worker's wake-up (CopySetupDueListener → driveDue) reconciles the deposit, then drives it to the end.
+    await service.driveDue(setup.id);
+    expect(fakes.funding.reconcile).toHaveBeenCalledTimes(1);
+    expect(fakes.funding.reconcile).toHaveBeenCalledWith(uid, setup.consent!.fundingOperationId);
     expect(await service.get(uid, setup.id)).toMatchObject({ stage: 'running' });
+  });
+
+  it('API_SETUP_DRIVE=local keeps the deposit reconcile in advance, as before', async () => {
+    const setup = await start();
+    await service.confirm(uid, setup.id, await sign(setup.consent!));
+    vi.clearAllMocks();
+    await service.advance(uid, setup.id);
+    expect(fakes.funding.reconcile).toHaveBeenCalledTimes(1);
   });
 
   it('the NOTIFY wakes the copy worker, which drives the setup in under a second; a junk payload is ignored and a dropped LISTEN connection comes back', async () => {

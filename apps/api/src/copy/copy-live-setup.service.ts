@@ -590,11 +590,11 @@ export class CopyLiveSetupService {
     const row = await this.repository.find(userId, id);
     if (!DRIVEN_STAGES.includes(row.stage)) return this.wire(row);
     return this.answer(row, async () => {
-      if (row.fundingOperationId && row.stage === 'funding_submitted') {
-        // Reconciliation can wait for provider budget too: it belongs to
-        // the detached lifecycle, not the request's deadline.
-        await this.funding.reconcile(userId, row.fundingOperationId).catch((error: unknown) => this.logger.warn(`setup ${row.id} deposit not reconciled: ${safeErrorText(error)}`));
-      }
+      // Reconciliation can wait for provider budget too: it belongs to
+      // the detached lifecycle, not the request's deadline. It reads
+      // Hyperliquid, so with API_SETUP_DRIVE=worker it is the copy worker's
+      // (driveDue), on its egress, not the api's.
+      if (this.config.value.app?.setupDrive !== 'worker') await this.reconcileDeposit(row);
       if (THROTTLED_STAGES.includes(row.stage) && row.nextAttemptAt && row.nextAttemptAt.getTime() > this.now()) return row;
       return this.handOff(row);
     });
@@ -627,7 +627,14 @@ export class CopyLiveSetupService {
   async driveDue(id: string): Promise<SetupRow | null> {
     const row = await this.repository.get(id);
     if (!row || !DRIVEN_STAGES.includes(row.stage)) return row;
+    // The deposit reconcile advance did in the api before (API_SETUP_DRIVE=local).
+    await this.reconcileDeposit(row);
     return this.drive(row.id, await this.workerPolicySigner(row));
+  }
+  /** A setup awaiting its deposit's credit looks for it now (a Hyperliquid read). */
+  private async reconcileDeposit(row: SetupRow): Promise<void> {
+    if (!row.fundingOperationId || row.stage !== 'funding_submitted') return;
+    await this.funding.reconcile(row.userId, row.fundingOperationId).catch((error: unknown) => this.logger.warn(`setup ${row.id} deposit not reconciled: ${safeErrorText(error)}`));
   }
   /** Quick work returns its result; slow work keeps the same id outside the
    * request and answers once with its current row. Fast validation errors

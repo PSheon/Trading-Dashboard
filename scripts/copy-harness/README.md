@@ -99,6 +99,26 @@ span's p50 / p95 / max over the orders, so a regression shows which segment grew
 spans and failed attempts are also in `.claude/logs/copy-harness/<run>-<scenario>-evidence.json`. The
 evidence and failed-attempt checks run after every scenario on every profile.
 
+## Measurements (gate run 9)
+
+After the gate table and the spans, the summary ends with a separated `MEASUREMENTS` block (`measure.mjs`,
+unit-tested in `measure.test.mjs`). It records values, never pass/fail: they re-base the real-money path's
+guessed constants (`docs/egress-subtraction-inventory-2026-10-15.md` §2.3 item 3) and keep the rate-limit
+record of `docs/design-hl-egress-2026-10-13.md` §8 I-17. The window is the whole run; the inputs are also in
+`.claude/logs/copy-harness/<run>-measurements.json`.
+
+| | what | read from |
+| --- | --- | --- |
+| 1a | exchange POST round trip per order, n / p50 / p95 / p99 / max; POSTs with no answer recorded (`LIVE_HTTP_TIMEOUT_MS` 20 s) | `copy_live_dispatches.sent_at → acked_at` of the run's copies (the transport's request and response); beside it the `executor_submit` mark of each `live_execution_timing` line (the submit call: its pre-POST risk check plus the POST, an upper bound) |
+| 1b | counted attempts of each settled close leg (`CLOSE_ATTEMPT_LIMIT` 30), and the close legs that did not settle | `copy_live_dispatches.attempts` (budget waits are not counted there) |
+| 1c | per leg, the attempt suffixes its journals used, 1–3 (`MAX_LIVE_LEG_ATTEMPTS` 3), and its counted attempts | `copy_live_executions.cloid` matched against the leg's cloids 0..2 (`legAttemptCloid`, pinned to `copy-live-leg-attempt.ts`); `leg … released as never sent` lines |
+| 1d | per failure code, failed attempt → the leg's next try (`LIVE_LEG_RETRY_POLICY` 3 s): the next failed attempt's start (its line's time minus its `elapsed`), or after the last failure the order's `sent_at` (an upper bound); `budget_wait` when the engine logged `budget unavailable` for it, with that wait's own retry | worker log `leg <id> attempt N failed: <code>; elapsed …` and `leg <id> budget unavailable: …, retry … ms`; `sent_at` |
+| 1e | signer `walletCheckedAt` age at signing | not logged by the worker. Shown instead: `signer_wallet_identity → signer_approval` of the `sign` phase (a lower bound: the prefetch's read starts earlier) and `signer_rpc`. The real value needs an api change: log `now - walletCheckedAt` in `privy-order-signer.ts` assertRpcFresh (or as a sign-phase timing) |
+| 2 | each worker's `foreignUsage {rateLimited, count}` and `egressIdentity.publicIps` at the start and the end, the deltas, IPs added or dropped and IPs two workers share (a counter that went down: the worker restarted); `foreign_usage_suspected`, `hl_ws_error_unmatched` (with its texts) and HTTP 429 lines (Hyperliquid's and others', by logger) in the window | `GET <worker>/health` (`--measure-workers url,url`, default `--worker`); worker log |
+| 3 | setups' shared-meter claim waits: count, longest wait, per setup and step (`funded` → account mode, `mode_set` → agent, `agent_active` → builder fee: the setup's last stage the harness polled before the line) and the meter's composition at the longest wait | worker log `setup <id> claim waits {need, waitMs, meter}`; the harness's own setup polls |
+
+Nothing in the block names the database URL or a key; psql's errors are reduced to their exit code.
+
 The leader must be funded (`run.mjs` stops with exit 3 and says how much otherwise): at least 20 testnet
 USDC in its perp account for its legs, plus the follower's top-up while the follower's main wallet holds
 less than the 50 USDC budget.

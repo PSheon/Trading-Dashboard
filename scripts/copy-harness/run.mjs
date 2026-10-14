@@ -4,6 +4,7 @@
 //   node scripts/copy-harness/run.mjs [--dry-run] [--headed] [--gap 20] [--scenarios base,3,4,…]
 //        [--profile default|stage-caps|ratio-floor|stage-like] [--web http://localhost:3000] [--api http://localhost:3100] [--worker http://localhost:3010]
 //        [--leader 0x… --watch-min 15] [--contention] [--worker-log .claude/logs/worker-3010.log] [--evidence-max-ms 3500]
+//        [--measure-workers http://localhost:3010,…]
 //
 // 1. leader and follower balances: too little stops the run (exit 3) before anything is signed;
 // 2. cleanup: running copies of the harness leader are stopped, waiting setups cancelled, the leader flattened;
@@ -28,7 +29,10 @@
 //    .claude/logs/worker-3010.log): under --evidence-max-ms (3500), and no attempt failed live_risk_stale or
 //    a generation proof (lib.mjs EVIDENCE_FAILURES);
 // 7. a copy still running at the end is stopped; a summary table (pass/fail per check, latency p50/p95),
-//    then one line per scenario: pass/fail and its orders' evidence p50/p95/max.
+//    then one line per scenario: pass/fail and its orders' evidence p50/p95/max; then the MEASUREMENTS block
+//    (measure.mjs; recorded, never pass/fail): the POST round trip, close and leg attempts, the delay after a
+//    failed attempt, the signer's wallet check age, the workers' foreignUsage / publicIps at start and end
+//    (--measure-workers, default --worker) and the rate-limit lines, the setups' claim waits.
 //
 // --contention runs contention.mjs beside the scenarios: the orders' meter background lane kept full, as on Stage.
 //
@@ -49,6 +53,7 @@ import { resolve } from "node:path";
 import { EVIDENCE_FAILURES, EVIDENCE_MAX_MS, EXIT, GATE_SCENARIOS, HARNESS_LEADER, ROOT, SCENARIOS, evidenceStats, fundingGate, lastStartRtt, loadEnv, parseScenarios, parseStuckRows, planCleanup, profileEnv,
   renderGateSummary, renderSpans, renderSummary, scanWorkerLog, stopSettled, stuckRowsSql, termsFor, waitFor, zeroCodeCounts } from "./lib.mjs";
 import { apiClient, confirmFromPortfolio, launch, login } from "./follower.mjs";
+import { attemptDelays, claimWaitSummary, dispatchMeasures, heartbeatDeltas, heartbeatReading, measureSql, renderMeasurements, scanMeasureLog } from "./measure.mjs";
 
 const args = process.argv.slice(2);
 const flag = (name, fallback) => { const i = args.indexOf(`--${name}`); return i >= 0 ? args[i + 1] : fallback; };
@@ -63,6 +68,7 @@ catch (error) { console.error(error.message); process.exit(EXIT.usage); }
 const WORKER_LOG = resolve(flag("worker-log", resolve(ROOT, ".claude/logs/worker-3010.log")));
 const EVIDENCE_MAX = Number(flag("evidence-max-ms", String(EVIDENCE_MAX_MS)));
 if (!(EVIDENCE_MAX > 0)) { console.error("--evidence-max-ms: a positive number of ms"); process.exit(EXIT.usage); }
+const MEASURE_WORKERS = flag("measure-workers", WORKER).split(",").map((u) => u.trim().replace(/\/+$/, "")).filter(Boolean);
 const OUT = resolve(ROOT, ".claude/logs/copy-harness"); mkdirSync(OUT, { recursive: true });
 const runId = new Date().toISOString().replace(/[:.]/g, "-");
 const log = (event, data = {}) => console.log(JSON.stringify({ at: new Date().toISOString(), event, ...data }));
@@ -110,6 +116,16 @@ function readLogFrom(offset) {
     return buffer.toString("utf8");
   } finally { closeSync(fd); }
 }
+/** Each measured worker's /health heartbeat (foreignUsage, egressIdentity), as measure.mjs reads it. */
+async function heartbeats() {
+  return Promise.all(MEASURE_WORKERS.map(async (url) => {
+    try {
+      const r = await fetch(`${url}/health`, { signal: AbortSignal.timeout(8000) });
+      if (!r.ok) return { url, error: `/health ${r.status}` };
+      return heartbeatReading(url, await r.json());
+    } catch (error) { return { url, error: `/health unreachable (${error.name})` }; }
+  }));
+}
 async function health(url) { try { const r = await fetch(url, { signal: AbortSignal.timeout(8000) }); return r.status < 500; } catch { return false; } }
 
 const env = loadEnv();
@@ -118,9 +134,46 @@ let browser = null, follower = null, setupId = null;
 const scenarioRows = [];
 /** contention.mjs while the scenarios run (--contention), and its latest counts. */
 let contention = null;
-const summary = (extra = {}) => {
+/** The measurements' inputs: the run's start (worker log offset), the workers' first heartbeats, the
+ * copies' strategies and each setup's stages as polled (the claim waits' steps). */
+const measureRun = { at: Date.now(), offset: null, heartbeats: null, strategyIds: new Set(), setupStages: [] };
+/** The measurements block (measure.mjs) over the run so far; its inputs also go to <run>-measurements.json. */
+async function measurements() {
+  const to = Date.now(), m = { window: { from: new Date(measureRun.at).toISOString(), to: new Date(to).toISOString() }, log: null, db: null, delays: null, health: null, claims: null };
+  let dispatches = [];
+  if (measureRun.strategyIds.size) {
+    const sql = measureSql({ strategyIds: [...measureRun.strategyIds], since: new Date(measureRun.at - 1000).toISOString() });
+    // psql's own errors can name the database host: never printed, only its exit code.
+    const result = await new Promise((resolveOut) => {
+      const child = spawn("psql", [env.DATABASE_URL, "-At", "-v", "ON_ERROR_STOP=1", "-c", sql], { stdio: ["ignore", "pipe", "ignore"] });
+      let text = ""; child.stdout.on("data", (d) => { text += d; });
+      child.on("error", () => resolveOut({ code: -1, text })); child.on("close", (code) => resolveOut({ code, text }));
+    });
+    try {
+      if (result.code !== 0) throw new Error(`psql exit ${result.code}`);
+      const rows = JSON.parse(result.text.trim());
+      dispatches = rows.dispatches;
+      m.db = dispatchMeasures(rows.dispatches, rows.cloids);
+    } catch (error) { m.dbNote = `not read (${error.message.slice(0, 80)})`; }
+  } else m.dbNote = "no copy ran in this run";
+  const size = logSize();
+  if (size === null) m.logNote = `no worker log at ${WORKER_LOG}`;
+  else {
+    const from = measureRun.offset ?? 0;
+    if (size - from > 16 * 2 ** 20) m.logNote = "the run wrote over 16 MB of worker log: only its last 16 MB were read";
+    m.log = scanMeasureLog(readLogFrom(from), { since: measureRun.at - 1000, until: to });
+    m.delays = attemptDelays(m.log.failures, { budgetWaits: m.log.budgetWaits, dispatches });
+    m.claims = claimWaitSummary(m.log.claimWaits, measureRun.setupStages);
+  }
+  if (measureRun.heartbeats) m.health = heartbeatDeltas(measureRun.heartbeats, await heartbeats());
+  else m.healthNote = "no start reading (the run ended before it)";
+  writeFileSync(resolve(OUT, `${runId}-measurements.json`), `${JSON.stringify({ ...m, setupStages: measureRun.setupStages }, null, 2)}\n`);
+  return renderMeasurements(m) + (m.logNote && m.log ? `\n(${m.logNote})` : "");
+}
+const summary = (extra = {}, measured = null) => {
   const text = renderSummary({ checks, mode: DRY ? "dry run" : "full", ...extra }) +
-    (scenarioRows.length ? `\n\n${renderGateSummary(scenarioRows, EVIDENCE_MAX)}\n\n${renderSpans(scenarioRows)}` : "");
+    (scenarioRows.length ? `\n\n${renderGateSummary(scenarioRows, EVIDENCE_MAX)}\n\n${renderSpans(scenarioRows)}` : "") +
+    (measured ? `\n\n${measured}` : "");
   console.log(`\n${text}\n`);
   writeFileSync(SUMMARY, `${text}\n`);
   log("summary_written", { path: SUMMARY });
@@ -134,7 +187,9 @@ const finish = async (code, extra) => {
       c ? `background asks granted ${c.granted}, refused ${c.refused} (lane full), errors ${c.errors}; sockets ${c.sockets}, refused ${c.socketRefused}` : "no counts yet");
     contention = null;
   }
-  summary(extra);
+  let measured;
+  try { measured = await measurements(); } catch (error) { measured = `MEASUREMENTS not recorded: ${error.name}: ${error.message.slice(0, 160)}`; }
+  summary(extra, measured);
   // Only our isolated context is owned; preserve the shared Stage login.
   await follower?.context?.close().catch(() => {});
   await browser?.close().catch(() => {});
@@ -143,6 +198,7 @@ const finish = async (code, extra) => {
 };
 
 try {
+  measureRun.offset = logSize();
   // --- 0. the local stack --------------------------------------------------------------------
   for (const [name, url] of [["web", WEB], ["api", `${API}/health`], ["worker", `${WORKER}/health`]])
     if (!check(`stack_${name}_up`, await health(url), url)) await finish(EXIT.failed);
@@ -154,6 +210,9 @@ try {
     if (false === check("stack_worker_db_rtt", ok, `worker's latest start: ${actual === null ? `unknown (no start in ${WORKER_LOG})` : `${actual} ms`}, profile ${TERMS.profile}: ${expected} ms` +
       (ok === false ? `; restart it: node scripts/copy-harness/stack.mjs restart worker${TERMS.profile === "default" ? "" : ` --profile ${TERMS.profile}`} (and api)` : ""))) await finish(EXIT.failed);
   }
+  // The measurements' start: each worker's foreignUsage and public IPs (I-17).
+  measureRun.heartbeats = await heartbeats();
+  log("measure_start", { heartbeats: measureRun.heartbeats });
 
   // --- 1. balances -----------------------------------------------------------------------------
   const leader = await leaderState();
@@ -216,6 +275,7 @@ try {
     const prepared = await waitFor(() => follower.client.post("/me/copy/live/setups", startBody), (s) => s.stage !== "provisioning", { timeoutMs: 60_000, intervalMs: 2000 });
     const setup = prepared.value;
     setupId = setup.id;
+    measureRun.setupStages.push({ setupId: setup.id, at: Date.now(), stage: setup.stage });
     const consent = setup.consent;
     if (!check(`${label}_setup_prepared`, prepared.ok && setup.stage === "awaiting_consent" && consent?.sourceNetwork === SOURCE && consent?.leaderAddress === LEADER &&
         consent?.budgetUsd === String(TERMS.budgetUsd) && consent?.fundingAmount === String(TERMS.budgetUsd) && Boolean(consent?.masterPolicyId && consent?.workerQuorumId),
@@ -245,9 +305,10 @@ try {
     if (!check(`${label}_setup_confirmed`, confirmed.outcome === "confirmed", `${confirmed.outcome} ${confirmed.confirmStatus ?? ""} ${JSON.stringify(confirmed.confirmBody?.error ?? confirmed.confirmBody?.data?.stage ?? "").slice(0, 160)}`)) await finish(EXIT.failed);
     const t5 = Date.now();
     const running = await waitFor(() => follower.client.get(`/me/copy/live/setups/${setupId}`), (s) => ["running", "failed", "expired", "cancelled"].includes(s.stage),
-      { timeoutMs: 600_000, intervalMs: 3000, onTick: (s) => log("setup_stage", { stage: s.stage, issue: s.issue }) });
+      { timeoutMs: 600_000, intervalMs: 3000, onTick: (s) => { measureRun.setupStages.push({ setupId, at: Date.now(), stage: s.stage }); log("setup_stage", { stage: s.stage, issue: s.issue }); } });
     if (!check(`${label}_setup_running`, running.value.stage === "running", `${running.value.stage}${running.value.issue ? ` (${running.value.issue})` : ""} after ${((Date.now() - t5) / 1000).toFixed(0)} s`)) await finish(EXIT.failed);
     const strategyId = running.value.strategyId;
+    if (Number.isSafeInteger(strategyId)) measureRun.strategyIds.add(strategyId);
     const item = async () => (await portfolio()).find((i) => i.strategyId === strategyId);
     const active = await waitFor(item, (i) => i?.stage === "active", { timeoutMs: 120_000, intervalMs: 3000 });
     if (!check(`${label}_portfolio_active`, active.ok, `strategy ${strategyId}, account ${active.value?.accountAddress}, stage ${active.value?.stage}`)) await finish(EXIT.failed);

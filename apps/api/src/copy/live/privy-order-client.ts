@@ -7,10 +7,10 @@ import { boundedLiveRead } from './live-market-resolver.js';
 import { LiveBoundaryError } from './wallet-authorization.js';
 import { Logger } from '@nestjs/common';
 import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
+import { EIP712_DOMAIN_FIELDS, PHANTOM_AGENT_DOMAIN as domain, PHANTOM_AGENT_FIELDS } from './phantom-agent-typed-data.js';
 
-const domain = { name: 'Exchange', version: '1', chainId: 1337, verifyingContract: `0x${'00'.repeat(20)}` };
-const types = { EIP712Domain: [{ name: 'name', type: 'string' }, { name: 'version', type: 'string' }, { name: 'chainId', type: 'uint256' }, { name: 'verifyingContract', type: 'address' }],
-  Agent: [{ name: 'source', type: 'string' }, { name: 'connectionId', type: 'bytes32' }] };
+const types = { EIP712Domain: EIP712_DOMAIN_FIELDS, Agent: PHANTOM_AGENT_FIELDS };
+
 function fail(code: string): never { throw new LiveBoundaryError(code); }
 function walletId(value: unknown): asserts value is string {
   if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(value)) throw new Error();

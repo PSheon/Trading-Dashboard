@@ -10,6 +10,7 @@ import { marketIdentityKey, type LiveMarketIdentity } from './live-market-resolv
 import type { LiveNetwork } from './wallet-authorization.js';
 import { beginLiveExecutionTiming, type LiveExecutionTimingHook } from './live-execution-diagnostics.js';
 import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
+import { EIP712_DOMAIN_FIELDS as domainFields, PHANTOM_AGENT_FIELDS as agentFields } from './phantom-agent-typed-data.js';
 
 export type PrivyOrderSignInput = Parameters<ReturnType<ReturnType<PrivyClient["wallets"]>["ethereum"]>["signTypedData"]>[1];
 export type PrivySigningAuthorization = Pick<PrivyOrderSignInput, "authorization_context">;
@@ -44,8 +45,6 @@ export function assertLiveSigningBoundaryProof(proof: LiveSigningBoundaryProof, 
         b.approvedMaxFeeTenthsBps > 100 || !fresh(b.checkedAt)) throw new LiveBoundaryError('builder_approval_proof_invalid');
   }
 }
-const domainFields = [{ name: "name", type: "string" }, { name: "version", type: "string" }, { name: "chainId", type: "uint256" }, { name: "verifyingContract", type: "address" }];
-const agentFields = [{ name: "source", type: "string" }, { name: "connectionId", type: "bytes32" }];
 
 /** A single prepared order's signer. It cannot sign transfers, arbitrary typed data,
  * a different network, or an action hash other than the durable prepared order. */

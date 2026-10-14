@@ -5,8 +5,8 @@ import { z } from 'zod';
 import { masterSignersExact } from './privy-master-policy.js';
 import { masterActionBound, masterActionSignable, type MasterAccount, type MasterActionBound, type MasterTypedData } from './master-action.js';
 import { LiveBoundaryError } from './wallet-authorization.js';
+import { EIP712_DOMAIN_FIELDS as domainFields } from './phantom-agent-typed-data.js';
 
-const domainFields = [{ name: 'name', type: 'string' }, { name: 'version', type: 'string' }, { name: 'chainId', type: 'uint256' }, { name: 'verifyingContract', type: 'address' }];
 /** A copy account with the automatic return: the worker quorum is its
  * additional signer under the owner's policy. */
 interface PolicyMasterAccount extends MasterAccount { readonly workerQuorumId: string; readonly policyId: string }

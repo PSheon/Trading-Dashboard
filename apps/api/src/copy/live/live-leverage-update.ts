@@ -21,6 +21,7 @@ import { Dec, USD_DP } from '../../common/decimal/dec.js';
 import { ceilDecimalProduct } from './live-risk-rounding.js';
 import type { LiveAccountSnapshot } from './live-account-observer.js';
 import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
+import { EIP712_DOMAIN_FIELDS as domainFields, PHANTOM_AGENT_DOMAIN as domain, PHANTOM_AGENT_FIELDS as agentFields } from './phantom-agent-typed-data.js';
 
 /**
  * The copy account's leverage on the order's coin is above the copy's cap
@@ -73,9 +74,6 @@ interface LiveLeverageTarget {
 type LiveLeverageUpdateState = 'accepted' | 'rejected' | 'unknown';
 /** Exactly the exchange's answer to an accepted updateLeverage. */
 const ACCEPTED = { status: 'ok', response: { type: 'default' } };
-const domain = { name: 'Exchange', version: '1', chainId: 1337, verifyingContract: `0x${'00'.repeat(20)}` as `0x${string}` };
-const agentFields = [{ name: 'source', type: 'string' }, { name: 'connectionId', type: 'bytes32' }];
-const domainFields = [{ name: 'name', type: 'string' }, { name: 'version', type: 'string' }, { name: 'chainId', type: 'uint256' }, { name: 'verifyingContract', type: 'address' }];
 
 /** The exchange action that sets one coin's cross leverage, in canonical key order. */
 function liveLeverageAction(asset: number, leverage: number) {

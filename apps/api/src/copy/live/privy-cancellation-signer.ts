@@ -19,23 +19,8 @@ import {
   type TrackedCancellationAuthority,
 } from './live-tracked-cancellation.js';
 import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
+import { EIP712_DOMAIN_FIELDS as domainFields, PHANTOM_AGENT_DOMAIN as domain, PHANTOM_AGENT_FIELDS as agentFields } from './phantom-agent-typed-data.js';
 
-const domain = {
-  name: 'Exchange',
-  version: '1',
-  chainId: 1337,
-  verifyingContract: `0x${'00'.repeat(20)}` as `0x${string}`,
-};
-const agentFields = [
-  { name: 'source', type: 'string' },
-  { name: 'connectionId', type: 'bytes32' },
-];
-const domainFields = [
-  { name: 'name', type: 'string' },
-  { name: 'version', type: 'string' },
-  { name: 'chainId', type: 'uint256' },
-  { name: 'verifyingContract', type: 'address' },
-];
 function captureCancellationPermit(
   permit: CancellationPermit,
 ): CancellationPermit {

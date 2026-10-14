@@ -125,8 +125,10 @@ export type RetentionStatus = z.infer<typeof retentionStatusSchema>;
  * - terminal_settlement_unowned: API_TERMINAL_SETTLEMENT=off on a testnet
  *   copy deployment, and no copy worker heartbeat in the last 2 minutes
  *   reported its terminal settlement loop on.
+ * - snapshots_stale: WORKER_READ_URL is set and the read worker's
+ *   heartbeats have shown no snapshot in the last 15 minutes.
  * `lastOkAt`: when it was last seen fine (or the api's start). */
-export const workerAlertSchema = z.object({ code: z.enum(["terminal_settlement_unowned"]), lastOkAt: iso });
+export const workerAlertSchema = z.object({ code: z.enum(["terminal_settlement_unowned", "snapshots_stale"]), lastOkAt: iso });
 export type WorkerAlert = z.infer<typeof workerAlertSchema>;
 export const adminSystemSchema = z.object({
   sampledAt: iso,
@@ -143,7 +145,13 @@ export const adminSystemSchema = z.object({
      * lane's charges hold, when the last demand ends; the page lane (no
      * demand): its reads alive, what they hold, when the last ends. Additive. */
     setupDemand: wireMeterLaneDemandSchema.optional(), liveDemand: wireMeterLaneDemandSchema.optional(), pageLane: wireMeterLaneDemandSchema.optional() }),
+  /** WORKER_URL's worker (the `copy` worker, or the single `all` one). While
+   * the `read` worker (WORKER_READ_URL) is active, this sample's heartbeat
+   * carries its snapshot, sweep, discovery, archive and dry-run fields, and
+   * its discovery settings are the read worker's. */
   worker: z.object({ state: z.enum(["active", "standby", "stopping", "stale", "unavailable", "not_configured"]), sample: workerMonitorSchema.nullable() }),
+  /** WORKER_READ_URL's `read` worker as it is; absent when that is not set. */
+  workerRead: z.object({ state: z.enum(["active", "standby", "stopping", "stale", "unavailable", "not_configured"]), sample: workerMonitorSchema.nullable() }).optional(),
   database: z.object({ state: z.enum(["available", "unavailable"]), latencyMs: z.number().nullable() }),
   data: z.object({
     leaderboardCount: z.number(), leaderboardUpdatedAt: iso.nullable(), watched: z.number(), candidates: z.number(),

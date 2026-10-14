@@ -9,7 +9,7 @@ export function testConfig(): AppConfig {
     stream: { maxPerIp: env.streamMaxPerIp(), maxTotal: env.streamMaxTotal(), trustedProxyHops: env.streamTrustedProxyHops() },
     http: { corsOrigins: [] },
     limits: { ingressPerMinute: 100000, readPerMinute: 100000, writePerMinute: 100000, expensivePerMinute: 100000, favoritesPerUser: getIntEnv("MAX_FAVORITES_PER_USER", 100, 1, 10000) },
-    app: { isWorker: process.env.IS_WORKER === "true", workerUrl: process.env.WORKER_URL, trustedProxyCidrs: [], nodeEnv: process.env.NODE_ENV ?? "test", port: 3000,
+    app: { isWorker: process.env.IS_WORKER === "true", workerUrl: process.env.WORKER_URL, workerReadUrl: process.env.WORKER_READ_URL, trustedProxyCidrs: [], nodeEnv: process.env.NODE_ENV ?? "test", port: 3000,
       workerRole: "all" as const, setupDrive: "local" as const, terminalSettlement: { api: true, worker: false } },
     database: { url: "postgres://unused@localhost/unused_test", poolMax: 20 },
     auth: { serviceToken: env.serviceToken(), permissions: env.servicePermissions(), adminEmails: env.adminEmails(), appId: env.privyAppId(), appSecret: env.privyAppSecret(), verificationKey: env.privyVerificationKey(),

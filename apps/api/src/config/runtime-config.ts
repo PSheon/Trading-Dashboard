@@ -376,6 +376,10 @@ export function validateEnvironment(source: Environment = process.env) {
     throw new Error("APP_ROLE was replaced by IS_WORKER: set IS_WORKER=true on the worker and remove APP_ROLE");
   }
   const workerUrl = source.WORKER_URL ? urlValue("WORKER_URL", source.WORKER_URL, "", ["http:", "https:"]) : undefined;
+  // WORKER_READ_URL (optional): the `read` worker once the roles are split;
+  // WORKER_URL is then the `copy` worker. The api reads both heartbeats and
+  // merges them (WorkerFleetService); unset, WORKER_URL's alone, as before.
+  const workerReadUrl = source.WORKER_READ_URL ? urlValue("WORKER_READ_URL", source.WORKER_READ_URL, "", ["http:", "https:"]) : undefined;
   // WORKER_ROLE (runtime/worker-role.ts): unset is `all`, today's worker. A
   // role on the api would mean nothing, so a set one is refused there.
   const workerRole = workerRoleValue(source.WORKER_ROLE);
@@ -394,7 +398,7 @@ export function validateEnvironment(source: Environment = process.env) {
     worker: isWorker && runsCopy(workerRole)
       && oneOf("WORKER_TERMINAL_SETTLEMENT", source.WORKER_TERMINAL_SETTLEMENT, ["on", "off"], workerRole === "copy" ? "on" : "off") === "on",
   };
-  const app = { isWorker, workerUrl, nodeEnv, trustedProxyCidrs, workerRole, setupDrive, terminalSettlement,
+  const app = { isWorker, workerUrl, workerReadUrl, nodeEnv, trustedProxyCidrs, workerRole, setupDrive, terminalSettlement,
   // A worker beside an api on one machine needs its own port: WORKER_PORT
   // wins for the worker (Railway sets PORT per service and leaves it unset).
   port: isWorker && source.WORKER_PORT ? integerValue("WORKER_PORT", source.WORKER_PORT, 3000, 1, 65535) : integerValue("PORT", source.PORT, 3000, 1, 65535) };

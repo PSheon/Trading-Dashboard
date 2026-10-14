@@ -50,11 +50,14 @@ export function MonitoringDetails({ data: d }: { data: AdminSystemOverview }) {
   </>;
   return <div className="space-y-4">
     {d.alerts && d.alerts.length > 0 && <Alerts alerts={d.alerts} />}
-    <div className="grid gap-4 lg:grid-cols-3">
+    <div className={cn("grid gap-4", d.workerRead ? "lg:grid-cols-4" : "lg:grid-cols-3")}>
       <Panel className="card-pad"><h3 className="type-h2">API</h3><Status state={d.api.state} />
         <p className="mt-3 text-xs text-muted-foreground">{t("monitoring.uptime")} · {t("monitoring.seconds", {value: format.num(d.api.uptimeSeconds, 0)})}</p>{budget(d.api.budget)}</Panel>
       <Panel className="card-pad"><h3 className="type-h2">Worker</h3><Status state={d.worker.state} />
         {worker && <p className="mt-3 text-xs text-muted-foreground">{t("monitoring.sample")} · {time(worker.sampledAt)}</p>}{budget(worker?.budget ?? null)}</Panel>
+      {/* WORKER_READ_URL's read worker, once the roles are split. */}
+      {d.workerRead && <Panel className="card-pad"><h3 className="type-h2">Worker (read)</h3><Status state={d.workerRead.state} />
+        {d.workerRead.sample && <p className="mt-3 text-xs text-muted-foreground">{t("monitoring.sample")} · {time(d.workerRead.sample.sampledAt)}</p>}{budget(d.workerRead.sample?.budget ?? null)}</Panel>}
       <Panel className="card-pad"><h3 className="type-h2">PostgreSQL</h3><Status state={d.database.state} />
         <dl className="mt-3 text-xs"><Metric label={t("monitoring.latency")} value={d.database.latencyMs === null ? t("monitoring.unknown") : t("monitoring.milliseconds", {value: d.database.latencyMs})} /></dl></Panel>
     </div>

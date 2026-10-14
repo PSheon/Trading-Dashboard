@@ -3,6 +3,7 @@
 export function isolatedApiEnvironment(source, databaseUrl) {
   const result = { ...source, DATABASE_URL: databaseUrl, TEST_DATABASE_URL: databaseUrl, NODE_ENV: "test" };
   delete result.WORKER_URL;
+  delete result.WORKER_READ_URL;
   delete result.IS_WORKER;
   delete result.APP_ROLE;
   return result;

@@ -27,7 +27,7 @@ export class AdminSystemService {
 
   private async collect(): Promise<AdminSystemOverview> {
     const [database, data, outbox, worker, retention, lanes] = await Promise.allSettled([
-      this.repository.probe(), this.repository.data(), this.repository.outbox(), this.fleet.monitor(), this.repository.retention(),
+      this.repository.probe(), this.repository.data(), this.repository.outbox(), this.fleet.monitors(), this.repository.retention(),
       this.wallet?.transport.laneStatus() ?? Promise.resolve(undefined),
     ]);
     const meter = lanes.status === "fulfilled" ? lanes.value : undefined;
@@ -42,7 +42,8 @@ export class AdminSystemService {
         explorerReachable: explorer.reachable, explorerFailingSince: explorer.failingSince?.toISOString() ?? null,
         // The shared meter's setup, live and page lanes, as this process reads them.
         ...(meter ? { setupDemand: lane(meter.setupDemand), liveDemand: lane(meter.liveDemand), pageLane: lane(meter.pageLane) } : {}) },
-      worker: worker.status === "fulfilled" ? worker.value : { state: "unavailable", sample: null },
+      worker: worker.status === "fulfilled" ? worker.value.worker : { state: "unavailable", sample: null },
+      ...(worker.status === "fulfilled" && worker.value.read ? { workerRead: worker.value.read } : {}),
       database: database.status === "fulfilled" ? { state: "available", latencyMs: database.value } : { state: "unavailable", latencyMs: null },
       data: data.status === "fulfilled" ? data.value : null,
       outbox: outbox.status === "fulfilled" ? outbox.value : null,

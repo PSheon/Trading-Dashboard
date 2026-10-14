@@ -150,3 +150,17 @@ test("renderMeasurements: one separated block, every section, notes where a sour
   assert.match(text, /3 claim wait line\(s\), longest 49560 ms/);
   assert.doesNotMatch(text, /postgres(ql)?:\/\//);
 });
+
+test("scanMeasureLog and renderMeasurements: the observer's evidence_expired lines, by check and reason", () => {
+  const expired = (timestamp, body) => line(timestamp, `live_account_evidence_expired ${JSON.stringify(body)}`, "LiveAccountObserver");
+  const text = [
+    expired("2026-10-14T10:00:01.000Z", { check: "provider_state_time", reason: "older_than_bound", ageMs: 5120, maxAgeMs: 5000 }),
+    expired("2026-10-14T10:00:02.000Z", { check: "provider_state_time", reason: "older_than_bound", ageMs: 5400, maxAgeMs: 5000 }),
+    expired("2026-10-14T10:00:03.000Z", { check: "final", reason: "ahead_of_clock", ageMs: -12, maxAgeMs: 5000 }),
+    expired("2026-10-14T11:00:00.000Z", { check: "final", reason: "older_than_bound", ageMs: 9000, maxAgeMs: 5000 }),
+  ].join("\n");
+  const log = scanMeasureLog(text, { since: Date.parse("2026-10-14T10:00:00.000Z"), until: Date.parse("2026-10-14T10:30:00.000Z") });
+  assert.deepEqual(log.expired.map((x) => [x.check, x.reason, x.ageMs]), [["provider_state_time", "older_than_bound", 5120], ["provider_state_time", "older_than_bound", 5400], ["final", "ahead_of_clock", -12]]);
+  const out = renderMeasurements({ window: { from: "a", to: "b" }, log, delays: attemptDelays([]), claims: claimWaitSummary([]) });
+  assert.match(out, /live_account_evidence_expired: 3 \(provider_state_time older_than_bound ×2, max age 5400 ms; final ahead_of_clock ×1, max age -12 ms\)/);
+});

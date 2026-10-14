@@ -28,6 +28,8 @@ const BUDGET_WAIT = /^leg (\S+) budget unavailable: ([a-z0-9_]+), retry (\d+) ms
 const UNSENT_RELEASED = /^leg (\S+): attempt (\d+) released as never sent; planning attempt (\d+) of (\d+)/;
 /** CopyLiveSetupService.logClaimWait: `setup <id> claim waits {setupId, need, waitMs, meter?}`. */
 const CLAIM_WAIT = /^setup (\S+) claim waits (\{.*\})\s*$/;
+/** HyperliquidLiveAccountObserver.expired: `live_account_evidence_expired {check, reason, ageMs, maxAgeMs}`. */
+const EVIDENCE_EXPIRED = /^live_account_evidence_expired (\{.*\})\s*$/;
 /** An HTTP 429 in a log line's text (Hyperliquid's budgeter and info client, Telegram, …). */
 const HTTP_429 = /\b429\b/;
 const HTTP_429_WORDING = /(\(429\)|429 from|status 429|HTTP 429|429 too many|rate.?limit)/i;
@@ -45,15 +47,16 @@ const timingOf = (timings, phase, stage) => timings.find((t) => t.phase === phas
  *   failures    failed leg attempts; budgetWaits, unsentReleases: the engine's lines beside them;
  *   claimWaits  setups' shared-meter claim waits (need, waitMs, meter composition);
  *   rate        foreign_usage_suspected, hl_ws_error_unmatched and HTTP 429 lines;
- *   walletCheckedAtLogged  whether any line in the window names walletCheckedAt.
+ *   walletCheckedAtLogged  whether any line in the window names walletCheckedAt;
+ *   expired     the account observer's `live_account_evidence_expired {check, reason, ageMs, maxAgeMs}` lines.
  * @param {string} text @param {{ since?: number, until?: number }} [window]
  */
 export function scanMeasureLog(text, { since = -Infinity, until = Infinity } = {}) {
   const out = { submits: [], signers: [], failures: [], budgetWaits: [], unsentReleases: [], claimWaits: [],
-    rate: { foreignUsageSuspected: [], wsErrorUnmatched: [], http429: [] }, walletCheckedAtLogged: false };
+    rate: { foreignUsageSuspected: [], wsErrorUnmatched: [], http429: [] }, walletCheckedAtLogged: false, expired: [] };
   for (const line of text.split("\n")) {
     if (!line.includes("live_execution_timing") && !line.includes("leg ") && !line.includes("claim waits") && !line.includes("foreign_usage_suspected") &&
-      !line.includes("hl_ws_error_unmatched") && !line.includes("429") && !line.includes("walletCheckedAt")) continue;
+      !line.includes("hl_ws_error_unmatched") && !line.includes("429") && !line.includes("walletCheckedAt") && !line.includes("live_account_evidence_expired")) continue;
     let row;
     try { row = JSON.parse(line); } catch { continue; }
     const at = Date.parse(row?.timestamp);
@@ -83,6 +86,10 @@ export function scanMeasureLog(text, { since = -Infinity, until = Infinity } = {
       let body = null;
       try { body = JSON.parse(message.slice(message.indexOf("{"))); } catch { /* no body */ }
       out.rate.foreignUsageSuspected.push({ at: row.timestamp, status: body?.status ?? null, ourWindowUse: body?.ourWindowUse ?? null });
+    } else if ((m = message.match(EVIDENCE_EXPIRED))) {
+      let body = null;
+      try { body = JSON.parse(m[1]); } catch { /* a truncated line */ }
+      if (body) out.expired.push({ at: row.timestamp, check: String(body.check), reason: String(body.reason), ageMs: body.ageMs ?? null, maxAgeMs: body.maxAgeMs ?? null });
     } else if (message.includes("hl_ws_error_unmatched")) {
       let body = null;
       try { body = JSON.parse(message.slice(message.indexOf("{"))); } catch { /* no body */ }
@@ -341,6 +348,11 @@ export function renderMeasurements(m) {
       `HTTP 429 ${r.http429.length} (Hyperliquid ${hl.length}${byContext ? `; by context: ${byContext}` : ""})`);
     const texts = [...new Set(r.wsErrorUnmatched.map((x) => x.text).filter(Boolean))];
     for (const t of texts.slice(0, 5)) L.push(`    unmatched ws error: ${t.slice(0, 120)}`);
+    const expired = Object.entries(log.expired.reduce((acc, x) => {
+      const key = `${x.check} ${x.reason}`, prev = acc[key] ?? { count: 0, maxAgeMs: null };
+      return { ...acc, [key]: { count: prev.count + 1, maxAgeMs: x.ageMs === null ? prev.maxAgeMs : Math.max(prev.maxAgeMs ?? -Infinity, x.ageMs) } };
+    }, {}));
+    L.push(`  live_account_evidence_expired: ${log.expired.length}${expired.length ? ` (${expired.map(([k, v]) => `${k} ×${v.count}, max age ${v.maxAgeMs ?? "—"} ms`).join("; ")})` : ""}`);
   }
 
   L.push("", "3. setup claim waits (shared meter)");

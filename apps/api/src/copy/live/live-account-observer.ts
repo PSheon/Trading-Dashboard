@@ -120,6 +120,20 @@ const spotSchema = z.object({ portfolioMarginEnabled: z.boolean().optional(), ba
   coin: z.string().min(1).max(80), token: integer, total: nonnegative, hold: nonnegative,
 })).max(10_000) });
 function fail(code: string): never { throw new LiveBoundaryError(code); }
+/** The freshness checks of one observation, by where they run. */
+export type LiveEvidenceCheck = 'start' | 'read' | 'read_done' | 'state_start' | 'state_read' | 'state_observed' | 'state_done' |
+  'orders_read' | 'orders_observed' | 'orders_completed' | 'orders_event_observed' | 'orders_event_received' |
+  'provider_state_time' | 'final' | 'final_provider_time';
+/** `live_account_evidence_expired`, naming the check that refused: names and
+ * milliseconds only, never an account or a value. */
+export class LiveEvidenceExpiredError extends LiveBoundaryError {
+  constructor(readonly check: LiveEvidenceCheck, readonly reason: 'invalid' | 'ahead_of_clock' | 'older_than_bound',
+    readonly ageMs: number | null, readonly maxAgeMs: number) {
+    super('live_account_evidence_expired');
+    Object.freeze(this);
+  }
+}
+
 /** An observation that could not be had, with what failed underneath
  * (`cause`): a refusal of the shared meter there makes it a wait
  * (live/error-class.ts), never a failed attempt. */
@@ -223,11 +237,11 @@ export class HyperliquidLiveAccountObserver {
       const pinned = shared ? new Map<string, unknown>() : pinnedReads(user, this.cache);
       if (!shared) await boundedLiveRead(() => this.acquire(observerRestWeight(user, this.cache, pinned) + (restOrders ? 20 * supported.size : 0)), this.reservationMaxWaitMs);
       const started = shared ? shared.startedAt : this.now();
-      this.fresh(started);
+      this.fresh(started, 'start');
       const sources: unknown[] = [];
       const read = async (type: string, weight: number, extra: Record<string, unknown> = {}) => {
         const body = { type, ...extra };
-        const remaining = () => { this.fresh(started); return Math.max(1, this.maxAgeMs - (this.now() - started)); };
+        const remaining = () => { this.fresh(started, 'read'); return Math.max(1, this.maxAgeMs - (this.now() - started)); };
         void weight; // paid for before the clock
         let value: unknown;
         if (shared) value = await boundedLiveRead(() => shared.get(body), remaining());
@@ -241,7 +255,7 @@ export class HyperliquidLiveAccountObserver {
           value = await boundedLiveRead(() => readInfoJson(response, type, (type === 'allPerpMetas' ? 8 : 2) * 1024 * 1024), remaining());
           this.cache?.put(body, value);
         }
-        this.fresh(started);
+        this.fresh(started, 'read_done');
         if (value && typeof value === 'object' && !Array.isArray(value)) {
           const row = value as Record<string, unknown>;
           if (row.user !== undefined && (typeof row.user !== 'string' || address(row.user) !== user) || row.network !== undefined && row.network !== this.network)
@@ -288,8 +302,8 @@ export class HyperliquidLiveAccountObserver {
       const dexes: LiveObservedDex[] = [];
       let combinedOrders: LiveAllDexsOrderEvidence | undefined;
       const aggregate = async () => {
-        this.fresh(started);
-        const remaining = () => { this.fresh(started); return Math.max(1, this.maxAgeMs - (this.now() - started)); };
+        this.fresh(started, 'state_start');
+        const remaining = () => { this.fresh(started, 'state_read'); return Math.max(1, this.maxAgeMs - (this.now() - started)); };
         // Its weight was reserved with the rest, before the clock.
         const combined = this.aggregateSource.readAccount;
         const result = combined ? structuredClone(await boundedLiveRead(() => combined.call(this.aggregateSource,
@@ -298,7 +312,7 @@ export class HyperliquidLiveAccountObserver {
         if (result) combinedOrders = result.orders;
         const proof = result?.state ?? structuredClone(await boundedLiveRead(() => this.aggregateSource.read(user, remaining()), remaining()));
         if (proof.network !== this.network || address(proof.accountAddress) !== user) fail('live_account_source_mismatch');
-        this.fresh(proof.observedAt); this.fresh(started);
+        this.fresh(proof.observedAt, 'state_observed'); this.fresh(started, 'state_done');
         sources.push({ subscription: { type: 'allDexsClearinghouseState', user }, proof }); return proof.data;
       };
       const wsSpan = liveSpan('observer_ws');
@@ -319,13 +333,13 @@ export class HyperliquidLiveAccountObserver {
       const states = new Map(aggregateStates.clearinghouseStates);
       let allOrders: Map<string, unknown[]> | undefined;
       if (combinedOrders || this.aggregateSource.readOrders) {
-        const remaining = () => { this.fresh(started); return Math.max(1, this.maxAgeMs - (this.now() - started)); };
+        const remaining = () => { this.fresh(started, 'orders_read'); return Math.max(1, this.maxAgeMs - (this.now() - started)); };
         let proof = combinedOrders;
         if (!proof) {
           proof = structuredClone(await boundedLiveRead(() => this.aggregateSource.readOrders!(user, venues.map((v) => v.dex), remaining()), remaining()));
         }
         if (proof.network !== this.network || address(proof.accountAddress) !== user) fail('live_account_source_mismatch');
-        this.fresh(proof.observedAt); this.fresh(proof.completedAt);
+        this.fresh(proof.observedAt, 'orders_observed'); this.fresh(proof.completedAt, 'orders_completed');
         if (proof.completedAt < proof.observedAt) fail('live_account_source_mismatch');
         const requested = z.array(z.string()).max(MAX_LIVE_PERP_DEXES).parse(proof.requestedDexes);
         unique(requested);
@@ -338,7 +352,7 @@ export class HyperliquidLiveAccountObserver {
         for (const event of events) {
           if (address(event.user) !== user || event.receivedAt < event.observedAt || event.observedAt < proof.observedAt ||
               event.receivedAt > proof.completedAt) fail('live_account_source_mismatch');
-          this.fresh(event.observedAt); this.fresh(event.receivedAt);
+          this.fresh(event.observedAt, 'orders_event_observed'); this.fresh(event.receivedAt, 'orders_event_received');
         }
         allOrders = new Map(events.map((e) => [e.dex, e.orders]));
         sources.push({ subscriptions: { type: 'openOrders', user, dexes: requested }, proof });
@@ -353,7 +367,7 @@ export class HyperliquidLiveAccountObserver {
           : supported.has(venue.dex) ? ordersSchema.parse(await read('frontendOpenOrders', 20, { user, ...scope })) : [];
         // Hyperliquid's own time: within PROVIDER_CLOCK_SKEW_MS ahead of ours.
         // The clock is sampled where the frame arrived (HyperliquidAllDexsAccountSource), not here.
-        this.freshProvider(state.time);
+        this.freshProvider(state.time, 'provider_state_time');
         unique(meta.universe.map((m) => m.name)); unique(state.assetPositions.map((p) => p.position.coin));
         const collateral = tokens.find((t) => t.index === meta.collateralToken);
         if (!collateral) fail('live_account_unsupported_collateral');
@@ -431,7 +445,7 @@ export class HyperliquidLiveAccountObserver {
         if (JSON.stringify(dexSchema.parse(final[4])) !== JSON.stringify(list) || JSON.stringify(finalMode) !== JSON.stringify(accountMode))
           fail('live_account_observation_changed');
       }
-      this.fresh(started); for (const d of dexes) this.freshProvider(d.providerTime);
+      this.fresh(started, 'final'); for (const d of dexes) this.freshProvider(d.providerTime, 'final_provider_time');
       const sum = (key: 'equity' | 'marginUsed' | 'withdrawable' | 'exposureUsd') => Dec.sum(dexes.map((d) => Dec.from(d[key]))).toString();
       const unobservedOrderDexes = allOrders ? [] : venues.filter((v) => !counted(v.dex)).map((v) => v.dex);
       return frozen({ network: this.network, accountAddress: user, role: accountMode.role, accountMode: 'standard', accountAbstraction: accountMode.abstraction,
@@ -455,16 +469,26 @@ export class HyperliquidLiveAccountObserver {
     void Promise.resolve(this.aggregateSource.close?.())
       .catch((error: unknown) => new Logger('LiveAccountObserver').warn(`all-venue source close failed: ${safeErrorText(error)}`));
   }
-  private fresh(at: number): void {
+  private fresh(at: number, check: LiveEvidenceCheck): void {
     const now = this.now();
-    if (!Number.isSafeInteger(at) || !Number.isSafeInteger(now) || at < 0 || now < at || now - at > this.maxAgeMs)
-      fail('live_account_evidence_expired');
+    if (!Number.isSafeInteger(at) || !Number.isSafeInteger(now) || at < 0) this.expired(check, 'invalid', null);
+    if (now < at) this.expired(check, 'ahead_of_clock', now - at);
+    if (now - at > this.maxAgeMs) this.expired(check, 'older_than_bound', now - at);
   }
   /** A provider timestamp: as `fresh`, but it may be up to
    * PROVIDER_CLOCK_SKEW_MS ahead of our clock (ours runs behind). */
-  private freshProvider(at: number): void {
+  private freshProvider(at: number, check: LiveEvidenceCheck): void {
     const now = this.now();
-    if (!Number.isSafeInteger(at) || !Number.isSafeInteger(now) || at < 0 || !providerTimeNotAfter(at, now) || now - at > this.maxAgeMs)
-      fail('live_account_evidence_expired');
+    if (!Number.isSafeInteger(at) || !Number.isSafeInteger(now) || at < 0) this.expired(check, 'invalid', null);
+    if (!providerTimeNotAfter(at, now)) this.expired(check, 'ahead_of_clock', now - at);
+    if (now - at > this.maxAgeMs) this.expired(check, 'older_than_bound', now - at);
+  }
+  /** Which check refused, and by how much, in the error and one log line
+   * (names and milliseconds only): a refusal on mainnet (probe 2026-10-14,
+   * 1 open in 32) could not be told apart afterwards. */
+  private expired(check: LiveEvidenceCheck, reason: LiveEvidenceExpiredError['reason'], ageMs: number | null): never {
+    const error = new LiveEvidenceExpiredError(check, reason, ageMs, this.maxAgeMs);
+    new Logger('LiveAccountObserver').warn(`live_account_evidence_expired ${JSON.stringify({ check, reason, ageMs, maxAgeMs: this.maxAgeMs })}`);
+    throw error;
   }
 }

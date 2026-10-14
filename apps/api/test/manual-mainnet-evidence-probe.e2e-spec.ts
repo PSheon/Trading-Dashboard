@@ -120,15 +120,15 @@ const observerSource = readFileSync(fileURLToPath(new URL('../src/copy/live/live
 let freshChecks: FreshnessCheck[] = [], freshFailures: FreshFailure[] = [];
 let stateLags: (NonNullable<ReturnType<typeof stateTimeLags>> & { role: string })[] = [];
 type FreshTarget = { now(): number; maxAgeMs: number };
-const observerProto = HyperliquidLiveAccountObserver.prototype as unknown as Record<FreshKind, (this: FreshTarget, at: number) => void>;
+const observerProto = HyperliquidLiveAccountObserver.prototype as unknown as Record<FreshKind, (this: FreshTarget, at: number, check: string) => void>;
 const originalFresh = { fresh: observerProto.fresh, freshProvider: observerProto.freshProvider };
 function wrapFreshness() {
   for (const kind of ['fresh', 'freshProvider'] as const) {
     const original = originalFresh[kind];
-    observerProto[kind] = function (this: FreshTarget, at: number) {
-      const now = this.now(), site = freshnessCallSite(new Error().stack, observerSource) ?? kind, role = roleStore.getStore() ?? '-';
+    observerProto[kind] = function (this: FreshTarget, at: number, check: string) {
+      const now = this.now(), site = check ?? freshnessCallSite(new Error().stack, observerSource) ?? kind, role = roleStore.getStore() ?? '-';
       const ageMs = Number.isSafeInteger(at) && Number.isSafeInteger(now) ? now - at : Number.NaN;
-      try { original.call(this, at); } catch (e) {
+      try { original.call(this, at, check); } catch (e) {
         freshChecks.push({ site, role, ageMs, ok: false });
         freshFailures.push({ site, kind, role, ageMs, maxAgeMs: this.maxAgeMs, skewMs: PROVIDER_CLOCK_SKEW_MS,
           reason: freshnessReason({ kind, at, now, maxAgeMs: this.maxAgeMs, skewMs: PROVIDER_CLOCK_SKEW_MS }) ?? 'unexplained' });

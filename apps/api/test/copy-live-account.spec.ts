@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { HyperliquidLiveAccountObserver, HyperliquidAllDexsAccountSource } from '../src/copy/live/live-account-observer.js';
 import { EventEmitter } from 'node:events';
+import { Logger } from '@nestjs/common';
 import WebSocket from 'ws';
 import {offlineGlobalTransport} from './hyperliquid-global-test-utils.js';
 import { classify } from '../src/copy/live/error-class.js';
@@ -287,6 +288,21 @@ describe('authoritative dedicated standard account observations', () => {
       .observer.observe(account)).rejects.toThrow('live_account_evidence_expired');
     const s = setup((body, value) => { if (body.type === 'frontendOpenOrders') s.setClock(now + 5001); return value; });
     await expect(s.observer.observe(account)).rejects.toThrow('live_account_evidence_expired');
+  });
+  it('names the freshness check that refused and by how much, never the account (mainnet probe 2026-10-14: 1 open in 32 refused, cause unknown)', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    try {
+      const stale = await setup((body, value) => body.type === 'clearinghouseState' ? { ...value as object, time: now - 5001 } : value)
+        .observer.observe(account).catch((e: unknown) => e);
+      expect(stale).toMatchObject({ code: 'live_account_evidence_expired', check: 'provider_state_time', reason: 'older_than_bound', ageMs: 5001, maxAgeMs: 5000 });
+      const s = setup((body, value) => { if (body.type === 'frontendOpenOrders') s.setClock(now + 5001); return value; });
+      const aged = await s.observer.observe(account).catch((e: unknown) => e);
+      expect(aged).toMatchObject({ code: 'live_account_evidence_expired', reason: 'older_than_bound' });
+      expect((aged as { check: string }).check).not.toBe('provider_state_time');
+      const lines = warn.mock.calls.map(([line]) => String(line)).filter(line => line.startsWith('live_account_evidence_expired'));
+      expect(lines[0]).toBe('live_account_evidence_expired {"check":"provider_state_time","reason":"older_than_bound","ageMs":5001,"maxAgeMs":5000}');
+      expect(lines.join('\n')).not.toContain(account.slice(2, 10));
+    } finally { warn.mockRestore(); }
   });
   it('an observation the shared meter refused keeps what refused it (gate 2026-10-13 11:15): a wait for when the meter said, never a failed attempt', async () => {
     const s = setup(); s.fetcher.mockRejectedValue(new HyperliquidRestCapacityError(4_000));

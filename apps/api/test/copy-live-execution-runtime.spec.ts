@@ -558,6 +558,26 @@ describe('unregistered concrete testnet execution runtime', () => {
     expect(locks).toEqual([0]);expect(outcome.kind).toBe('pending');
     expect((await db.select().from(schema.copyLiveRiskReservations))[0]!.state).toBe('unknown');
   },20_000);
+  it('announces its whole need on the shared meter before the fill scan, and the scan charges under that live token', async () => {
+    await actualClockFixture();const record=await runtime(config,{...options,slippageBps:'0'}).execute(request());
+    expect(record.outcome?.filledSize).not.toBe('0');
+    const claimLive=vi.spyOn(global,'claimLive');
+    // The scan's own charge (as its first list read), then stop: the meter is what this test reads.
+    const scan=vi.fn(async()=>{(await global.currentQuota().acquireRest(1,Date.now()+5000)).dispatch(()=>undefined);throw Error('scan reached');});
+    const settler=new CopyLiveSettler('testnet',pool,global,budget,{runFor:scan},()=>clock);
+    await expect(settler.settle({userId:1,accountId:'account',accountAddress:record.authorization.accountAddress,sourceNetwork:'testnet',
+      leaderAddress:seed.consent.leaderAddress,key:record.key})).rejects.toThrow('scan reached');
+    expect(scan).toHaveBeenCalledOnce();expect(claimLive).toHaveBeenCalledOnce();
+    // Its need: the scan's two list reads (2 × 120) and the evidence it prepays.
+    expect(claimLive.mock.calls[0]![0]).toBeGreaterThan(240);
+    const [quota]=await db.select().from(schema.hyperliquidEgressQuota);
+    const ids=(quota!.events as {id:string}[]).map(e=>e.id),demands=ids.map(id=>/^live-demand:(\d+):([0-9a-f]{16}):/.exec(id)).filter(m=>m!==null);
+    // The order's own demand came first; the settlement's is the last.
+    const demand=demands.at(-1);expect(demands).toHaveLength(2);
+    expect(Number(demand![1])).toBe(claimLive.mock.calls[0]![0]);
+    // The scan's charge is the live lane's and carries the demand's token.
+    expect(ids.some(id=>id.startsWith(`live:${demand![2]}:`))).toBe(true);
+  });
   it('reconciles an unknown original key after revocation and strategy stop without another signature or nonce', async () => {
     await actualClockFixture();
     const previous = raw.getMockImplementation()!;

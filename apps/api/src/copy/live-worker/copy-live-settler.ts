@@ -1,4 +1,5 @@
 import { and, eq, sql } from 'drizzle-orm';
+import { Logger } from '@nestjs/common';
 import type { SettlementClaim } from './copy-live-settlement-claim.js';
 import { settlementFencedPool } from './copy-live-settlement-fenced-pool.js';
 import { Pool } from 'pg';
@@ -22,6 +23,10 @@ import { LiveSharedReads } from '../live/live-shared-reads.js';
 import type { LiveSourceNetwork } from '../live/copy-live-source-evidence.js';
 import { liveReadCache } from '../live/live-read-cache.js';
 import { LIVE_EVIDENCE_MAX_AGE_MS, NEVER_PLACED_GRACE_MS } from '../../config/constants/timings.js';
+import { REST_CHARGE_LIFETIME_MS } from '../../config/constants/hyperliquid.js';
+import { sharedRestRetryAfterMs } from '../../hyperliquid/hyperliquid-capacity-error.js';
+import { RESPONSE_WEIGHT } from '../live/follower-receipt-reader.js';
+import { errorCode } from '../../runtime/safe-error-text.js';
 
 export const TERMINAL_STATES: ReadonlySet<string> = new Set(['filled', 'partial', 'cancelled', 'rejected']);
 export interface LiveSettleRequest {
@@ -106,19 +111,30 @@ export class CopyLiveSettler {
         });
       }
     }
-    // Book the account's own fills now (the scheduled scan reaches an account
-    // only every two minutes). The scan also advances its proven horizon,
-    // which the next order's position projection requires.
-    if (record.outcome?.filledSize && record.outcome.filledSize !== '0') {
-      if (claim) await claim.assertHeld();
-      await this.scanner.runFor(request.accountId);
-      if (claim) await claim.assertHeld();
-    }
+    const scan = !!record.outcome?.filledSize && record.outcome.filledSize !== '0';
     // Routing/journal data only estimates the cost, never grants settlement
     // authority. Pay for market identity, orderStatus and the complete account
     // observation BEFORE taking the original locks. That scope revalidates the
     // journal and every release proof; all provider/SQL clocks stay at 5 s.
     let prepaid = (record.action.orders[0]!.a < 10_000 ? 20 : 40) + 2 + (record.errorCode === NEVER_PLACED ? 0 : observerRestWeight(request.accountAddress, liveReadCache(this.network)));
+    // A terminal order's settlement is live work (the copy's next order waits
+    // for it): its whole need (the fill scan's two list reads and the
+    // evidence above) is announced on the shared meter as an order's is
+    // (claimLive), so background, setups and pages leave it free and the room
+    // that frees up is its first. Its reads run under that token (runLive).
+    // Scheduling only: every proof, lock and CAS below is unchanged.
+    const token = await this.claimLive((scan ? 2 * RESPONSE_WEIGHT : 0) + prepaid);
+    if (claim) await claim.assertHeld();
+    const lane = <T>(work: () => Promise<T>) => token === undefined ? work() : this.global.runLive(token, work);
+    return lane(async () => {
+    // Book the account's own fills now (the scheduled scan reaches an account
+    // only every two minutes). The scan also advances its proven horizon,
+    // which the next order's position projection requires.
+    if (scan) {
+      if (claim) await claim.assertHeld();
+      await this.scanner.runFor(request.accountId);
+      if (claim) await claim.assertHeld();
+    }
     await reserveLive(this.budget, prepaid, { maxWaitMs: Math.min(180_000, this.budget.refillMs()), ...(claim ? { signal: claim.signal } : {}) });
     const acquire = async (weight: number) => {
       claim?.assertFresh();
@@ -153,6 +169,20 @@ export class CopyLiveSettler {
         return decision.kind === 'release' ? { kind: 'released' as const } : decision;
       } finally { await sockets.close(); }
     })); } finally { if (prepaid > 0) this.budget.adjust(-prepaid); }
+    });
+  }
+
+  /** Settlement's need on the shared meter (HyperliquidGlobalTransport.claimLive),
+   * waited for at most a charge's lifetime: its token, or undefined when the
+   * meter records no demand (the settlement runs as before). A wait longer
+   * than that is the meter's capacity error (the loop retries). */
+  private async claimLive(weight: number): Promise<string | undefined> {
+    try { return await this.global.claimLive(weight, this.now() + REST_CHARGE_LIFETIME_MS); }
+    catch (error) {
+      if (sharedRestRetryAfterMs(error) !== undefined) throw error;
+      new Logger('CopyLiveSettler').warn(`settlement live demand not claimed: ${errorCode(error, 'unknown')}`);
+      return undefined;
+    }
   }
 
   private async record(key: string, claim?: SettlementClaim): Promise<LiveExecutionRecord | null> {

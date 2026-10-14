@@ -17,7 +17,7 @@ import { FEED_PING_INTERVAL_MS, FEED_STALE_AFTER_MS, MAX_TRADE_AGE_MS } from '..
  * few sockets so one slow socket doesn't stall every market. */
 const MAX_SUBSCRIPTIONS_PER_SOCKET = 200;
 
-export interface TradeFeedHandlers {
+interface TradeFeedHandlers {
   /** A watched address was one side of `trade`. */
   onTrade(address: string, trade: HlWsTrade): void;
   /** A socket was down from `since` until now; trades in between were lost. */

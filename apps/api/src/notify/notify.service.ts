@@ -20,7 +20,7 @@ import { ALERT_MAX_AGE_MS } from '../config/constants/alerts.js';
 import { DELIVERY_DRAIN_BUDGET_MS, NOTIFY_RETRY_DELAYS_MS } from '../config/constants/background.js';
 
 /** Deliveries sent at once within a drain; the Telegram client's pacing sets the actual rate. */
-export const DELIVERY_CONCURRENCY = 8;
+const DELIVERY_CONCURRENCY = 8;
 
 
 /** Why an alert was not sent again: a previous attempt may have reached

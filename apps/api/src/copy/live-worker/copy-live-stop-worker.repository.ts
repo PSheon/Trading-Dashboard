@@ -20,7 +20,7 @@ import { unwatchLeaderIfUnused } from '../../watcher/leader-watch.js';
 import type { CloseAccount } from './reduce-only-closer.js';
 
 export type StopRow = typeof copyLiveStopOperations.$inferSelect;
-export type StopState = StopRow['state'];
+type StopState = StopRow['state'];
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
 /** SQL for the stop executor; every state change is a compare-and-set on the

@@ -19,7 +19,7 @@ import type { BoardSourceRow, CardIdentityRow } from "./discovery.repository.js"
 import { kolAvatarPath } from "./kol-avatar.js";
 
 /** CopyDog shows a fixed top 100 per board, no paging. */
-export const BOARD_SIZE = 100;
+const BOARD_SIZE = 100;
 
 const num = (v: string | number | null | undefined): number | null => {
   if (v === null || v === undefined) return null;
@@ -253,7 +253,7 @@ export function traderCard(address: string, row: BoardSourceRow | undefined, ide
 }
 
 /** CopyDog lists 40 traders on a coin page. */
-export const COIN_BOARD_SIZE = 40;
+const COIN_BOARD_SIZE = 40;
 
 const round2 = (v: number) => Math.round(v * 100) / 100;
 

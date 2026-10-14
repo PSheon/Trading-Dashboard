@@ -36,7 +36,7 @@ export async function expireStaleReturns(tx: DbTransaction, accountId: string): 
 }
 /** Idempotency keys of the worker's automatic returns: `sweep:<stop id>`,
  * then `sweep:<stop id>:<n>` for attempt n after one never sent. */
-export const SYSTEM_SWEEP_PREFIX = 'sweep:';
+const SYSTEM_SWEEP_PREFIX = 'sweep:';
 export const sweepRetryDelayMs = (attempt: number) => 60_000 * 2 ** attempt;
 const jsonDigest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 /** The evidence an automatic return records when it ended unsent: only the
@@ -50,11 +50,11 @@ export function keyedAttempt(idempotencyKey: string, base: string): number | nul
   return /^[1-9]\d{0,2}$/.test(n) ? Number(n) : null;
 }
 /** Attempt n of a stop's automatic return (null: not one). */
-export function sweepAttempt(row: Pick<ReturnRow, 'idempotencyKey' | 'stopId'>): number | null {
+function sweepAttempt(row: Pick<ReturnRow, 'idempotencyKey' | 'stopId'>): number | null {
   return row.stopId ? keyedAttempt(row.idempotencyKey, `${SYSTEM_SWEEP_PREFIX}${row.stopId}`) : null;
 }
 /** An automatic return that ended without reaching the exchange. */
-export function sweepNotSent(row: ReturnRow): boolean {
+function sweepNotSent(row: ReturnRow): boolean {
   return row.direction === 'to_main' && row.status === 'rejected' && !row.transactionHash &&
     (row.evidenceHash === sweepNotSentEvidence('worker_signature_unavailable', row.id) || row.evidenceHash === sweepNotSentEvidence('sweep_not_dispatched', row.id)) &&
     sweepAttempt(row) !== null;
@@ -83,7 +83,7 @@ export function builderOutcome(row: Pick<BuilderApprovalRow, 'state' | 'nonce' |
 
 /** Account context of a master-signed action: the owner, the copy's ready
  * account and its strategy, and an unfinished stop if any. */
-export interface MasterContext {
+interface MasterContext {
   owner: typeof users.$inferSelect; account: typeof copyExecutionAccounts.$inferSelect; strategy: typeof copyStrategies.$inferSelect;
   stop: typeof copyLiveStopOperations.$inferSelect | null;
 }

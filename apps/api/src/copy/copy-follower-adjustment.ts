@@ -35,7 +35,7 @@ import { executionKey, intentFingerprint } from './live/live-order.js';
 import { liveSourceExecutionAttempt } from './live/copy-live-leg-attempt.js';
 import type { LiveExecutionRecord } from './live/live-execution.js';
 
-export type FollowerAdjustment = NonNullable<
+type FollowerAdjustment = NonNullable<
   Extract<CopyFollowerActivityItem, { kind: 'fill' }>['adjustment']
 >;
 export type FollowerAdjustmentEvidence = {
@@ -52,7 +52,7 @@ export type FollowerAdjustmentEvidence = {
   /** Proofs its retained generation manifest names by digest only. */
   settlementProofs?: LiveSettlementProofs;
 };
-export type FollowerAdjustmentContext = {
+type FollowerAdjustmentContext = {
   userId: number;
   account: {
     id: string;

@@ -17,7 +17,7 @@ import type { StopRow } from './copy-live-stop-worker.repository.js';
  * last attempt (SYSTEM_SWEEP_ATTEMPTS): the owner's return remains. An
  * attempt never sent (not signed, refused before the POST) with attempts
  * left is `waiting`: the next one is reserved after its back-off. */
-export type AutoReturnOutcome = 'legacy' | 'waiting' | 'sent' | 'unknown' | 'failed';
+type AutoReturnOutcome = 'legacy' | 'waiting' | 'sent' | 'unknown' | 'failed';
 export interface AutoReturn { sweep(stop: StopRow, withdrawable: string): Promise<AutoReturnOutcome> }
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 

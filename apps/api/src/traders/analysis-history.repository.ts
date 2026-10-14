@@ -26,7 +26,7 @@ export const MAX_REQUESTED_JOBS = 200;
  */
 export const HISTORY_BUILD_MAX_FILLS = 100_000;
 /** Fills per page when a build walks an archive span (`archivedFillPages`). */
-export const ARCHIVE_PAGE_FILLS = 20_000;
+const ARCHIVE_PAGE_FILLS = 20_000;
 /** Jobs removed per expiry pass (their fills go in the same transaction). */
 const EXPIRE_BATCH = 50;
 

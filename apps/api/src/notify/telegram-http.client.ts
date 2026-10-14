@@ -29,7 +29,7 @@ export class TelegramApiError extends Error {
 }
 
 /** What `getUpdates` returns that the bot reads. */
-export interface TelegramUser {
+interface TelegramUser {
   id: number;
   is_bot?: boolean;
   username?: string;
@@ -37,7 +37,7 @@ export interface TelegramUser {
   language_code?: string;
 }
 
-export interface TelegramChat {
+interface TelegramChat {
   id: number;
   type: "private" | "group" | "supergroup" | "channel";
   username?: string;
@@ -51,7 +51,7 @@ export interface TelegramMessage {
   date: number;
 }
 
-export interface TelegramChatMemberUpdated {
+interface TelegramChatMemberUpdated {
   chat: TelegramChat;
   from: TelegramUser;
   new_chat_member: { status: string };
@@ -73,7 +73,7 @@ export interface TelegramUpdate {
 }
 
 /** One row of inline keyboard buttons (`callback_data` ≤ 64 bytes). */
-export type InlineKeyboard = { text: string; callback_data: string }[][];
+type InlineKeyboard = { text: string; callback_data: string }[][];
 
 interface BotApiResponse<T> {
   ok: boolean;

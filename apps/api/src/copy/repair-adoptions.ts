@@ -20,7 +20,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { NestFactory } from "@nestjs/core";
 
-export async function repairAdoptions(options: { dryRun: boolean; strategyId?: number; log?: (line: string) => void }) {
+async function repairAdoptions(options: { dryRun: boolean; strategyId?: number; log?: (line: string) => void }) {
   const log = options.log ?? ((line: string) => console.log(line));
   // The api's modules as an application context: no routes, and no watcher,
   // schedules, copy worker or bot (those are only in AppModule.worker()).

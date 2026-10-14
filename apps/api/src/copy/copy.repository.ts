@@ -40,10 +40,10 @@ export type ControlRow = typeof copyControls.$inferSelect;
 export type OutboxRow = typeof copySignalOutbox.$inferSelect;
 
 /** Orders that are not final yet (hold margin or wait for the executor). */
-export const OPEN_ORDER_STATUSES: CopyOrderStatus[] = ["intent", "risk_approved", "submitting", "submitted", "unknown"];
+const OPEN_ORDER_STATUSES: CopyOrderStatus[] = ["intent", "risk_approved", "submitting", "submitted", "unknown"];
 /** Orders the executor may still cancel: not handed to an exchange. */
-export const CANCELLABLE_ORDER_STATUSES: CopyOrderStatus[] = ["intent", "risk_approved"];
-export const CONSUMER = "copy-signals";
+const CANCELLABLE_ORDER_STATUSES: CopyOrderStatus[] = ["intent", "risk_approved"];
+const CONSUMER = "copy-signals";
 
 /** What is left of an order, signed: buys +, sells −. */
 const signedOpen = (r: { side: "B" | "A"; size: string; filled: string }): Dec => {

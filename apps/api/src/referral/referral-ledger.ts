@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
  * Persistence must lock the owner, enforce source/key uniqueness and atomically
  * write ledger movements, events and attempts. Policy is disabled until those
  * integrations and a funded treasury are configured. No business defaults. */
-export interface ReferralPolicy {
+interface ReferralPolicy {
   version: string; enabled: boolean; rewardBps: number; minClaimUnits: string;
   network: string; token: string; treasuryAddress: string;
   effectiveFrom: number; effectiveUntil: number | null;
@@ -57,9 +57,9 @@ export function calculateReferralEarning(input: FeeInput) {
     remainderNumerator: (numerator % 10000n).toString(), remainderDenominator: '10000' as const });
 }
 
-export interface ClaimRequest { id: string; ownerId: string; key: string; destination: string; amountUnits: string }
-export type ClaimStatus = 'requested' | 'approved' | 'sending' | 'unknown' | 'paid' | 'rejected' | 'failed';
-export interface PayoutEvidence {
+interface ClaimRequest { id: string; ownerId: string; key: string; destination: string; amountUnits: string }
+type ClaimStatus = 'requested' | 'approved' | 'sending' | 'unknown' | 'paid' | 'rejected' | 'failed';
+interface PayoutEvidence {
   claimId: string; ownerId: string; attemptId: string; network: string; token: string;
   destination: string; amountUnits: string; proofDigest: string; reference: string;
 }
@@ -74,7 +74,7 @@ export interface ReferralState {
   balances: { earned: string; available: string; pending: string; claimed: string };
   claims: ReferralClaim[];
 }
-export type ClaimAction = { type: 'approve' | 'reject' | 'uncertain' }
+type ClaimAction = { type: 'approve' | 'reject' | 'uncertain' }
   | { type: 'submit'; attemptId: string }
   | { type: 'paid' | 'not_executed'; proof: PayoutEvidence };
 

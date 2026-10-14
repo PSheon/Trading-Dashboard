@@ -8,10 +8,10 @@ import type { LiveSourceReadResult } from './copy-live-source.client.js';
 import { decodeLiveSourceFill, InvalidLiveSourceEvidence, liveSourceDigest, reconcileLiveSourceFills, type LiveSourceNetwork } from './live/copy-live-source-evidence.js';
 import { address, LiveBoundaryError } from './live/wallet-authorization.js';
 import { LIVE_EVIDENCE_MAX_AGE_MS } from '../config/constants/timings.js';
-export type LiveSourceStream = typeof copyLiveSourceStreams.$inferSelect;
+type LiveSourceStream = typeof copyLiveSourceStreams.$inferSelect;
 /** Refuses a source result, naming the check and the values it compared. */
 function invalid(check: string, values?: Record<string, unknown>): never { throw new InvalidLiveSourceEvidence(check, values); }
-export type SourceApplyResult = { kind: 'recorded' | 'stale' | 'quarantined'; stream: LiveSourceStream };
+type SourceApplyResult = { kind: 'recorded' | 'stale' | 'quarantined'; stream: LiveSourceStream };
 @Injectable()
 export class CopyLiveSourceRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}

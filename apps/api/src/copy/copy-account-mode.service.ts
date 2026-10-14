@@ -52,7 +52,7 @@ export interface AccountModeAbsenceReader {
 /** Who authorises one mode change: a one-click setup whose consent
  * (verified at its confirm) bound the account to "disabled", signed by the
  * worker under the owner's policy (the only signing model, 2026-10-07). */
-export type AccountModeAuthority =
+type AccountModeAuthority =
   { readonly kind: 'setup'; readonly consentDigest: string; sign(master: AccountModeOwnedMaster, intent: AccountModeIntent, assertFresh: () => void): Promise<string> };
 function wire(row: AccountModeRow): CopyAccountModeOperation {
   return copyAccountModeOperationSchema.parse({ id: row.id, accountId: row.accountId, strategyId: row.strategyId, network: row.network,

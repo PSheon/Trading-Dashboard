@@ -8,7 +8,7 @@ import { PRIVY_TIMEOUT_MS } from '../../config/constants/http.js';
 
 /** A Privy access token that passed signature, issuer, audience and expiry
  * checks. */
-export interface VerifiedPrivyToken {
+interface VerifiedPrivyToken {
   /** Privy DID, e.g. "did:privy:…". */
   privyUserId: string;
   expiresAt: Date;

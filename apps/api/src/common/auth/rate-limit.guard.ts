@@ -17,7 +17,7 @@ export const HEALTH_PER_MINUTE = 120;
 export const SAFETY_EXIT_PER_MINUTE = 30;
 
 /** Keys (client × category) tracked at once. */
-export const RATE_LIMIT_MAX_KEYS = 50_000;
+const RATE_LIMIT_MAX_KEYS = 50_000;
 /** The overflow bucket of a category allows this many clients' worth. */
 export const OVERFLOW_MULTIPLIER = 10;
 

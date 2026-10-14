@@ -16,7 +16,7 @@ import { safeErrorText } from "../runtime/safe-error-text.js";
 import { LEADERBOARD_FETCH_TIMEOUT_MS } from '../config/constants/http.js';
 
 
-export interface IngestResult {
+interface IngestResult {
   rows: number;
   removed: number;
   /** Rows flagged as vaults; null when the vault list couldn't be fetched

@@ -12,7 +12,7 @@ import type { OrderRow, PositionRow, StrategyRow } from "./copy.repository.js";
  */
 export const wire = (value: DecInput): number => Dec.from(value).toNumber();
 
-export function toCopyPosition(p: PositionRow, mids: Mids | null): CopyPosition {
+function toCopyPosition(p: PositionRow, mids: Mids | null): CopyPosition {
   const size = Dec.from(p.size);
   const entryPx = Dec.from(p.entryPx);
   const markPx = mids?.px.get(p.coin) ?? null;

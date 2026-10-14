@@ -21,7 +21,7 @@ import {
 } from '../common/audit/admin-audit.js';
 import { BACKFILL_MAX_ATTEMPTS } from '../config/constants/background.js';
 
-export type ClaimedBackfill = typeof backfillJobs.$inferSelect;
+type ClaimedBackfill = typeof backfillJobs.$inferSelect;
 const leaseDeadline = sql`now() + interval '90 seconds'`;
 /** Must be awaited inside the transaction admitting the new leader. */
 export async function enqueueBackfills(

@@ -24,7 +24,7 @@ import { ALERT_EVERY_MS } from '../config/constants/alerts.js';
 import { NOT_DISPATCHED_RETRY_MS, REPROVE_AFTER_MS, SETUP_ABORT_BLOCKED_RECHECK_MS, SETUP_ABORT_NOT_FLAT_ESCALATE_MS } from '../config/constants/timings.js';
 
 export const SETUP_ABORT_OBSERVER = Symbol('SETUP_ABORT_OBSERVER');
-export interface SetupAbortObserver { observeSetupAbortFlat(address: string): Promise<SetupAbortFlatObservation> }
+interface SetupAbortObserver { observeSetupAbortFlat(address: string): Promise<SetupAbortFlatObservation> }
 const digest = (v: unknown) => createHash('sha256').update(JSON.stringify(v)).digest('hex');
 const issue = (value: string | null) => value && /^[a-z][a-z0-9_]{0,79}$/.test(value) ? value : null;
 /** A failed pass whose error names no code of its own (a read that failed,
@@ -34,7 +34,7 @@ const EVIDENCE_UNAVAILABLE = 'setup_abort_evidence_unavailable';
  * transient and budget waits are shown as the step still going. */
 const blocks = (classified: ErrorClassification) => classified.class === 'permanent' || classified.class === 'needs_owner';
 /** Whether an abort's stored issue blocks it (error-class over its code). */
-export const setupAbortIssueBlocks = (code: string | null) => code !== null && blocks(classify(new Error(code)));
+const setupAbortIssueBlocks = (code: string | null) => code !== null && blocks(classify(new Error(code)));
 const NOT_FLAT = 'setup_abort_proof_not_flat', NOT_FLAT_PERSISTENT = 'setup_abort_not_flat_persistent';
 const states = { requested: 'requested', draining: 'reconciling', waiting_credit: 'reconciling', proving: 'reconciling', returning: 'refunding',
   delegated: 'delegated', blocked: 'blocked', done: 'completed' } as const;

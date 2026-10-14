@@ -70,7 +70,7 @@ export function activePerpDexes(list: HlPerpDexsResponse): string[] {
 }
 
 /** The perp side of an account, summed over dexes. */
-export interface AccountSummary {
+interface AccountSummary {
   /** Sum of every dex's `marginSummary.accountValue`; not the account's
    * total (that adds spot and staking, see `totalAccountValue`). */
   perpEquity: number;
@@ -129,7 +129,7 @@ export function summarizeAccount(states: Iterable<HlClearinghouseStateResponse>)
   return out;
 }
 
-export interface TraderAnalytics {
+interface TraderAnalytics {
   winRate30d: number | null;
   roundTrips30d: number;
   realizedPnl30d: number;
@@ -213,7 +213,7 @@ export function toPortfolioResponse(
 }
 
 /** A window's PnL and account value, as Hyperliquid samples them. */
-export interface CapitalSeries {
+interface CapitalSeries {
   accountValue: Point[];
   pnl: Point[];
 }

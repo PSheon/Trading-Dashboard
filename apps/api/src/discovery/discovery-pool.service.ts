@@ -15,7 +15,7 @@ import { LEDGER_REFRESH_MS, POOL_LEDGER_REFRESH_SHARE, POOL_REBUILD_MS, POOL_RET
 
 /** Budgeter rank of the performance loop's calls: behind every page rank
  * (0–3), ahead of the ledger loop and of every unranked background call. */
-export const DISCOVERY_RANK = UNRANKED_BASE - 1;
+const DISCOVERY_RANK = UNRANKED_BASE - 1;
 /** Budgeter rank of the ledger loop's calls: level with the oldest
  * unranked background work, so a build neither jumps ahead of fill
  * storage nor starves behind it; its own cap bounds its share. */
@@ -25,7 +25,7 @@ const MAX_SAVED_MINUTES = 2;
 const WEIGHT_PORTFOLIO = 20;
 
 /** One refresh's cost, kept for the admin/system view and the docs. */
-export interface PoolRefreshLog {
+interface PoolRefreshLog {
   address: string;
   /** "portfolio" (performance), "cold" (first ledger read), "refresh"
    * (incremental) or "tracked". */
@@ -39,7 +39,7 @@ export interface PoolRefreshLog {
 
 /** Freshness of the stored performance figures (`portfolioAt`), for
  * `/health`: the rows the site shows, and the whole pool. */
-export interface PoolFreshness {
+interface PoolFreshness {
   visible: { rows: number; medianAgeSeconds: number | null; oldestAgeSeconds: number | null };
   pool: { rows: number; ready: number; medianAgeSeconds: number | null; oldestAgeSeconds: number | null };
   sampledAt: Date;

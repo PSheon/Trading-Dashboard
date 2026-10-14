@@ -8,7 +8,7 @@ import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { DbExecutor, DbTransaction } from "../db/unit-of-work.js";
 
 export type KolRow = typeof kolTraders.$inferSelect;
-export type KolValues = Pick<KolRow, "address" | "displayName" | "avatarUrl" | "xHandle" | "verified" | "sortOrder">;
+type KolValues = Pick<KolRow, "address" | "displayName" | "avatarUrl" | "xHandle" | "verified" | "sortOrder">;
 
 const mine = eq(kolTraders.chain, CHAIN_DEFAULT);
 

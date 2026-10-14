@@ -13,7 +13,7 @@ import { safeErrorText } from "../runtime/safe-error-text.js";
 import { ACCOUNT_MODE_TTL_MS, ASSETS_TTL_MS, DEX_LIST_TTL_MS, LEADER_EQUITY_TTL_MS, MIDS_STALE_OK_MS, MIDS_TTL_MS, SPOT_BOOK_TTL_MS, STAKING_TTL_MS } from '../config/constants/cache-ttls.js';
 
 
-export interface AssetInfo {
+interface AssetInfo {
   szDecimals: number;
   maxLeverage: number;
   /** Current hourly funding rate. */

@@ -16,7 +16,7 @@ import type { DbExecutor } from '../db/unit-of-work.js';
 import { decodeLiveSettlementProof } from './live/live-settlement-proof.js';
 import { followerForegroundReadEligible, followerRecoveryAccount, followerFreshForeground, followerAccountFreshForeground } from './copy-foreground-read-priority.js';
 
-export type FollowerSnapshotClaim = Readonly<{ accountId: string; userId: number; strategyId: number; accountAddress: string; accountRevision: number; ownerPrivyUserId: string; claimToken: string; admission: 'ordinary' | 'recovery' | 'fairness' }>;
+type FollowerSnapshotClaim = Readonly<{ accountId: string; userId: number; strategyId: number; accountAddress: string; accountRevision: number; ownerPrivyUserId: string; claimToken: string; admission: 'ordinary' | 'recovery' | 'fairness' }>;
 export class FollowerSnapshotDeferred extends LiveBoundaryError {
   constructor() { super('live_account_snapshot_scheduling_deferred'); }
 }

@@ -49,7 +49,7 @@ function toRow(address: string, t: Trade): typeof traderTrades.$inferInsert {
   };
 }
 
-export function fromRow(r: TradeRow): Trade {
+function fromRow(r: TradeRow): Trade {
   return {
     coin: r.coin,
     openTid: r.openTid,

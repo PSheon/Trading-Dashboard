@@ -21,7 +21,7 @@ export function liveExecutionEnabled(config: AppConfig): boolean {
 
 /** What the order-time risk authority enforces besides the risk policy: the
  * deployment's network, its caps and its owner allowlist. */
-export interface LiveDeploymentPolicy {
+interface LiveDeploymentPolicy {
   readonly network: HyperliquidNetwork; readonly caps: LiveCopyCaps; readonly allowedPrivyUserIds?: ReadonlySet<string>;
 }
 let registered: LiveDeploymentPolicy | null = null;

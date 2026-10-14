@@ -28,12 +28,12 @@ const fail = (): never => { throw new LiveBoundaryError('account_mode_absence_un
  * that failed, the cause's code, how long the all-venue socket read took,
  * whether the socket was refused by the shared meter (its connect, lease or
  * subscription caps), and the meter's state then. */
-export interface AccountModeAbsenceFailure {
+interface AccountModeAbsenceFailure {
   readonly check: string; readonly cause: string; readonly wsReadMs: number | null; readonly wsConnectRefused: boolean;
   readonly elapsedMs: number; readonly quota?: unknown;
 }
 /** account_mode_absence_unproven, with what failed (AccountModeAbsenceFailure). */
-export class AccountModeAbsenceUnproven extends LiveBoundaryError {
+class AccountModeAbsenceUnproven extends LiveBoundaryError {
   constructor(readonly detail: AccountModeAbsenceFailure) { super('account_mode_absence_unproven'); }
 }
 /** The shared meter's socket refusals (reserveSocket): connect units, the

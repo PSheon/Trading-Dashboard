@@ -57,7 +57,7 @@ const modeTypedData = (intent: { network: WalletNetwork; accountAddress: string;
   userSetAbstractionTypedData(WALLET_NETWORKS[intent.network], intent.accountAddress, intent.nonce) as unknown as MasterTypedData;
 
 
-export interface SetupStepDeps {
+interface SetupStepDeps {
   readonly modes: CopyAccountModeService; readonly agents: CopyAgentService; readonly returns: CopyLiveReturnRepository; readonly exchange: CopyFundingExchangeClient;
   readonly walletRows: CopyWalletRepository; readonly mandates: CopyLiveMandateRepository; readonly uow: UnitOfWork; readonly fundingRows: CopyFundingRepository;
   readonly capacity: SetupRestCapacity | null; readonly setupBudget: LiveBudget | null;

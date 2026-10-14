@@ -16,7 +16,7 @@ import {
 } from "./revenue-daily.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
 
-export type SnapshotResult =
+type SnapshotResult =
   | { status: "skipped"; reason: "no_address" }
   | { status: "written"; address: string; takenAt: Date }
   | { status: "failed"; error: string };

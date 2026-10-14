@@ -6,7 +6,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 
-export interface SnapshotPositionRow { ts: Date; coin: string | null; szi: string | null; entryPx: string | null; upnl: string | null }
+interface SnapshotPositionRow { ts: Date; coin: string | null; szi: string | null; entryPx: string | null; upnl: string | null }
 
 /** The worker's five-minute equity and position snapshots, read for the chart. */
 @Injectable()

@@ -41,13 +41,13 @@ import type {
  *   does not copy that. Bundle labels $5M+, $1M–5M, $100K–1M, $10K–100K,
  *   $0–10K.
  */
-export const STYLE_MAX_SECONDS = {
+const STYLE_MAX_SECONDS = {
   scalp: 15 * 60,
   intraday: 24 * 3600,
   swing: 14 * 86400,
 } as const;
 
-export const SIZE_TIER_MIN: ReadonlyArray<[SizeTier, number]> = [
+const SIZE_TIER_MIN: ReadonlyArray<[SizeTier, number]> = [
   ["apex", 5_000_000],
   ["whale", 1_000_000],
   ["large", 100_000],
@@ -87,7 +87,7 @@ export const WINDOW_MS: Record<TradeWindow, number | null> = {
   "1d": 86_400_000,
 };
 
-export const LIST_SIZE = 10;
+const LIST_SIZE = 10;
 
 export function median(values: number[]): number | null {
   if (values.length === 0) return null;
@@ -99,7 +99,7 @@ export function median(values: number[]): number | null {
 const exitMs = (t: RoundTrip) => (t.exitTime === null ? null : new Date(t.exitTime).getTime());
 
 /** Closed trades that exited within the window through the observation time. */
-export function closedInWindow(trades: RoundTrip[], window: TradeWindow, now: number): RoundTrip[] {
+function closedInWindow(trades: RoundTrip[], window: TradeWindow, now: number): RoundTrip[] {
   const span = WINDOW_MS[window];
   return trades.filter((t) => {
     const exit = exitMs(t);

@@ -19,7 +19,7 @@ export interface FastSourceReader {
 
 /** A window with this many rows is saturated (the source contract): the
  * read is cut short of the row that would reach it. */
-export const FAST_SOURCE_WINDOW_ROWS = 500;
+const FAST_SOURCE_WINDOW_ROWS = 500;
 /** Hyperliquid's per-call row cap: a full page may have more after it. */
 const PAGE_ROWS = 2000;
 const ZERO_HASH = /^0x0{64}$/;
@@ -30,7 +30,7 @@ const untaggedZeroHash = (fill: HlUserFill) => (fill.twapId === undefined || fil
 /** Weight Hyperliquid counts for one list answer: base 20, plus 1 per 20 items. */
 export const listWeight = (items: number) => 20 + Math.ceil(items / 20);
 
-export interface FastSourceStats { reads: number; twapReads: number; weight: number; rows: number }
+interface FastSourceStats { reads: number; twapReads: number; weight: number; rows: number }
 interface LeaderState {
   /** Trades the feed reported, by tid, until REST returns them. */
   witnessed: Map<string, number>;

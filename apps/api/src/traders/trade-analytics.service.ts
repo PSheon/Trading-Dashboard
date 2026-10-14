@@ -48,16 +48,16 @@ import { ANALYTICS_STALE_MS, FILLS_TTL_MS, TRACKED_FALLBACK_MS } from '../config
  * `COLD_FILL_CALLS` fill calls (≈ 120 weight each when full). A burst of
  * fills (one position built from thousands) can hold few trades. */
 export const COLD_TARGET_FILLS = 10_000;
-export const COLD_MIN_TRADES = 30;
+const COLD_MIN_TRADES = 30;
 /** `…ByTime` calls per cold read: fills, then TWAP slices. */
 export const COLD_FILL_CALLS = 24;
-export const COLD_TWAP_CALLS = 8;
+const COLD_TWAP_CALLS = 8;
 /** Watched addresses one worker turn refreshes (one turn a minute: 60
  * watched addresses every `ANALYTICS_STALE_MS`). */
 export const TRACKED_REFRESH_PER_TICK = 6;
 /** Pages per incremental refresh (a refresh every ~10 min rarely needs 2). */
-export const REFRESH_PAGES = 6;
-export const FUNDING_MAX_PAGES = 40;
+const REFRESH_PAGES = 6;
+const FUNDING_MAX_PAGES = 40;
 /** Cold computations at once; more wait. Beyond `MAX_WAITING` a new cold
  * address is answered busy without queueing. */
 export const MAX_CONCURRENT = 2;
@@ -75,7 +75,7 @@ const WINDOWS: TradeWindow[] = ["all", "30d", "7d", "1d"];
 
 /** Weight and calls one computation spent (Hyperliquid's formula: 20 per
  * call, +1 per 20 items on list calls). */
-export interface Cost {
+interface Cost {
   calls: number;
   weight: number;
   /** Budgeter rank of the computation's calls; default `PAGE_RANK.fills`.
@@ -99,7 +99,7 @@ interface LiveAccount {
 
 /** A computation's figures (logged; the last few kept per address).
  * `fills`: fills read (funding: payments read). */
-export interface ComputeLog {
+interface ComputeLog {
   /** "archive": a first build from the stored fills of the archive's span
    * plus REST's tail after it. */
   kind: "cold" | "archive" | "refresh" | "tracked" | "funding";

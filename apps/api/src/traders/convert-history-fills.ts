@@ -41,7 +41,7 @@ import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { HlUserFill } from "../hyperliquid/types.js";
 import { HistoryFillStore, LEGACY_FILLS_TABLE, type FillOrigin, type FillSource } from "./history-fill.store.js";
 
-export const RETIRED_FILLS_TABLE = "analysis_history_fills_retired";
+const RETIRED_FILLS_TABLE = "analysis_history_fills_retired";
 const STATE_TABLE = "analysis_history_fills_conversion";
 const DEFAULT_BATCH = 5000;
 
@@ -53,7 +53,7 @@ type RawRow = { chain: string; address: string; source: FillSource; tid: string;
 const RAW_COLUMNS = sql.raw(`o.chain, o.address, o.source, o.tid::text AS tid, (extract(epoch FROM o."time") * 1000000)::bigint::text AS time_us, o.raw, o.origin`);
 interface Cursor { address: string; source: string; tid: string }
 export interface Verification { raw: number; typed: number; compared: number; missing: number; extra: number; different: number; examples: string[] }
-export interface ConvertOptions { batch?: number; log?: (line: string) => void }
+interface ConvertOptions { batch?: number; log?: (line: string) => void }
 
 const exists = async (db: DrizzleDb, table: string) =>
   (await db.execute<{ found: boolean }>(sql`SELECT to_regclass(${`public.${table}`}) IS NOT NULL AS found`)).rows[0].found;

@@ -16,10 +16,10 @@ import { MIDS_TTL_MS } from '../config/constants/cache-ttls.js';
 import { SUBMITTING_RECOVERY_MS } from '../config/constants/timings.js';
 
 /** Orders the executor handles per pass. */
-export const EXECUTION_BATCH = 100;
+const EXECUTION_BATCH = 100;
 
 
-export interface ExecutionResult {
+interface ExecutionResult {
   filled: number;
   cancelled: number;
 }

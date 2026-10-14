@@ -19,7 +19,7 @@ import { digest, Fail, refuse, SetupPart, setupFundingKey, Wait, type SetupConte
  * challenge itself, for a start and again for an edit. Composed by
  * CopyLiveSetupService.
  */
-export interface SetupProvisioningDeps {
+interface SetupProvisioningDeps {
   readonly wallets: CopyWalletService; readonly agents: CopyAgentService; readonly funding: CopyFundingService; readonly fundingRows: CopyFundingRepository;
   readonly mandates: CopyLiveMandateRepository; readonly walletRows: CopyWalletRepository; readonly leaderActivity: Pick<LeaderActivityService, 'copyActivity'> | null;
 }

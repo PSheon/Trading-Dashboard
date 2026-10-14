@@ -35,7 +35,7 @@ import { FLAT_CARRY_RETRY_MS, LIVE_EVIDENCE_MAX_AGE_MS, REVOKE_DEADLINE_MS } fro
 // backs off). A tracked order's cancel after retry.cancelAttempts.
 const TERMINAL: ReadonlySet<string> = new Set(['filled', 'partial', 'cancelled', 'rejected']);
 /** Below this the account holds nothing worth a transfer back (USDC). */
-export const SWEEP_DUST_USD = '0.01';
+const SWEEP_DUST_USD = '0.01';
 export interface StopperDependencies {
   readonly repository: CopyLiveStopWorkerRepository;
   readonly closer: ReduceOnlyCloser;

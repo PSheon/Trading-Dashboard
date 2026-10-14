@@ -5,9 +5,9 @@ import { boundedLiveRead } from './live/live-market-resolver.js';
 import { settleListAnswer } from '../hyperliquid/hyperliquid-global-transport.js';
 import { RESERVE_BOUND_MS } from '../config/constants/timings.js';
 import { SOURCE_READ_WORST_WEIGHT } from '../config/constants/weights.js';
-export interface LiveSourceReadRequest { leaderAddress: string; from: number; to: number; maxRequests: number; maxDepth?: number; maxFills?: number; }
-export interface LiveSourceWindow { kind: 'fills' | 'twap'; from: number; to: number; depth: number; }
-export interface LiveSourceWindowObservation extends LiveSourceWindow { observedAt: number; completedAt: number; count: number; responseDigest: string; saturated: boolean;
+interface LiveSourceReadRequest { leaderAddress: string; from: number; to: number; maxRequests: number; maxDepth?: number; maxFills?: number; }
+interface LiveSourceWindow { kind: 'fills' | 'twap'; from: number; to: number; depth: number; }
+interface LiveSourceWindowObservation extends LiveSourceWindow { observedAt: number; completedAt: number; count: number; responseDigest: string; saturated: boolean;
   /** A single-millisecond window of 500+ rows that the source read whole
    * (the answer went on past it, under the 2,000-row cap): complete
    * although that many rows would otherwise count as saturated. Absent

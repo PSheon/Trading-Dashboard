@@ -9,7 +9,7 @@ export const AVATAR_MAX_BYTES = 512 * 1024;
  * changes whenever the bytes do). */
 export const AVATAR_MAX_AGE_S = 30 * 24 * 3_600;
 
-export type AvatarImageType = "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+type AvatarImageType = "image/png" | "image/jpeg" | "image/gif" | "image/webp";
 
 /** Hosts whose images are never fetched: CopyDog's own CDN and API (Paul's
  * rule: never take another site's copies). */

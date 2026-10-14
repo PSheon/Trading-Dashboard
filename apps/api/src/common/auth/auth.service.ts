@@ -52,7 +52,7 @@ interface CacheEntry {
 }
 
 
-export type SignInResult =
+type SignInResult =
   | { status: "ok"; user: UserRow }
   | { status: "disabled"; userId: number }
   | { status: "signups_closed" };

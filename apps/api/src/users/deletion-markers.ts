@@ -36,7 +36,7 @@ function derivedKey(config?: AppConfig): Buffer {
 }
 const ownKey = (secret: string) => createHash("sha256").update(`orbie:account-deletion-marker:v2:${secret}`).digest();
 /** The key new markers are made with, then every key an existing marker may have been made with. */
-export function markerKeys(config?: AppConfig): Buffer[] {
+function markerKeys(config?: AppConfig): Buffer[] {
   const marker = config?.value.auth.deletionMarker;
   const keys = marker?.key ? [ownKey(marker.key), ...(marker.previousKeys ?? []).map(ownKey), derivedKey(config)] : [derivedKey(config)];
   return keys.filter((key, index) => keys.findIndex((other) => other.equals(key)) === index);
@@ -51,7 +51,7 @@ function digestsUnder(key: Buffer, identity: DeletedIdentity): string[] {
 }
 
 /** The digests of every identifier the identity has (deduplicated), under the current key. */
-export function identityDigests(identity: DeletedIdentity, config?: AppConfig): string[] {
+function identityDigests(identity: DeletedIdentity, config?: AppConfig): string[] {
   return digestsUnder(markerKeys(config)[0]!, identity);
 }
 

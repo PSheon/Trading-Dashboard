@@ -14,18 +14,18 @@ const GB = 1_000_000_000;
 const INSERT_BATCH = 2_000;
 /** An address above this many fills in one hourly object is named in the
  * log (it is kept all the same): the accounts that fill the table. */
-export const HEAVY_ADDRESS_HOUR = 20_000;
+const HEAVY_ADDRESS_HOUR = 20_000;
 
-export type ObjectOutcome = "ingested" | "missing" | "over_budget" | "lost" | "idle";
+type ObjectOutcome = "ingested" | "missing" | "over_budget" | "lost" | "idle";
 
 /** A store to read in place of the configured one (tests construct the
  * service with it; no module provides it, so Nest builds the store from the
  * config). A token, because the `ArchiveStore` interface's
  * design:paramtypes is `Object` (test/injection-metadata.spec.ts). */
-export const ARCHIVE_STORE = Symbol("ARCHIVE_STORE");
+const ARCHIVE_STORE = Symbol("ARCHIVE_STORE");
 
 /** Builds the configured store; `undefined` when the ingest is off. */
-export function archiveStoreFrom(config: AppConfig): ArchiveStore | undefined {
+function archiveStoreFrom(config: AppConfig): ArchiveStore | undefined {
   const { enabled, localDir, credentials, bucket, region } = config.value.archive;
   if (!enabled) return undefined;
   if (localDir) return new LocalArchiveStore(localDir);

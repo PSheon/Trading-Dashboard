@@ -21,7 +21,7 @@ const lower = (v: unknown): string | null => (typeof v === "string" && v.length 
 
 // --- 訂單 ---------------------------------------------------------------------
 
-export function toTraderOrder(o: HlFrontendOpenOrder): TraderOrder {
+function toTraderOrder(o: HlFrontendOpenOrder): TraderOrder {
   const triggerPx = numOrNull(o.triggerPx);
   return {
     oid: String(o.oid),

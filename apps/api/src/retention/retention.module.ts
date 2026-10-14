@@ -7,7 +7,7 @@ import { safeErrorText } from "../runtime/safe-error-text.js";
 
 /** The retention capability (repository and service); schedules nothing. */
 @Module({ providers: [RetentionRepository, RetentionService], exports: [RetentionService, RetentionRepository] })
-export class RetentionModule {}
+class RetentionModule {}
 
 @Injectable()
 class RetentionWorker {

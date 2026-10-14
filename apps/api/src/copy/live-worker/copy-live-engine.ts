@@ -24,13 +24,13 @@ import { LiveRiskBusyError, liveRiskBusyDetail } from '../live/postgres-live-ris
 import { liveDeploymentPolicy } from '../live-deployment.js';
 
 /** One source read's result, for the logs. */
-export interface IngestOutcome { fast: boolean; fills: number; kind: string; state: string; through: number | null }
+interface IngestOutcome { fast: boolean; fills: number; kind: string; state: string; through: number | null }
 /** A kick's signal half, timed (trade → read → ingested → enqueued). */
-export interface SignalTiming {
+interface SignalTiming {
   started: number; read: { asked: number; sentAt: number; answeredAt: number } | null;
   ingest: IngestOutcome | null; ingestedAt: number; enqueuedAt: number;
 }
-export interface LiveExecutor { execute(request: LiveExecutionRequest): Promise<LiveExecutionRecord> }
+interface LiveExecutor { execute(request: LiveExecutionRequest): Promise<LiveExecutionRecord> }
 export interface LiveEngineDependencies {
   /** The deployment's network (HYPERLIQUID_NETWORK): every order's identity
    * (`<network>:<account>:<cloid>`) is on it. */
@@ -70,7 +70,7 @@ export interface LiveEngineDependencies {
     readonly feedUp?: () => boolean;
   };
 }
-export interface LiveEngineOptions {
+interface LiveEngineOptions {
   /** Testnet-leader REST polls are costly (two worst-case 120-weight reads):
    * at most one per stream this often (COPY_LIVE_TESTNET_SOURCE_INTERVAL_MS;
    * 3000 for the testnet harness). Mainnet leaders cost nothing extra. */
@@ -94,7 +94,7 @@ export const DEFAULT_ENGINE_OPTIONS: LiveEngineOptions = { testnetSourceInterval
 /** A HIP-3 (builder-deployed dex) market: its fee scope cannot be proven
  * (live-risk-provider), so its legs are refused when they are enqueued,
  * before any evidence read spends weight. */
-export const HIP3_REFUSAL = 'live_market_hip3_unsupported';
+const HIP3_REFUSAL = 'live_market_hip3_unsupported';
 const isHip3 = (coin: string) => coin.includes(':');
 /** Refusals that no retry can change. Everything else is retried until the
  * leader fill is older than the policy's signal age. The account's leverage

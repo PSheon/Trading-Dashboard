@@ -13,9 +13,9 @@ import { DAY_MS } from "../config/constants/time.js";
 import { CLOSED_WS_LEASE_RETENTION_MS, RETENTION_MIN_INTERVAL_MS } from '../config/constants/background.js';
 
 /** Off-peak: 18:00–22:00 UTC is 02:00–06:00 in Taipei, where most users are. */
-export const RETENTION_WINDOW_UTC = { fromHour: 18, toHour: 22 } as const;
+const RETENTION_WINDOW_UTC = { fromHour: 18, toHour: 22 } as const;
 
-export interface RetentionLimits {
+interface RetentionLimits {
   /** Rows per DELETE statement. */
   batchSize: number;
   /** DELETE statements per table per run; the rest waits for the next run. */
@@ -27,9 +27,9 @@ export interface RetentionLimits {
   /** The lease lasts this long past the last statement. */
   leaseMs: number;
 }
-export const RETENTION_LIMITS: RetentionLimits = { batchSize: 2_000, maxBatchesPerTable: 250, pauseMs: 200, maxRunMs: 20 * 60_000, leaseMs: 5 * 60_000 };
+const RETENTION_LIMITS: RetentionLimits = { batchSize: 2_000, maxBatchesPerTable: 250, pauseMs: 200, maxRunMs: 20 * 60_000, leaseMs: 5 * 60_000 };
 
-export type RetentionRun =
+type RetentionRun =
   | { ran: false; reason: "disabled" | "outside_window" | "recent" | "leased" | "stopping" }
   | ({ ran: true } & RetentionOutcome);
 

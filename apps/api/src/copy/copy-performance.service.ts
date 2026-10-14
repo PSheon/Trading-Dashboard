@@ -15,7 +15,7 @@ import { CopyRepository } from "./copy.repository.js";
 import { ACTUAL_FRESH_MS, COPY_SNAPSHOT_INTERVAL_MS, FRESH_MS, MIDS_TTL_MS } from '../config/constants/cache-ttls.js';
 
 /** The portfolio chart's resolution: about this many intervals per window. */
-export const PORTFOLIO_POINTS = 120;
+const PORTFOLIO_POINTS = 120;
 export const SPARKLINE_POINTS = 48;
 const WINDOW_MS: Record<Exclude<CopyPerformanceWindow, "all">, number> = { "1d": 86_400_000, "7d": 7 * 86_400_000, "30d": 30 * 86_400_000 };
 
@@ -30,7 +30,7 @@ type ActualTransfer = { direction: "to_account" | "to_main"; status: string; amo
  * sent by `at` (never attempted, cancelled, rejected, or attempted later)
  * have not moved money the observation could show.
  */
-export function actualNetDeposits(transfers: readonly ActualTransfer[], at: number): Dec | null {
+function actualNetDeposits(transfers: readonly ActualTransfer[], at: number): Dec | null {
   let net = Dec.from(0);
   for (const t of transfers) {
     if (t.status === "cancelled" || t.status === "rejected" || !t.attemptedAt || t.attemptedAt.getTime() > at || t.createdAt.getTime() > at) continue;

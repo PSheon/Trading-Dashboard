@@ -29,7 +29,7 @@ const ACTIVE_VOLUME_COLUMNS = {
 } as const;
 
 /** The WHERE condition for an activity filter; none for "any". */
-export function activeCondition(active: ActiveWithin): SQL | undefined {
+function activeCondition(active: ActiveWithin): SQL | undefined {
   return active === "any" ? undefined : gt(ACTIVE_VOLUME_COLUMNS[active], "0");
 }
 

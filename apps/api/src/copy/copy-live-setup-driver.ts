@@ -35,12 +35,12 @@ function identityTiming(error: unknown): { elapsedMs?: number; spans?: unknown }
 }
 
 
-export interface SetupDriverDeps {
+interface SetupDriverDeps {
   readonly steps: SetupSteps; readonly provisioning: SetupProvisioning; readonly agents: CopyAgentService; readonly aborts: CopyLiveSetupAbortService | null;
   readonly capacity: SetupRestCapacity | null; readonly workerSigner: WorkerMasterSigner | null; readonly walletRows: CopyWalletRepository;
 }
 /** The service's own public methods the pass goes through. */
-export interface SetupDriverHooks { drive(id: string, signer: SetupSigner | null): Promise<SetupRow> }
+interface SetupDriverHooks { drive(id: string, signer: SetupSigner | null): Promise<SetupRow> }
 
 export class SetupDriver extends SetupPart {
   private readonly steps: SetupSteps; private readonly provisioning: SetupProvisioning; private readonly agents: CopyAgentService; private readonly aborts: CopyLiveSetupAbortService | null;

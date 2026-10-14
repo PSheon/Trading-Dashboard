@@ -23,12 +23,12 @@ import { LINK_RATE_LIMIT, LINK_RATE_WINDOW_MS } from '../config/constants/limits
 
 
 /** Only this is stored; the token itself exists in the t.me link alone. */
-export function hashLinkToken(token: string): string {
+function hashLinkToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
 /** What `/start <token>` shows before anything is linked. */
-export type StartPreview =
+type StartPreview =
   | { kind: "confirm"; account: string; moved: boolean }
   | { kind: "already_linked" }
   | { kind: "invalid" };
@@ -38,7 +38,7 @@ export type StartPreview =
  * whoever else sees the prompt: `p***@gmail.com`, `0x12…abcd`, or its
  * number when it has neither.
  */
-export function maskAccount(userId: number, account: { email: string | null; walletAddress: string | null } | undefined): string {
+function maskAccount(userId: number, account: { email: string | null; walletAddress: string | null } | undefined): string {
   const email = account?.email;
   const at = email?.lastIndexOf("@") ?? -1;
   if (email && at > 0) return `${email[0]}***${email.slice(at)}`;
@@ -48,7 +48,7 @@ export function maskAccount(userId: number, account: { email: string | null; wal
 }
 
 /** What confirming `/start <token>` amounted to. */
-export type StartResult =
+type StartResult =
   | { kind: "linked"; userId: number; moved: boolean }
   | { kind: "already_linked" }
   | { kind: "invalid" };

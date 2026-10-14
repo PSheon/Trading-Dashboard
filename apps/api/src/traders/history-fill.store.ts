@@ -10,9 +10,9 @@ import type { HlUserFill } from "../hyperliquid/types.js";
 export type FillSource = "regular" | "twap";
 export type FillOrigin = "rest" | "s3";
 /** The pool or a transaction of it. */
-export type FillExecutor = Pick<DrizzleDb, "select" | "insert" | "delete" | "execute">;
+type FillExecutor = Pick<DrizzleDb, "select" | "insert" | "delete" | "execute">;
 
-export interface NewHistoryFill {
+interface NewHistoryFill {
   address: string;
   source: FillSource;
   origin: FillOrigin;
@@ -27,7 +27,7 @@ export interface StoredHistoryFill {
  * stream only. `newest`: at most this many rows, the latest ones (still
  * returned oldest first), so a read of a very active address is bounded. */
 /** `newest`: the newest that many rows; `oldest`: the oldest that many (both returned oldest first). */
-export interface FillRange { from?: Date; before?: Date; through?: Date; source?: FillSource; newest?: number; oldest?: number }
+interface FillRange { from?: Date; before?: Date; through?: Date; source?: FillSource; newest?: number; oldest?: number }
 
 /** Rows per INSERT: 27 parameters each, far below the protocol's 65,535. */
 const INSERT_BATCH = 500;

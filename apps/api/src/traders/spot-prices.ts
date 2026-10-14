@@ -8,7 +8,7 @@ import type {
 } from "../hyperliquid/types.js";
 
 /** USDC, the quote of almost every spot pair. */
-export const USDC_TOKEN = 0;
+const USDC_TOKEN = 0;
 
 const num = (v: unknown): number => {
   const n = Number(v);
@@ -19,7 +19,7 @@ const positive = (v: unknown): number | null => {
   return Number.isFinite(n) && n > 0 ? n : null;
 };
 
-export interface TokenPrice {
+interface TokenPrice {
   /** USD per unit. */
   px: number;
   /** The `allMids` key that moves with it, when that key is quoted in USDC

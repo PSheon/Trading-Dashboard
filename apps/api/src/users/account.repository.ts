@@ -15,7 +15,7 @@ import { deletedBeforeUser, KEPT_STRATEGY, repointStatements, type UserReference
 
 /** What an account holds at deletion time: counts only, for the audit
  * record (no email, Privy id, addresses or chat ids). */
-export interface AccountFootprint {
+interface AccountFootprint {
   role: string;
   favorites: number;
   alerts: number;
@@ -27,20 +27,20 @@ export interface AccountFootprint {
  * What stops a deletion: only state still in flight (docs/account-deletion.md).
  * In the order the dialog shows them; history never blocks.
  */
-export const DELETION_BLOCKERS = [
+const DELETION_BLOCKERS = [
   "copies_active", "stop_in_progress", "setup_in_progress", "transfer_pending", "execution_pending",
   "copy_account_not_empty", "withdrawal_pending", "referral_claim_pending",
 ] as const;
-export type DeletionBlockerCode = (typeof DELETION_BLOCKERS)[number];
+type DeletionBlockerCode = (typeof DELETION_BLOCKERS)[number];
 export interface DeletionBlocker { code: DeletionBlockerCode; strategyIds: number[] }
 
 /** What was prepared but never sent, cancelled by the deletion itself. */
-export interface UnsentCancelled { setups: number; transfers: number; withdrawals: number; copies: number; mandates: number }
+interface UnsentCancelled { setups: number; transfers: number; withdrawals: number; copies: number; mandates: number }
 
 /** A copy account the exchange is asked about, and one whose wallet still
  * carries the worker as a signer. */
 export interface ClosureAccount { id: string; strategyId: number; network: "testnet" | "mainnet"; address: string }
-export interface ClosureSigner { id: string; walletId: string }
+interface ClosureSigner { id: string; walletId: string }
 
 const ids = (rows: Array<{ strategy_id: number | null }>) => [...new Set(rows.flatMap((r) => r.strategy_id === null ? [] : [Number(r.strategy_id)]))].sort((a, b) => a - b);
 

@@ -29,7 +29,7 @@ const MAX_POINTS = 400;
 const COHORT_RANK = ESSENTIAL_RANK.cohort;
 
 /** One refresh's cost, kept for the docs and the admin view. */
-export interface CohortRefreshLog {
+interface CohortRefreshLog {
   address: string;
   tier: string;
   weight: number;

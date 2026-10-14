@@ -46,7 +46,7 @@ export class AddCopyFundsDto {
   @IsNumber({ maxDecimalPlaces: 6 }) @Min(0.000001) declare amountUsd: number;
 }
 
-export const COPY_STRATEGY_COMMANDS = ["pause", "resume", "reduce_only", "cancel_pending", "close_positions", "stop"] as const;
+const COPY_STRATEGY_COMMANDS = ["pause", "resume", "reduce_only", "cancel_pending", "close_positions", "stop"] as const;
 export class CopyStrategyCommandDto {
   @ApiPropertyOptional({ type: String, minLength: 16, maxLength: 128 })
   @Optional() @Matches(/^[A-Za-z0-9_-]{16,128}$/) declare idempotencyKey?: string;

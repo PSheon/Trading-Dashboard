@@ -17,7 +17,7 @@ import { deploymentNetwork } from "../copy/live-deployment.js";
 import { copySourceEligibility } from "./copy-source-eligibility.js";
 
 export type { ActionRow } from "./action-store.js";
-export type FillCoverageRow = typeof fillCoverage.$inferSelect;
+type FillCoverageRow = typeof fillCoverage.$inferSelect;
 const covered = (address: string) => and(eq(fillCoverage.chain, CHAIN_DEFAULT), eq(fillCoverage.address, address));
 
 /** Raw fills may commit before derivation; replay under the shared action lock repairs gaps. */

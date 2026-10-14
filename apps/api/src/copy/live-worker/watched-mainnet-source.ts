@@ -8,7 +8,7 @@ import { address, LiveBoundaryError } from '../live/wallet-authorization.js';
 import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
 
 /** Rows per window; a fuller window stops one millisecond before its last row. */
-export const WATCHED_WINDOW_ROWS = 400;
+const WATCHED_WINDOW_ROWS = 400;
 /** Rows one window's observation may hold (the source evidence contract). */
 const MILLISECOND_ROWS = 2000;
 const ZERO_HASH = /^0x0{64}$/;

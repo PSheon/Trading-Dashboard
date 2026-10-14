@@ -24,11 +24,11 @@ import { DiscoveryRepository } from "./discovery.repository.js";
 import { BOARDS_TTL_MS, SEARCH_TTL_MS } from '../config/constants/cache-ttls.js';
 
 /** Addresses per GET /discover/cards. */
-export const CARDS_MAX = 200;
+const CARDS_MAX = 200;
 /** Cards per home row (CopyDog scrolls 7 on desktop, more on swipe). */
-export const HOME_ROW_SIZE = 12;
+const HOME_ROW_SIZE = 12;
 /** Matches read per source (KOL registry, leaderboard) before ranking. */
-export const SEARCH_PER_SOURCE = 25;
+const SEARCH_PER_SOURCE = 25;
 
 interface Snapshot {
   candidates: Candidate[];
@@ -238,7 +238,7 @@ export class DiscoveryService {
 }
 
 /** Trending tiles shown per kind after CopyDog's fixed ones. */
-export const TRENDING_TILES = 2;
+const TRENDING_TILES = 2;
 
 /**
  * 依市場瀏覽's trending tiles, as CopyDog's `leaderboard/trending-coins` picks

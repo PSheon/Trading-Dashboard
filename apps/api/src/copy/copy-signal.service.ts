@@ -16,7 +16,7 @@ import { MAX_SIGNAL_ATTEMPTS } from '../config/constants/limits.js';
 /** Outbox rows per consumer pass. */
 export const SIGNAL_BATCH = 200;
 
-export interface DrainResult {
+interface DrainResult {
   /** Outbox rows finished this pass. */
   processed: number;
   orders: number;

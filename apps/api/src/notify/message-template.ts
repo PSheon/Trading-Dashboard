@@ -30,7 +30,7 @@ export function shortAddress(address: string): string {
 }
 
 /** "開多", "Close short", "翻倉 空→多"… in the recipient's language. */
-export function actionLabel(action: Pick<ActionRow, "kind" | "side">, locale: Locale): string {
+function actionLabel(action: Pick<ActionRow, "kind" | "side">, locale: Locale): string {
   const long = action.side === "long";
   const a = telegramMessages(locale).action;
   switch (action.kind) {

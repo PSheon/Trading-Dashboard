@@ -12,7 +12,7 @@ import { AVATAR_ERROR_RETRY_MS, AVATAR_MAX_PAUSE_MS, AVATAR_MIN_PAUSE_MS, AVATAR
 /** Where an 𝕏 profile picture comes from. unavatar.io is the primary; its
  * anonymous quota is 25 a day per IP, so once it answers 429 the job asks
  * fxtwitter's public profile API for the pbs.twimg.com picture instead. */
-export type AvatarProvider = "unavatar" | "fxtwitter";
+type AvatarProvider = "unavatar" | "fxtwitter";
 
 /** One attempt's outcome. */
 type Fetched =

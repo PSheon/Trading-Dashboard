@@ -9,7 +9,7 @@ import { evaluateRisk, symbolRefusal } from "./copy-risk.js";
 import { CopyRepository, type ControlRow, type OrderRow, type PositionRow, type StrategyRow } from "./copy.repository.js";
 import { minOrderNotional } from "./min-order-notional.js";
 
-export interface PolicyInForce {
+interface PolicyInForce {
   version: number;
   limits: CopyRiskLimits;
   /** The stored policy is unreadable: new risk is refused. */
@@ -22,7 +22,7 @@ export interface Controls {
 }
 
 /** Everything one order decision needs, gathered by the caller inside its transaction. */
-export interface PlaceOrder {
+interface PlaceOrder {
   strategy: StrategyRow;
   settings: CopyStrategySettings;
   policy: PolicyInForce;

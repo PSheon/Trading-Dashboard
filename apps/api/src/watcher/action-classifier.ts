@@ -58,7 +58,7 @@ export function signedSize(fill: Pick<HlUserFill, "side" | "sz">): bigint {
 const sign = (v: bigint): -1 | 0 | 1 => (v > 0n ? 1 : v < 0n ? -1 : 0);
 const abs = (v: bigint): bigint => (v < 0n ? -v : v);
 
-export function kindFor(before: bigint, after: bigint): { kind: ActionKind; side: Side } | null {
+function kindFor(before: bigint, after: bigint): { kind: ActionKind; side: Side } | null {
   const b = sign(before);
   const a = sign(after);
   if (b === 0 && a === 0) return null;

@@ -65,8 +65,8 @@ const LANE = "background" as const;
 /** … at most this many rows, the newest … */
 export const TRANSFERS_MAX_ROWS = 500;
 /** … in at most this many calls. */
-export const TRANSFERS_MAX_PAGES = 3;
-export const SPARKLINE_MAX_POINTS = 40;
+const TRANSFERS_MAX_PAGES = 3;
+const SPARKLINE_MAX_POINTS = 40;
 /** Entry caps for the caches holding whole Hyperliquid payloads. A fill or
  * TWAP-slice list is up to 2 000 fills and a portfolio carries every
  * window's history, so 5 000 of them (TtlCache's default) is gigabytes;
@@ -80,7 +80,7 @@ type SeriesPoint = [number, number];
 
 /** Stored sparkline values as a series ending at `endMs`, spread evenly
  * over `spanMs`, at most `SPARKLINE_MAX_POINTS`. */
-export function poolSeries(values: number[], endMs: number, spanMs: number): SeriesPoint[] {
+function poolSeries(values: number[], endMs: number, spanMs: number): SeriesPoint[] {
   if (values.length === 1) return [[endMs, values[0]]];
   const step = spanMs / (values.length - 1);
   return downsample(values.map((v, i): SeriesPoint => [Math.round(endMs - spanMs + i * step), v]), SPARKLINE_MAX_POINTS);

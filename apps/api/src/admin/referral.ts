@@ -2,7 +2,7 @@ import type { HlReferralResponse, HlReferralState } from "../hyperliquid/types.j
 import { fromUnits, maxUnits, toUnits } from "./decimal.js";
 
 /** The `revenue_snapshots` columns derived from one `referral` response. */
-export interface ReferralSnapshotValues {
+interface ReferralSnapshotValues {
   builderRewards: string;
   referralRewards: string;
   claimedRewards: string;

@@ -26,7 +26,7 @@ import type { DrizzleDb } from "../../db/drizzle.provider.js";
 import { LEADER_ALERTS_HISTORY_LIMIT, LEADER_FILLS_HISTORY_LIMIT } from '../../config/constants/limits.js';
 
 /** The public projection of a leader (`publicLeaderSchema`). */
-export const PUBLIC_LEADER_COLUMNS = {
+const PUBLIC_LEADER_COLUMNS = {
   chain: leaders.chain,
   address: leaders.address,
   label: leaders.label,

@@ -14,7 +14,7 @@ import { safeErrorText } from "../runtime/safe-error-text.js";
 
 /** `dir` of a fill built from the feed (the feed has none; only spot dirs
  * mean anything to the classifier). */
-export const FEED_FILL_DIR = "feed";
+const FEED_FILL_DIR = "feed";
 
 /**
  * The fast path (Stage 2 §5): actions straight from the `trades` feed.

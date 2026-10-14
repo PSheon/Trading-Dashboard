@@ -22,7 +22,7 @@ export interface CohortCandidate {
 }
 
 /** A member's identity for the wallet table. */
-export interface CohortIdentityRow {
+interface CohortIdentityRow {
   address: string;
   kolName: string | null;
   kolVerified: boolean | null;

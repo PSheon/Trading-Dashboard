@@ -12,8 +12,8 @@ import { ProfileService } from "./profile.service.js";
 
 
 /** The header, and its only accepted value, that confirm DELETE /me. */
-export const ACCOUNT_DELETION_HEADER = "x-confirm-delete";
-export const ACCOUNT_DELETION_CONFIRMATION = "delete-account";
+const ACCOUNT_DELETION_HEADER = "x-confirm-delete";
+const ACCOUNT_DELETION_CONFIRMATION = "delete-account";
 
 /** The signed-in user's own data. Not @Public: the guard returns 401
  * without a valid token; the service token gets 403 (it has no profile).

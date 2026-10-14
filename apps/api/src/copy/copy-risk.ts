@@ -54,7 +54,7 @@ export interface RiskInput {
   };
 }
 
-export type RiskDecision =
+type RiskDecision =
   | { ok: true; notional: Dec; margin: Dec; leverage: number; notes: string[] }
   | { ok: false; reason: string };
 

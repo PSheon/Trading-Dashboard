@@ -5,7 +5,7 @@
  * connect, timeout) without one answering in between. Each deposit keeps
  * its own durable record too (scan_state.explorerFailingSince).
  */
-export class ExplorerHealth {
+class ExplorerHealth {
   private failingSince: number | null = null;
   /** A read answered. */
   reachable(): void { this.failingSince = null; }

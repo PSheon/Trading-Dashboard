@@ -12,7 +12,7 @@ import { HOUR_MS } from '../config/constants/time.js';
 export type ArchiveState = typeof archiveIngestState.$inferSelect;
 export type IngestDirection = "live" | "backfill";
 
-export interface ObjectCommit {
+interface ObjectCommit {
   direction: IngestDirection;
   /** Start of the hour the object holds (epoch ms). */
   hour: number;
@@ -40,7 +40,7 @@ const mine = eq(archiveIngestState.chain, CHAIN_DEFAULT);
  * registry, user favorites, insight cohort members, watched leaders and
  * the leaders of copy strategies that are not stopped.
  */
-export const TRACKED_SET_SQL = sql`
+const TRACKED_SET_SQL = sql`
   SELECT address FROM discovery_traders WHERE chain = ${CHAIN_DEFAULT} AND in_pool
   UNION SELECT address FROM kol_traders WHERE chain = ${CHAIN_DEFAULT}
   UNION SELECT address FROM user_favorites WHERE chain = ${CHAIN_DEFAULT}

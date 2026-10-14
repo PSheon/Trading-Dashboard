@@ -44,7 +44,7 @@ function consent(row: AgentSetupRow): AgentConsentIntent {
 /** Who authorises one agent approval: a one-click setup whose consent
  * (verified at its confirm) bound this agent and expiry, signed by the worker
  * under the owner's policy (the only signing model, 2026-10-07). */
-export type AgentApprovalAuthority =
+type AgentApprovalAuthority =
   { readonly kind: "setup"; readonly consentDigest: string; sign(account: { walletId: string; address: string; ownerQuorumId: string }, intent: AgentConsentIntent, assertFresh: () => void): Promise<string> };
 
 /** Separate explicit setup. An active grant alone never starts a strategy or

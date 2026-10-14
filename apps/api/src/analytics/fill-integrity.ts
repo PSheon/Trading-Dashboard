@@ -14,7 +14,7 @@ import { applyFills, isPartial, type ApplyResult, type Trade } from "./trade-rec
 /** Hyperliquid's documented REST retention ("only the 10000 most recent
  * fills are available"). An account holding fewer than this in a stream
  * cannot have been cut by it. */
-export const UPSTREAM_RETENTION_FILLS = 10_000;
+const UPSTREAM_RETENTION_FILLS = 10_000;
 
 /** tids present more than once (after the caller's own deduplication this
  * must be empty; a self-trade is the one legitimate source of a repeat). */
@@ -25,7 +25,7 @@ export function duplicateTids(fills: HlUserFill[]): number[] {
   return [...repeated];
 }
 
-export interface PositionBreak {
+interface PositionBreak {
   coin: string;
   /** The fill whose `startPosition` does not continue the previous fill. */
   tid: number;
@@ -118,7 +118,7 @@ export function lifetimeComplete(fills: HlUserFill[], result: Pick<ApplyResult, 
   return positionBreaks(fills).length === 0;
 }
 
-export interface FillTotals {
+interface FillTotals {
   count: number;
   /** Σ px × sz. */
   volume: number;
@@ -126,7 +126,7 @@ export interface FillTotals {
   fees: number;
 }
 
-export interface FillMismatch {
+interface FillMismatch {
   tid: number;
   field: string;
   left: string;
@@ -160,7 +160,7 @@ const canonical = (value: unknown): string => {
   return normal === "-0" ? "0" : normal;
 };
 
-export function fillTotals(fills: HlUserFill[]): FillTotals {
+function fillTotals(fills: HlUserFill[]): FillTotals {
   return fills.reduce<FillTotals>((totals, fill) => ({
     count: totals.count + 1,
     volume: totals.volume + Number(fill.px) * Number(fill.sz),

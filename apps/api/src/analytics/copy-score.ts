@@ -4,7 +4,7 @@
  * (empirical midranks) and tie conventions are local inference. This never
  * claims Copydog's hidden formula or its full indexed population.
  */
-export interface CopyScoreInputs {
+interface CopyScoreInputs {
   roi: number | null;
   pnl: number | null;
   sharpe: number | null;
@@ -12,7 +12,7 @@ export interface CopyScoreInputs {
   spanDays: number | null;
 }
 
-export const COPY_SCORE_MAX = 98;
+const COPY_SCORE_MAX = 98;
 
 /** Zero-based average ordinal ranks: tied values receive equal ranks. */
 function midranks(values: number[]): number[] {

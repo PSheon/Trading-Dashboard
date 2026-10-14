@@ -13,20 +13,20 @@ import { CLOSE_ALL_RESUME_AFTER_MS } from '../config/constants/timings.js';
 
 /** A running actual copy that a system stop can end: its account, owner and
  * the account's newest activated generation that has not stopped. */
-export interface RunningCopy { readonly userId: number; readonly strategyId: number; readonly accountId: string; readonly mandateId: string; readonly mandateRevision: number }
+interface RunningCopy { readonly userId: number; readonly strategyId: number; readonly accountId: string; readonly mandateId: string; readonly mandateRevision: number }
 /** An account the system could not stop, and why (never counted as handled). */
 export interface Unhandled { readonly accountId: string; readonly code: string }
 export interface SystemStopOutcome { readonly stopped: Array<{ accountId: string; stopId: string }>; readonly refused: Unhandled[] }
 /** Every not-stopped actual copy in scope, sorted into: stoppable now, already
  * stopping (an open stop the worker works), and unhandled (a blocked stop, no
  * activated generation, or execution disabled on this deployment). */
-export interface CloseAllTargets { readonly copies: RunningCopy[]; readonly stopping: Array<{ accountId: string; stopId: string }>; readonly unhandled: Unhandled[] }
+interface CloseAllTargets { readonly copies: RunningCopy[]; readonly stopping: Array<{ accountId: string; stopId: string }>; readonly unhandled: Unhandled[] }
 /** What a close-all did for actual copies; `complete` only when nothing was left unhandled. */
-export interface CloseAllOutcome {
+interface CloseAllOutcome {
   readonly liveCloseAll: 'done'; readonly liveStops: number; readonly liveStopping: number; readonly liveUnhandled: Unhandled[]; readonly complete: boolean;
 }
 /** Why the system stops a copy; part of the stop's idempotency key and audit. */
-export type SystemStopReason = 'admin_close_all' | 'agent_expiring' | 'follower_liquidated' | 'owner_disabled';
+type SystemStopReason = 'admin_close_all' | 'agent_expiring' | 'follower_liquidated' | 'owner_disabled';
 const KEY_PREFIX: Record<SystemStopReason, string> = { admin_close_all: 'admin-close-all', agent_expiring: 'agent-expiry', follower_liquidated: 'liquidated', owner_disabled: 'owner-disabled' };
 /** Unhandled reasons that leave nothing running: no generation ever traded, or no worker trades on this deployment. */
 const NOTHING_RUNNING = new Set(['no_activated_generation', 'live_execution_disabled']);

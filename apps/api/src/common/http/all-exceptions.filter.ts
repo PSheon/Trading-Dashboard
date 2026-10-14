@@ -10,7 +10,7 @@ const codes: Record<number, string> = { 400: "bad_request", 401: "unauthorized",
  * own complaint. Never the thrown message of a query error, which carries
  * the SQL and its bind values.
  */
-export function describeError(error: unknown): Record<string, unknown> {
+function describeError(error: unknown): Record<string, unknown> {
   if (!(error instanceof Error)) return { thrown: typeof error };
   const cause = error.cause instanceof Error ? error.cause : undefined;
   const pg = (cause ?? error) as { code?: unknown };

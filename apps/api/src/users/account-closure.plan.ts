@@ -14,7 +14,7 @@ import { sql, type SQL } from "drizzle-orm";
  *   valid without identifying the person, and is purged with that tombstone
  *   after RETENTION_ACCOUNT_DELETION_DAYS ({@link purgeStatements}).
  */
-export type UserReferenceHandling = "cascade" | "set_null" | "tombstone";
+type UserReferenceHandling = "cascade" | "set_null" | "tombstone";
 
 export const USER_REFERENCES = {
   // Personal data: deleted with the account.
@@ -109,7 +109,7 @@ export const KEPT_STRATEGY = sql.join([sql.raw(`(s.mode <> 'paper'`),
   ...STRATEGY_RECORD_TABLES.map((table) => sql.raw(` or exists (select 1 from ${table} r where r.strategy_id = s.id)`)), sql.raw(")")], sql``);
 
 /** A referral code an invite was made with (`c` is referral_codes). */
-export const KEPT_REFERRAL_CODE = sql`exists (select 1 from referral_attributions a where a.code_id = c.id)`;
+const KEPT_REFERRAL_CODE = sql`exists (select 1 from referral_attributions a where a.code_id = c.id)`;
 
 function split(reference: string): [string, string] {
   const [table, column] = reference.split(".");

@@ -45,7 +45,7 @@ const option = (name: string) => {
 };
 const list = (name: string) => option(name)?.split(",").map((value) => value.trim().toLowerCase()).filter(Boolean);
 
-export const MAX_REPAIR_WEIGHT_PER_MIN = 150;
+const MAX_REPAIR_WEIGHT_PER_MIN = 150;
 /** The budgeter's bucket, and the room left under the limit for a full
  * page: a list call is admitted before its size is known and may take the
  * bucket 100 below zero, so the refill rate is set 50 under the limit.
@@ -54,7 +54,7 @@ export const MAX_REPAIR_WEIGHT_PER_MIN = 150;
 const BURST = 20;
 const HEADROOM = 50;
 
-export interface RepairOptions {
+interface RepairOptions {
   addresses?: string[];
   weightPerMin: number;
   maxWindows: number;
@@ -67,7 +67,7 @@ export interface RepairOptions {
 
 interface Span { from: string | null; through: string | null; status: string | null; fills: number; breaks: number }
 
-export async function repairFills(options: RepairOptions) {
+async function repairFills(options: RepairOptions) {
   const log = options.log ?? ((line: string) => console.log(line));
   const weight = Math.min(MAX_REPAIR_WEIGHT_PER_MIN, Math.max(HEADROOM + 10, options.weightPerMin));
   // The api's modules as an application context: no routes, and no watcher,

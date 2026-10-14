@@ -18,8 +18,8 @@ export interface PendingLeg {
   /** A previous attempt of exactly these legs was below the minimum order. */
   readonly belowMinimum: boolean;
 }
-export interface AdjustmentRun { readonly legs: readonly PendingLeg[]; readonly lastOfCoin: boolean }
-export interface AdjustmentPlan {
+interface AdjustmentRun { readonly legs: readonly PendingLeg[]; readonly lastOfCoin: boolean }
+interface AdjustmentPlan {
   /** Runs of two or more legs that become one order each; the lead (whose
    * order it is) is the run's newest leg, so its signal is the freshest. */
   readonly merges: readonly AdjustmentRun[];

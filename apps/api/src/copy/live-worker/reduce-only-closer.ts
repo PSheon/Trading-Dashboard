@@ -55,7 +55,7 @@ export const CLOSE_NEVER_SENT = 'close_never_sent';
 export const closeCloid = (seed: string): `0x${string}` => `0x${createHash('sha256').update(JSON.stringify(['live-close-v1', seed])).digest('hex').slice(0, 32)}`;
 /** The widest a retried close's limit may stray from the mid (5 %), unless
  * the configured close slippage is already wider. */
-export const MAX_CLOSE_SLIPPAGE_BPS = 500;
+const MAX_CLOSE_SLIPPAGE_BPS = 500;
 /** A close's slippage for attempt n: the configured one, half of it wider at
  * each retry (an IOC that found no liquidity at its price), up to the bound. */
 export function closeSlippageBps(baseBps: number, attempt = 0): number {

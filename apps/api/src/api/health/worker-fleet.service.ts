@@ -17,18 +17,18 @@ import { SETTLEMENT_OWNER_WINDOW_MS, SNAPSHOT_STALE_MS, WORKER_GUARD_CHECK_MS } 
  * Telegram (its dry run). The rest (feed, fills, budgets, the wallet
  * network's meter lanes, explorer, clock) is the `copy` worker's.
  */
-export const READ_HEARTBEAT_FIELDS = ["lastSnapshotAt", "lastSnapshotAttemptAt", "lastSnapshotFailureAt", "lastSweepAt", "discovery", "archive", "dryRun"] as const;
+const READ_HEARTBEAT_FIELDS = ["lastSnapshotAt", "lastSnapshotAttemptAt", "lastSnapshotFailureAt", "lastSweepAt", "discovery", "archive", "dryRun"] as const;
 
-export type WorkerMonitorSample = z.infer<typeof workerMonitorSchema>;
+type WorkerMonitorSample = z.infer<typeof workerMonitorSchema>;
 type WireHeartbeat = NonNullable<WorkerMonitorSample["heartbeat"]>;
 /** A worker as the api reads it: its state and its monitor sample. */
-export interface WorkerProbe {
+interface WorkerProbe {
   state: "active" | "standby" | "stopping" | "stale" | "unavailable" | "not_configured";
   sample: WorkerMonitorSample | null;
 }
 
 /** `main`'s heartbeat with the read worker's fields (READ_HEARTBEAT_FIELDS) in place of its own. */
-export function mergeHeartbeats<T extends HeartbeatResponse | WireHeartbeat>(main: T, read: T | null | undefined): T {
+function mergeHeartbeats<T extends HeartbeatResponse | WireHeartbeat>(main: T, read: T | null | undefined): T {
   if (!read) return main;
   const merged = { ...main } as Record<string, unknown>;
   for (const key of READ_HEARTBEAT_FIELDS) merged[key] = (read as Record<string, unknown>)[key];

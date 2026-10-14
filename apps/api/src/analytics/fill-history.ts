@@ -15,7 +15,7 @@ export interface FillSource {
   range(start: number, end: number): Promise<HlUserFill[]>;
 }
 
-export interface HistoryOptions {
+interface HistoryOptions {
   now: number;
   /** Never read before this. */
   lookbackStart: number;

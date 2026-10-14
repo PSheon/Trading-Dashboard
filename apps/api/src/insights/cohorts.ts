@@ -43,7 +43,7 @@ export const TIER_BOUNDS: Record<PnlTier, { gte?: number; gt?: number; lt?: numb
 export const COHORT_MAX_PERP_EQUITY = 50_000_000;
 
 /** What the eligibility rule reads of a candidate; null = not known. */
-export interface CohortEligibilityInput {
+interface CohortEligibilityInput {
   isVault: boolean | null;
   /** Perp account value (latest cohort snapshot or ledger classification). */
   perpEquity: number | null;
@@ -62,7 +62,7 @@ export function cohortEligible(c: CohortEligibilityInput): boolean {
  * 40.8 % and 40.9 %). */
 export const COHORT_HISTORY_MIN_COVERAGE = 0.95;
 /** …and fresh members must hold this share of the tier's known perp equity. */
-export const COHORT_HISTORY_MIN_EQUITY_COVERAGE = 0.95;
+const COHORT_HISTORY_MIN_EQUITY_COVERAGE = 0.95;
 
 /** Whether a history row may be written from these members: enough of them
  * fresh by count and by perp equity (`COHORT_HISTORY_MIN_*`). Members whose

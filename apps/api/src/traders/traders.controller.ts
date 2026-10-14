@@ -29,7 +29,7 @@ import { BUSY_RETRY_AFTER_MS, PAGE_DEADLINE_MS } from '../config/constants/http.
 
 /** Addresses per sparkline request without a session (one explore page);
  * a signed-in caller may ask for 30 (`SparklinesQueryDto`). */
-export const ANONYMOUS_SPARKLINE_MAX = 25;
+const ANONYMOUS_SPARKLINE_MAX = 25;
 
 /** Errors that mean "not now" rather than "Hyperliquid failed": the page
  * budget is full, or the work was dropped because a request sharing it was

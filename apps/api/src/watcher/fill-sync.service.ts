@@ -26,11 +26,11 @@ export const BACKFILL_MAX_FILLS = 500_000;
 /** Most pages per endpoint in one backward window or targeted re-read.
  * Windows aim at a page and a half; the headroom lets a busier one finish
  * instead of being read for nothing. */
-export const BACKFILL_STEP_PAGES = 12;
+const BACKFILL_STEP_PAGES = 12;
 /** Position breaks re-read per continuity check. */
 const MAX_REPAIRS_PER_CHECK = 25;
 /** Emitted when history inside an address's verified span changed. */
-export const FILLS_REVISED_EVENT = "fills.revised";
+const FILLS_REVISED_EVENT = "fills.revised";
 
 interface RangeRead {
   fills: HlUserFill[];
@@ -56,7 +56,7 @@ interface RetentionProbe { time: number; bounded: boolean }
  * the endpoints whose history may have been cut (review 45). An endpoint
  * that is not bounded says nothing: an account whose first TWAP was last
  * week still has its year of ordinary fills backfilled. */
-export function retainedFrom(probe: { regular: RetentionProbe | null; twap: RetentionProbe | null }): number {
+function retainedFrom(probe: { regular: RetentionProbe | null; twap: RetentionProbe | null }): number {
   return Math.max(probe.regular?.bounded ? probe.regular.time : 0, probe.twap?.bounded ? probe.twap.time : 0);
 }
 
@@ -88,7 +88,7 @@ async function readPages(
  * - `reconcile`: a 5-minute snapshot showed a position change with no fill.
  * - `backfill`: A5, full history of a newly added address.
  */
-export type SyncReason = "confirm" | "live" | "sweep" | "reconcile" | "backfill";
+type SyncReason = "confirm" | "live" | "sweep" | "reconcile" | "backfill";
 
 /** How often the fast path's actions matched their real fills. */
 export interface FastPathStats {
@@ -98,7 +98,7 @@ export interface FastPathStats {
   corrected: number;
 }
 
-export interface CatchUpResult {
+interface CatchUpResult {
   inserted: number;
   actions: number;
   /** False when the read stopped at the page cap: call again. */

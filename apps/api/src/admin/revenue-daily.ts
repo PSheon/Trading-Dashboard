@@ -37,7 +37,7 @@ export interface RevenuePoint {
   referral: string;
 }
 
-export interface DailyRevenue {
+interface DailyRevenue {
   day: string;
   builder: number;
   referral: number;

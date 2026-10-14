@@ -8,7 +8,7 @@ import type { DrizzleDb } from "../db/drizzle.provider.js";
 import { HistoryFillStore } from "../traders/history-fill.store.js";
 import type { DbTransaction } from "../db/unit-of-work.js";
 
-export type DiscoveryRow = typeof discoveryTraders.$inferSelect;
+type DiscoveryRow = typeof discoveryTraders.$inferSelect;
 export type DiscoveryFigures = Partial<Omit<typeof discoveryTraders.$inferInsert, "chain" | "address" | "poolRank" | "inPool">>;
 
 /** What the pool loops order their work by. */

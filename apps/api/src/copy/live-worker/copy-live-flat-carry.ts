@@ -13,7 +13,7 @@ import { LiveBoundaryError } from '../live/wallet-authorization.js';
 
 /** A coin's reduction carry with something owed, as read before the
  * observation that proves the follower flat in that coin. */
-export interface OwedCarry { readonly mandateId: string; readonly revision: number; readonly carry: string; readonly updatedAt: Date }
+interface OwedCarry { readonly mandateId: string; readonly revision: number; readonly carry: string; readonly updatedAt: Date }
 type CloseRow = { readonly userId: number; readonly accountId: string; readonly strategyId: number; readonly coin: string };
 class Deferred extends Error {}
 

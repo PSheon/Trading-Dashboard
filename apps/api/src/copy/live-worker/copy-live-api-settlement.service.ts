@@ -7,7 +7,7 @@ import { CopyLiveSettlementClaims, type SettlementClaim } from './copy-live-sett
 import type { LiveSettleOutcome, LiveSettleRequest } from './copy-live-settler.js';
 import { SettlementPendingLog } from './settlement-pending-log.js';
 
-export interface ApiSettlementWork {
+interface ApiSettlementWork {
   repository: CopyLiveApiSettlementRepository;
   settle(request: LiveSettleRequest): Promise<LiveSettleOutcome>;
   saveSettlement(key: string): Promise<boolean>;

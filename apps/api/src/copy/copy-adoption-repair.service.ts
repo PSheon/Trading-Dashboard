@@ -14,13 +14,13 @@ import { safeErrorText } from "../runtime/safe-error-text.js";
 
 /** Rejection reasons that, before market-data gaps were retried, could mean
  * "the read failed" rather than a fact about the coin. */
-export const TRANSIENT_ADOPT_REASONS = ["no_asset_info", "no_price"];
+const TRANSIENT_ADOPT_REASONS = ["no_asset_info", "no_price"];
 
 /** Dedupe key of the one repair order a (strategy, coin) may ever get. */
 export const adoptionRepairKey = (strategyId: number, coin: string) => `${strategyId}:adopt:${coin}:repair1`;
 const originalAdoptKey = (strategyId: number, coin: string) => `${strategyId}:adopt:${coin}:v1`;
 
-export type AdoptionRepairOutcome =
+type AdoptionRepairOutcome =
   /** A new adopt order was written (`orderStatus` risk_approved, or rejected with a real reason). */
   | "ordered"
   | "would_order"
@@ -29,7 +29,7 @@ export type AdoptionRepairOutcome =
   /** Nothing written and nothing left to repair. */
   | "leader_flat" | "already_positioned" | "already_repaired" | "strategy_not_active";
 
-export interface AdoptionRepairItem {
+interface AdoptionRepairItem {
   strategyId: number;
   coin: string;
   rejectedOrderId: string;

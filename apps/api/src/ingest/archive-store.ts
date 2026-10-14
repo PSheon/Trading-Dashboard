@@ -26,7 +26,7 @@ export class ArchiveAccessError extends Error {
   }
 }
 
-export interface AwsCredentials {
+interface AwsCredentials {
   accessKeyId: string;
   secretAccessKey: string;
   sessionToken?: string;
@@ -107,7 +107,7 @@ export interface S3Timeouts {
   /** A whole list page (headers and body). */
   listMs: number;
 }
-export const S3_TIMEOUTS: S3Timeouts = { responseMs: 30_000, stallMs: 60_000, listMs: 30_000 };
+const S3_TIMEOUTS: S3Timeouts = { responseMs: 30_000, stallMs: 60_000, listMs: 30_000 };
 
 const timedOut = (what: string, ms: number) => new DOMException(`${what} timed out after ${ms} ms`, "TimeoutError");
 

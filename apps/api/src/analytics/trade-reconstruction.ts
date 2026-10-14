@@ -90,7 +90,7 @@ export interface Trade {
  * liquidation, a delisted market's settlement). CopyDog counts no trade
  * that ends in one (checked: 0xf62e…'s ETH ADL of 2025-10-10 and ZEREBRO
  * settlement, 0xeadc…'s hyna settlements are all missing from its ledger). */
-export const FORCED_CLOSE_DIRS = new Set(["Auto-Deleveraging", "Settlement"]);
+const FORCED_CLOSE_DIRS = new Set(["Auto-Deleveraging", "Settlement"]);
 
 const sign = (v: bigint): -1 | 0 | 1 => (v > 0n ? 1 : v < 0n ? -1 : 0);
 const abs = (v: bigint): bigint => (v < 0n ? -v : v);
@@ -110,7 +110,7 @@ export function isPartial(trade: Trade): boolean {
 }
 
 /** A partial trade whose unseen part has no price yet. */
-export function isEntryApprox(trade: Trade): boolean {
+function isEntryApprox(trade: Trade): boolean {
   return trade.preSize > 0n && trade.prePx === null;
 }
 
@@ -124,7 +124,7 @@ export function exitPx(trade: Trade): number | null {
 
 /** CopyDog's size: everything that went in. A partial trade still without
  * a price for its unseen part counts it at the position it has now. */
-export function tradeSize(trade: Trade): number {
+function tradeSize(trade: Trade): number {
   return isEntryApprox(trade) ? Math.max(trade.entrySz, toNumber(abs(trade.position))) : trade.entrySz;
 }
 

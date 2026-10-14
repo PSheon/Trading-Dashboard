@@ -19,6 +19,7 @@ import { CopyLiveWorkerService } from "./live-worker/copy-live-worker.service.js
 import { liveEngineProvider } from "./live-worker/copy-live-engine.provider.js";
 import { WatcherRuntimeModule } from "../watcher/watcher-runtime.module.js";
 import { CopyReadModule } from "./copy-read.module.js";
+import { CopySetupDueListener } from "./live-worker/copy-setup-due.listener.js";
 
 export function followerSnapshotReader({ budget, transport, network }: Pick<WalletNetworkHyperliquid, 'budget' | 'transport' | 'network'>) {
   // Reporting waits before its evidence clock, under the existing background
@@ -104,6 +105,8 @@ export class CopyReportingWorkerModule {}
 @Module({
   // WatcherRuntimeModule: the running trade feed (the fast copy source polls while it is down).
   imports: [CopyModule, HyperliquidModule, WatcherRuntimeModule],
-  providers: [CopyFundingMonitor, CopyLiveSourceRepository, CopyLiveWorkerRepository, CopyLiveStopWorkerRepository, liveEngineProvider, CopyLiveWorkerService],
+  providers: [CopyFundingMonitor, CopyLiveSourceRepository, CopyLiveWorkerRepository, CopyLiveStopWorkerRepository, liveEngineProvider, CopyLiveWorkerService,
+    // API_SETUP_DRIVE=worker: the api's confirm and advance wake this worker.
+    CopySetupDueListener],
 })
 export class CopyLiveWorkerModule {}

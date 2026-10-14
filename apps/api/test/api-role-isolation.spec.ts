@@ -147,7 +147,7 @@ const READ_SCHEDULES = ["SchedulerService.snapshotAll", "SchedulerService.hourly
 /** What only real-money work constructs: none may exist on a `read` worker. */
 const COPY_ONLY = ["LIVE_ENGINE", "CopyLiveWorkerService", "CopyLiveSetupService", "CopyLiveSetupAbortService", "CopyFundingMonitor", "CopyLiveApiSettlementService",
   "CopyFundingExchangeClient", "AGENT_APPROVAL_CLIENT", "ACCOUNT_MODE_CLIENT", "WORKER_MASTER_SIGNER", "PrivyPolicyMasterSigner", "PrivyAgentApprovalClient", "PrivyAccountModeClient",
-  "CopyAccountModeService", "CopyAgentService", "CopyFundingService", "WatcherRuntime", "FeedMonitorService"];
+  "CopyAccountModeService", "CopyAgentService", "CopyFundingService", "WatcherRuntime", "FeedMonitorService", "CopySetupDueListener"];
 
 const roleGraphs: Partial<Record<"copy" | "read", { providers: Set<string>; schedules: string[] }>> = {};
 

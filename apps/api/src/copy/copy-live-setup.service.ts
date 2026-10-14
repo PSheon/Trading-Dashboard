@@ -501,7 +501,7 @@ export class CopyLiveSetupService {
       let row: SetupRow;
       try { row = leased.stage === 'awaiting_consent' ? await this.confirmLeased(leased, request) : leased; }
       finally { await this.repository.release(id, leased.leaseToken); }
-      return this.drive(row.id, await this.workerPolicySigner(row));
+      return this.handOff(row);
     });
   }
   private async confirmLeased(original: SetupRow, request: z.infer<typeof confirmLiveCopySetupSchema>): Promise<SetupRow> {
@@ -596,8 +596,38 @@ export class CopyLiveSetupService {
         await this.funding.reconcile(userId, row.fundingOperationId).catch((error: unknown) => this.logger.warn(`setup ${row.id} deposit not reconciled: ${safeErrorText(error)}`));
       }
       if (THROTTLED_STAGES.includes(row.stage) && row.nextAttemptAt && row.nextAttemptAt.getTime() > this.now()) return row;
-      return this.drive(row.id, await this.workerPolicySigner(row));
+      return this.handOff(row);
     });
+  }
+  /**
+   * What confirm and advance do once the request's own work is recorded.
+   * API_SETUP_DRIVE=local (default): drive the setup here, as before.
+   * API_SETUP_DRIVE=worker: never drive in the api (its steps' Hyperliquid
+   * calls and signatures belong to the copy worker's egress, and the
+   * worker's read cache is then warm for the copy's first order, design
+   * I-13): mark the setup due now and wake the copy worker
+   * (NOTIFY copy_setup_due), which drives it at once (CopySetupDueListener);
+   * its regular pass is the fallback. The answer is the current row, as
+   * after `answerMs` today.
+   */
+  private async handOff(row: SetupRow): Promise<SetupRow> {
+    if (this.config.value.app?.setupDrive !== 'worker') return this.drive(row.id, await this.workerPolicySigner(row));
+    if (!DRIVEN_STAGES.includes(row.stage)) return row;
+    const due = await this.repository.markDue(row.id);
+    try { await this.repository.notifyDue(row.id); }
+    catch (error) { this.logger.warn(`setup ${row.id} wake-up not sent; the worker's pass drives it: ${safeErrorText(error)}`); }
+    return due ?? row;
+  }
+  /**
+   * The copy worker's wake-up for one setup (CopySetupDueListener): drives
+   * it now if it is still a confirmed, unfinished setup on this deployment's
+   * network. The setup's lease keeps this and the regular pass from driving
+   * it at once; an aborted setup is never leased.
+   */
+  async driveDue(id: string): Promise<SetupRow | null> {
+    const row = await this.repository.get(id);
+    if (!row || !DRIVEN_STAGES.includes(row.stage)) return row;
+    return this.drive(row.id, await this.workerPolicySigner(row));
   }
   /** Quick work returns its result; slow work keeps the same id outside the
    * request and answers once with its current row. Fast validation errors

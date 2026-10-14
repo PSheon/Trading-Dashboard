@@ -13,6 +13,9 @@ export type SetupWait = NonNullable<SetupRow['lastWait']>;
 /** Stages the setup driver works: confirmed, not finished. */
 export const DRIVEN_STAGES: readonly SetupStage[] = ['consented', 'funding_submitted', 'funded', 'mode_set', 'agent_active', 'builder_ready'];
 
+/** NOTIFY channel: a setup the api confirmed or advanced is due on the copy worker. */
+export const COPY_SETUP_DUE_CHANNEL = 'copy_setup_due';
+
 /** SQL for one-click setups. Short statements only; no provider I/O here. */
 @Injectable()
 export class CopyLiveSetupRepository {
@@ -68,6 +71,21 @@ export class CopyLiveSetupRepository {
     const [next] = await this.db.update(copyLiveSetups).set({ nextAttemptAt: changes.nextAttemptAt, lastWait: changes.lastWait })
       .where(and(eq(copyLiveSetups.id, row.id), eq(copyLiveSetups.revision, row.revision), sql`not exists (select 1 from ${copyLiveSetupAborts} a where a.setup_id = ${copyLiveSetups.id})`)).returning();
     return next ?? null;
+  }
+  /** API_SETUP_DRIVE=worker: a confirmed, unfinished setup is due now (the
+   * copy worker's pass picks it up even if the wake-up is lost). Bookkeeping
+   * only, like `defer`: no new revision. Null when it is not driven (any
+   * more), aborted, or already due. */
+  async markDue(id: string): Promise<SetupRow | null> {
+    const [next] = await this.db.update(copyLiveSetups).set({ nextAttemptAt: sql`clock_timestamp()` })
+      .where(and(eq(copyLiveSetups.id, id), inArray(copyLiveSetups.stage, [...DRIVEN_STAGES]), sql`${copyLiveSetups.nextAttemptAt} > clock_timestamp()`,
+        sql`not exists (select 1 from ${copyLiveSetupAborts} a where a.setup_id = ${copyLiveSetups.id})`)).returning();
+    return next ?? null;
+  }
+  /** Wakes the copy worker for this setup (CopySetupDueListener). A hint
+   * only: the row is the durable record, and the worker's pass the fallback. */
+  async notifyDue(id: string): Promise<void> {
+    await this.db.execute(sql`select pg_notify(${COPY_SETUP_DUE_CHANNEL}, ${id})`);
   }
   async aborted(userId: number, setupId: string, tx: DbExecutor = this.db): Promise<boolean> {
     const [row] = await tx.select({ id: copyLiveSetupAborts.id }).from(copyLiveSetupAborts)

@@ -3,7 +3,7 @@ import { sql } from 'drizzle-orm';
 import { PgDatabase, PgDialect } from 'drizzle-orm/pg-core';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { closeTestDb, getTestDb } from './db-test-utils.js';
-import { assertOriginalLiveRiskSession, PostgresLiveRiskScope, type LiveRiskScope } from '../src/copy/live/postgres-live-risk-scope.js';
+import { assertOriginalLiveRiskSession, liveRiskBusyDetail, LiveRiskBusyError, PostgresLiveRiskScope, type LiveRiskScope } from '../src/copy/live/postgres-live-risk-scope.js';
 
 let pool: Pool;
 let scopes: PostgresLiveRiskScope;
@@ -149,6 +149,30 @@ describe('distributed user and account risk serialization', () => {
       await expect(scopes.run({ ...identity, userId: 2 }, async () => 'unsafe')).rejects.toThrow('live_risk_busy');
     });
     expect(await scopes.run({ ...identity, userId: 2 }, async () => 'new owner')).toBe('new owner');
+  });
+  // Gate run 9 (2026-10-14): an order waited 12 s, then live_risk_busy, with
+  // nothing saying who held the lock.
+  it('names the lock and its holder (kind, id, how long) in a live_risk_busy refusal', async () => {
+    let clock = 1_000_000;
+    const order = new PostgresLiveRiskScope(pool, () => clock, undefined, { kind: 'order', id: 'testnet:0xab:0x01' });
+    await order.run(identity, async () => {
+      clock += 1_500;
+      const refused = await new PostgresLiveRiskScope(pool, () => clock, undefined, { kind: 'settlement' }).run({ ...identity, userId: 2 }, async () => 'unsafe').catch((error: unknown) => error);
+      expect(refused).toBeInstanceOf(LiveRiskBusyError);
+      expect((refused as LiveRiskBusyError).detail).toMatchObject({ lock: 'account', holders: [{ kind: 'order', id: 'testnet:0xab:0x01', heldMs: 1_500 }] });
+      // The holding session as pg_locks shows it (any process, any writer).
+      expect((refused as LiveRiskBusyError).detail.sessions).toHaveLength(1);
+      expect(liveRiskBusyDetail(refused)).toContain('"kind":"order"');
+    });
+    // A transaction-scoped writer in another session: no scope holds it, pg_locks names it.
+    const writer = await pool.connect();
+    try {
+      await writer.query('begin');
+      await writer.query('select pg_advisory_xact_lock(7404, $1::integer)', [identity.userId]);
+      const refused = await scopes.run(identity, async () => 'unsafe').catch((error: unknown) => error) as LiveRiskBusyError;
+      expect(refused.detail).toMatchObject({ lock: 'user', holders: [], sessions: [{ state: 'idle in transaction' }] });
+      expect(refused.detail.sessions![0]!.heldMs).toBeGreaterThanOrEqual(0);
+    } finally { await writer.query('rollback'); writer.release(); }
   });
   it('allows independent users/accounts but serializes a user across networks', async () => {
     await scopes.run(identity, async () => {

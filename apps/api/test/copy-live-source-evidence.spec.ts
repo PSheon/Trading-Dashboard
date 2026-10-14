@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { copyLiveSourceFills } from '@trading-dashboard/shared/database';
-import { parseLiveSourceFill, decodeLiveSourceFill, canonicalLiveSourceLegs, liveSourceLegId, reconcileLiveSourceFills } from '../src/copy/live/copy-live-source-evidence.js';
+import { parseLiveSourceFill, decodeLiveSourceFill, canonicalLiveSourceLegs, liveSourceLegId, reconcileLiveSourceFills, liveSourceDigest, liveSourceEvidenceDetail } from '../src/copy/live/copy-live-source-evidence.js';
+import { HyperliquidLiveSourceClient } from '../src/copy/copy-live-source.client.js';
+import { CopyLiveSourceRepository } from '../src/copy/copy-live-source.repository.js';
 const leader = `0x${'11'.repeat(20)}`, context = { network: 'testnet' as const, leaderAddress: leader, from: 1000, to: 2000, receivedAt: 2100, kind: 'fills' as const };
 const raw = () => ({ tid: 7, oid: 9, time: 1500, coin: 'BTC', px: '100.000', sz: '2.000', side: 'B', startPosition: '0', hash: `0x${'22'.repeat(32)}` });
 const stored = (fill = parseLiveSourceFill(raw(), context)): typeof copyLiveSourceFills.$inferSelect => ({ ...fill, providerTime: new Date(fill.providerTime), receivedAt: new Date(fill.receivedAt), normalized: { ...fill.normalized } });
@@ -62,5 +64,36 @@ describe('canonical actual source leg decomposition', () => {
   });
   it('refuses a changed normalized fill even if passed as an in-memory object', () => {
     const fill = parseLiveSourceFill(raw(), context); fill.normalized.startPosition = '7'; expect(() => canonicalLiveSourceLegs(fill)).toThrow();
+  });
+});
+
+// Gate run 9 (2026-10-14): `invalid_live_source_evidence` alone said nothing
+// about which check refused a read. Every refusal now names it.
+describe('a refused source read says which check failed', () => {
+  const refusal = async (run: () => unknown) => {
+    try { await run(); } catch (error) { return { code: (error as { code?: string }).code, detail: (error as { detail?: unknown }).detail, line: liveSourceEvidenceDetail(error) }; }
+    throw new Error('not refused');
+  };
+  const read = () => new HyperliquidLiveSourceClient('testnet', async () => undefined, (async (_url: unknown, init?: RequestInit) =>
+    Response.json(JSON.parse(String(init?.body)).type === 'userFillsByTime' ? [raw()] : [])) as typeof fetch, () => 2100)
+    .read({ leaderAddress: leader, from: 1000, to: 2000, maxRequests: 8 });
+  const resign = <T extends { sourceDigest: string }>(result: T): T => { const { sourceDigest: _, ...body } = result; return { ...result, sourceDigest: liveSourceDigest(body) }; };
+  const apply = (result: Awaited<ReturnType<typeof read>>) => new CopyLiveSourceRepository({} as never).apply({} as never, 1, result, 2100);
+  it('names a fill received outside the read, with the times compared', async () => {
+    const result = await read(), fill = parseLiveSourceFill(raw(), { ...context, receivedAt: 2101 });
+    const out = await refusal(() => apply(resign({ ...result, fills: [fill] })));
+    expect(out).toMatchObject({ code: 'invalid_live_source_evidence', detail: { check: 'fill_received_at', tid: '7', receivedAt: 2101, observedAt: 2100, completedAt: 2100 } });
+    expect(JSON.parse(out.line)).toEqual(out.detail);
+  });
+  it('names a request count that no observation accounts for', async () => {
+    const out = await refusal(async () => apply(resign({ ...await read(), requestsUsed: 5 })));
+    expect(out.detail).toEqual({ check: 'requests_used', requestsUsed: 5, observations: 2 });
+  });
+  it('names a provider time outside the window it was read in, and never echoes provider text', async () => {
+    const out = await refusal(() => parseLiveSourceFill({ ...raw(), time: 2001 }, context));
+    expect(out.detail).toEqual({ check: 'fill_time', tid: '7', time: 2001, from: 1000, to: 2000 });
+    const schema = await refusal(() => parseLiveSourceFill({ ...raw(), coin: 'not a coin <script>' }, context));
+    expect(schema.detail).toMatchObject({ check: 'fill_parse', field: 'coin' });
+    expect(schema.line).not.toContain('script');
   });
 });

@@ -49,6 +49,19 @@ describe('immutable actual-network source storage', () => {
       .read({ leaderAddress: leader, from: 1000, to: 2000, maxRequests: 1 });
     expect((await apply(2, capped)).stream).toMatchObject({ state: 'gap', lastIssue: 'incomplete_coverage', coverageThrough: new Date(2000) });
   });
+  // Gate run 9 (2026-10-14 08:54:45): under contention the ordinary-fills
+  // channel was refused while the TWAP channel answered. Both requests were
+  // sent together, so requestsUsed is 2 with no observation: a legitimate
+  // incomplete read, once rejected whole as invalid_live_source_evidence.
+  it('records a gap, not invalid evidence, when the first of the two parallel channels is refused', async () => {
+    const stream = await ensure(); await apply(stream.revision, await read());
+    const refused = await new HyperliquidLiveSourceClient('testnet', async () => undefined, (async (_url, init) => {
+      if (JSON.parse(String(init?.body)).type === 'userFillsByTime') throw new Error('hyperliquid_quota_exhausted');
+      return Response.json([]);
+    }) as typeof fetch, () => now).read({ leaderAddress: leader, from: 2001, to: 2050, maxRequests: 8 });
+    expect(refused).toMatchObject({ complete: false, fresh: true, requestsUsed: 2, observations: [] });
+    expect((await uow.run(tx => repository.apply(tx, 2, refused, now))).stream).toMatchObject({ state: 'gap', lastIssue: 'incomplete_coverage', coverageThrough: new Date(2000) });
+  });
   it('rejects unsigned mutable result tampering and mismatched source evidence before storage', async () => {
     const stream = await ensure(), result = await read(); result.fills[0].px = '1000';
     await expect(apply(stream.revision, result)).rejects.toThrow(); expect(await db.select().from(copyLiveSourceFills)).toEqual([]);

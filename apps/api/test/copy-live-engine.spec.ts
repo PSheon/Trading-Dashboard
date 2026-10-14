@@ -11,6 +11,7 @@ import { liveSourceExecutionCloid } from '../src/copy/live/postgres-live-prepara
 
 import { CopyLiveApiSettlementRepository } from '../src/copy/live-worker/copy-live-api-settlement.repository.js';
 import { LiveBoundaryError } from '../src/copy/live/wallet-authorization.js';
+import { LiveRiskBusyError } from '../src/copy/live/postgres-live-risk-scope.js';
 import { HyperliquidRestCapacityError } from '../src/hyperliquid/hyperliquid-capacity-error.js';
 import { NEVER_PLACED, type LiveExecutionRecord } from '../src/copy/live/live-execution.js';
 import { buildOrderAction } from '../src/copy/live/live-order.js';
@@ -142,22 +143,49 @@ describe('testnet copy execution engine', () => {
     expect(runtimeCalls).toHaveLength(0);
   });
 
-  it('retains the full poll cadence after a provider read fails', async () => {
+  // Gate run 9 (2026-10-14): one refused read waited the whole 60 s interval
+  // and the ETH copy expired. A failed read is retried after 5 s, doubling
+  // per failure in a row, never later than the interval; a good read resets it.
+  it('retries a failed provider read sooner, backed off up to the poll interval', async () => {
     await activeTestnetSource(true);
-    const fetcher = vi.fn(async (_url: unknown, _init?: RequestInit) => Response.json({}, { status: 503 }));
+    let status = 503;
+    const fetcher = vi.fn(async (_url: unknown, _init?: RequestInit) => Response.json(status === 200 ? [] : {}, { status }));
     const source = new HyperliquidLiveSourceClient('testnet', async () => {}, fetcher as typeof fetch, () => clock);
-    const run = engine({ testnetSource: source });
+    // A 30 s interval, so the doubling reaches its cap inside the consent's 300 s.
+    const run = engine({ testnetSource: source }, 30_000);
     await run.pollTestnetSources();
     expect(fetcher).toHaveBeenCalledTimes(2);
     expect(fetcher.mock.calls.map(([, init]) => JSON.parse(String(init?.body)).type))
       .toEqual(['userFillsByTime', 'userTwapSliceFillsByTime']);
-    clock += 1500;
-    await run.pollTestnetSources();
-    expect(fetcher).toHaveBeenCalledTimes(2);
-    clock += 58_500;
-    await run.pollTestnetSources();
-    expect(fetcher).toHaveBeenCalledTimes(4);
+    let reads = 1;
+    for (const delay of [5_000, 10_000, 20_000, 30_000, 30_000]) {
+      clock += delay - 1; await run.pollTestnetSources();
+      expect(fetcher).toHaveBeenCalledTimes(2 * reads);
+      clock++; await run.pollTestnetSources();
+      expect(fetcher).toHaveBeenCalledTimes(2 * ++reads);
+    }
+    status = 200;
+    clock += 30_000; await run.pollTestnetSources();
+    expect(fetcher).toHaveBeenCalledTimes(2 * ++reads);
+    status = 503;
+    clock += 30_000; await run.pollTestnetSources();
+    clock += 5_000; await run.pollTestnetSources();
+    expect(fetcher).toHaveBeenCalledTimes(2 * (reads + 2));
     expect(runtimeCalls).toHaveLength(0);
+  });
+
+  it('retries 5 s after a read whose evidence the repository refused', async () => {
+    await activeTestnetSource(true);
+    const read = vi.fn(async (request: { leaderAddress: string; from: number; to: number }) => ({ network: 'testnet', leaderAddress: request.leaderAddress, from: request.from, to: request.to,
+      observedAt: clock, completedAt: clock, fresh: true, complete: true, historicalCompleteness: 'unproven', requestsUsed: 1, fills: [], observations: [], unresolved: [], sourceDigest: 'forged' }));
+    const logs: string[] = [];
+    const run = engine({ testnetSource: { read } as never, log: message => logs.push(message) });
+    await run.pollTestnetSources();
+    expect(logs.some(line => line.includes('not read: invalid_live_source_evidence {"check":"source_digest"}'))).toBe(true);
+    clock += 4_999; await run.pollTestnetSources();
+    expect(read).toHaveBeenCalledTimes(1);
+    clock++; await run.pollTestnetSources();
+    expect(read).toHaveBeenCalledTimes(2);
   });
 
   it('clears an admission retry override when its next provider read fails', async () => {
@@ -171,7 +199,7 @@ describe('testnet copy execution engine', () => {
     await run.pollTestnetSources();
     clock += 1500; await run.pollTestnetSources();
     expect(read).toHaveBeenCalledTimes(2);
-    clock += 59_999; await run.pollTestnetSources();
+    clock += 4_999; await run.pollTestnetSources();
     expect(read).toHaveBeenCalledTimes(2);
     clock++; await run.pollTestnetSources();
     expect(read).toHaveBeenCalledTimes(3);
@@ -553,7 +581,8 @@ describe('testnet copy execution engine', () => {
     const open = await leaderFill(81, now + 100, 'B', '1', '0', 'BTC');
     // Attempts 1 and 2 of the gate: the follower observation's socket connect
     // refused by the shared meter (it said: in 4 s); attempt 3: the risk lock busy.
-    const refusals = [unavailable(new HyperliquidRestCapacityError(4_000)), unavailable(new HyperliquidRestCapacityError(4_000)), new LiveBoundaryError('live_risk_busy')];
+    const refusals = [unavailable(new HyperliquidRestCapacityError(4_000)), unavailable(new HyperliquidRestCapacityError(4_000)),
+      new LiveRiskBusyError({ lock: 'account', holders: [{ kind: 'order', id: 'testnet:0xabc:0x01', heldMs: 11_800 }], sessions: [] })];
     runtimeImpl = async request => { runtimeCalls.push(request); throw refusals.shift() ?? new LiveBoundaryError('live_risk_busy'); };
     const worker = engine(), logs: string[] = [];
     (worker as unknown as { deps: { log?: (m: string) => void } }).deps.log = message => { logs.push(message); };
@@ -566,6 +595,9 @@ describe('testnet copy execution engine', () => {
     expect(runtimeCalls).toHaveLength(2);
     clock = now + 9600; await worker.tick();
     expect((await dispatches()).find(r => r.sourceFillId === open)).toMatchObject({ state: 'pending', reason: 'live_risk_busy', attempts: 0 });
+    // Gate run 9: the busy line names the lock and who held it, for how long.
+    expect(logs.some(m => m.includes('failed: live_risk_busy;') &&
+      m.includes('held by {"lock":"account","holders":[{"kind":"order","id":"testnet:0xabc:0x01","heldMs":11800}],"sessions":[]}'))).toBe(true);
     // A busy lock is tried again a second later.
     clock = now + 10_700; await worker.tick();
     expect(runtimeCalls).toHaveLength(4);

@@ -45,6 +45,28 @@ export function assertOriginalLiveRiskSession(session: LiveRiskDatabaseSession):
   session.scope.assertFresh();
 }
 function fail(code: string): never { throw new LiveBoundaryError(code); }
+
+/** What a scope is held for, so a refused one can say who held it. */
+export interface LiveRiskHolder { readonly kind: string; readonly id?: string }
+/** live_risk_busy, saying which lock was taken and by whom (gate run 9,
+ * 2026-10-14: an order waited 12 s for a lock nobody could name). `holders`
+ * are this process's scopes on that lock (kind, id, how long held);
+ * `sessions` the other database sessions pg_locks shows holding it
+ * (another process, or a transaction-scoped writer such as source ingestion). */
+export interface LiveRiskBusyDetail {
+  readonly lock: 'policy' | 'platform' | 'user' | 'account' | 'source';
+  readonly holders: readonly { kind: string; id: string | null; heldMs: number }[];
+  readonly sessions: readonly { pid: number; application: string; state: string; heldMs: number | null }[] | null;
+}
+export class LiveRiskBusyError extends LiveBoundaryError {
+  constructor(readonly detail: LiveRiskBusyDetail) { super('live_risk_busy'); }
+}
+/** The detail of a live_risk_busy refusal as one JSON line, or ''. */
+export const liveRiskBusyDetail = (error: unknown): string => error instanceof LiveRiskBusyError ? JSON.stringify(error.detail) : '';
+const SAFE_LABEL = /^[A-Za-z0-9_.:\- ]{0,96}$/;
+const label = (value: unknown) => typeof value === 'string' ? (SAFE_LABEL.test(value) ? value : '<text>') : '';
+/** This process's scope holders per lock (one worker process holds them). */
+const holders = new Map<string, Set<{ kind: string; id: string | null; since: number }>>();
 /** Proves the scope's $4 advisory locks are all still held by this session. */
 const HELD_SQL = `
           select count(*) = $4::integer as held from pg_locks where pid = pg_backend_pid()
@@ -95,20 +117,49 @@ function capture(value: LiveRiskIdentity): Readonly<LiveRiskIdentity> {
  * provider calls. This primitive does not grant consent or fabricate risk data;
  * a proof producer must still load current ownership and complete liabilities. */
 export class PostgresLiveRiskScope {
-  constructor(private readonly pool: Pool, private readonly now = Date.now, private readonly externalFence?: Pick<SettlementClaim, 'assertFresh' | 'signal'>) {}
+  /** `holder`: what this scope is held for, named in another's live_risk_busy. */
+  constructor(private readonly pool: Pool, private readonly now = Date.now, private readonly externalFence?: Pick<SettlementClaim, 'assertFresh' | 'signal'>,
+    private readonly holder: LiveRiskHolder = { kind: 'risk_scope' }) {}
   async run<T>(rawIdentity: LiveRiskIdentity, work: (scope: LiveRiskScope, session: LiveRiskDatabaseSession) => Promise<T>): Promise<T> {
     const identity = capture(rawIdentity);
+    const holding = { kind: label(this.holder.kind) || 'risk_scope', id: this.holder.id === undefined ? null : label(this.holder.id), since: this.now() };
     // Match the existing transaction writer locks exactly. User limits and
     // controls are global across networks, so this lock deliberately is too.
     const accountKey = `live-risk-account:${identity.network}:${identity.accountAddress}`;
     const sourceKey = identity.source ? `live-risk-source:${identity.source.network}:${identity.source.leaderAddress}` : null;
-    const locks = [
-      { acquire: 'select pg_try_advisory_lock_shared(7403, 0) as locked', release: 'select pg_advisory_unlock_shared(7403, 0) as unlocked', values: [] as (string | number)[] },
-      { acquire: 'select pg_try_advisory_lock_shared(7405, 0) as locked', release: 'select pg_advisory_unlock_shared(7405, 0) as unlocked', values: [] as (string | number)[] },
-      { acquire: 'select pg_try_advisory_lock(7404, $1::integer) as locked', release: 'select pg_advisory_unlock(7404, $1::integer) as unlocked', values: [identity.userId] },
-      { acquire: 'select pg_try_advisory_lock(hashtextextended($1, 7)) as locked', release: 'select pg_advisory_unlock(hashtextextended($1, 7)) as unlocked', values: [accountKey] },
-      ...(sourceKey ? [{ acquire: 'select pg_try_advisory_lock_shared(hashtextextended($1, 8)) as locked', release: 'select pg_advisory_unlock_shared(hashtextextended($1, 8)) as unlocked', values: [sourceKey] }] : []),
+    // `match`: the lock's pg_locks row ($1 its value); `name`: its registry key.
+    const pair = (namespace: number) => `classid::bigint = ${namespace} and objid::bigint = $1::bigint and objsubid = 2`;
+    const hashed = (seed: number) => `classid::bigint = ((hashtextextended($1, ${seed}) >> 32) & 4294967295) and objid::bigint = (hashtextextended($1, ${seed}) & 4294967295) and objsubid = 1`;
+    const locks: { lock: LiveRiskBusyDetail['lock']; name: string; shared: boolean; match: string; acquire: string; release: string; values: (string | number)[] }[] = [
+      { lock: 'policy', name: 'policy', shared: true, match: pair(7403), acquire: 'select pg_try_advisory_lock_shared(7403, 0) as locked', release: 'select pg_advisory_unlock_shared(7403, 0) as unlocked', values: [] as (string | number)[] },
+      { lock: 'platform', name: 'platform', shared: true, match: pair(7405), acquire: 'select pg_try_advisory_lock_shared(7405, 0) as locked', release: 'select pg_advisory_unlock_shared(7405, 0) as unlocked', values: [] as (string | number)[] },
+      { lock: 'user', name: `user:${identity.userId}`, shared: false, match: pair(7404), acquire: 'select pg_try_advisory_lock(7404, $1::integer) as locked', release: 'select pg_advisory_unlock(7404, $1::integer) as unlocked', values: [identity.userId] },
+      { lock: 'account', name: accountKey, shared: false, match: hashed(7), acquire: 'select pg_try_advisory_lock(hashtextextended($1, 7)) as locked', release: 'select pg_advisory_unlock(hashtextextended($1, 7)) as unlocked', values: [accountKey] },
+      ...(sourceKey ? [{ lock: 'source' as const, name: sourceKey, shared: true, match: hashed(8), acquire: 'select pg_try_advisory_lock_shared(hashtextextended($1, 8)) as locked', release: 'select pg_advisory_unlock_shared(hashtextextended($1, 8)) as unlocked', values: [sourceKey] }] : []),
     ];
+    /** Who holds `lock`: this process's scopes, and the sessions pg_locks
+     * shows (one read, on the refusal path only, bounded to a second). */
+    const busy = async (lock: (typeof locks)[number]): Promise<never> => {
+      const now = this.now(), mine = [...holders.get(lock.name) ?? []].map(h => ({ kind: h.kind, id: h.id, heldMs: Math.max(0, now - h.since) }));
+      let sessions: LiveRiskBusyDetail['sessions'] = null;
+      if (!lost) {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          const rows = await Promise.race([
+            client.query<{ pid: number; application: string | null; state: string | null; held_ms: string | null }>(
+              `select l.pid, a.application_name as application, a.state,
+                 (extract(epoch from clock_timestamp() - coalesce(a.xact_start, a.state_change)) * 1000)::bigint as held_ms
+               from pg_locks l left join pg_stat_activity a on a.pid = l.pid
+               where l.locktype = 'advisory' and l.granted and l.pid <> pg_backend_pid() and ${lock.match}
+                 ${lock.shared ? "and l.mode = 'ExclusiveLock'" : ''} limit 4`,
+              [lock.values[0] ?? 0]),
+            new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error()), 1000); }),
+          ]);
+          sessions = rows.rows.map(r => ({ pid: Number(r.pid), application: label(r.application ?? ''), state: label(r.state ?? ''), heldMs: r.held_ms === null ? null : Number(r.held_ms) }));
+        } catch { sessions = null; } finally { clearTimeout(timer); }
+      }
+      throw new LiveRiskBusyError({ lock: lock.lock, holders: mine, sessions });
+    };
     this.externalFence?.assertFresh();
     const client = this.externalFence ? await acquireSettlementConnection(this.pool, this.externalFence.signal) : await this.pool.connect();
     const acquired: typeof locks = [];
@@ -329,13 +380,18 @@ export class PostgresLiveRiskScope {
       if (client.getTransactionStatus() !== 'I') { lost = true; fail('live_risk_database_dirty'); }
       // Stable policy -> platform -> user -> account order. Try rather than wait: no provider budget
       // or prepared order can be consumed by a concurrent owner of this scope.
+      holding.since = this.now();
       for (const lock of locks) {
         this.externalFence?.assertFresh();
         assertCounted();
         const result = await client.query<{ locked: boolean }>(lock.acquire, lock.values);
         this.externalFence?.assertFresh();
-        if (lost || result.rows[0]?.locked !== true) fail('live_risk_busy');
+        if (lost) fail('live_risk_busy');
+        if (result.rows[0]?.locked !== true) await busy(lock);
         acquired.push(lock);
+        let named = holders.get(lock.name);
+        if (!named) holders.set(lock.name, named = new Set());
+        named.add(holding);
       }
       held = true;
       await scope.assertHeld();
@@ -348,6 +404,11 @@ export class PostgresLiveRiskScope {
       // worker. A stale closure can never regain it by querying this pool.
       held = false;
       originalSessions.delete(session);
+      for (const lock of acquired) {
+        const named = holders.get(lock.name);
+        named?.delete(holding);
+        if (named?.size === 0) holders.delete(lock.name);
+      }
       let discard = lost || client.getTransactionStatus() !== 'I';
       if (this.externalFence) { try { this.externalFence.assertFresh(); } catch { discard = true; } }
       if (activeOperation) {

@@ -35,24 +35,53 @@ const normalizedSchema = z.object({ version: z.literal(1), kind: z.enum(['fills'
   time: integer, coin: z.string().min(1).max(129).regex(LIVE_PERP_COIN), px: positiveDecimal, sz: positiveDecimal,
   side: z.enum(['B', 'A']), startPosition: signedDecimal, tradeKey: z.string().regex(/^(?:oid|twap):[1-9][0-9]{0,19}$/),
 }).strict();
-function fail(): never { throw new LiveBoundaryError('invalid_live_source_evidence'); }
+/** Which check refused source evidence, with the values it compared:
+ * numbers, booleans and short identifiers only, never provider text. */
+export type LiveSourceEvidenceDetail = { check: string } & Record<string, string | number | boolean | null>;
+const SAFE_TEXT = /^[A-Za-z0-9_.:-]{0,80}$/;
+/** invalid_live_source_evidence, saying which check failed (gate run 9,
+ * 2026-10-14: a bare code cost a poll and a trade with nothing to go on). */
+export class InvalidLiveSourceEvidence extends LiveBoundaryError {
+  readonly detail: LiveSourceEvidenceDetail;
+  constructor(check: string, values: Record<string, unknown> = {}) {
+    super('invalid_live_source_evidence');
+    const detail: Record<string, string | number | boolean | null> = { check: SAFE_TEXT.test(check) ? check : 'unnamed' };
+    for (const [key, value] of Object.entries(values).slice(0, 16)) {
+      if (!SAFE_TEXT.test(key) || key === 'check') continue;
+      detail[key] = typeof value === 'number' ? (Number.isFinite(value) ? value : String(value)) : typeof value === 'boolean' || value === null ? value
+        : typeof value === 'string' ? (SAFE_TEXT.test(value) ? value : '<text>') : value === undefined ? 'undefined' : `<${Array.isArray(value) ? 'array' : typeof value}>`;
+    }
+    this.detail = detail as LiveSourceEvidenceDetail;
+  }
+}
+/** The refusal's detail as one JSON line, or '' for any other error. */
+export function liveSourceEvidenceDetail(error: unknown): string {
+  return error instanceof InvalidLiveSourceEvidence ? JSON.stringify(error.detail) : '';
+}
+function fail(check: string, values?: Record<string, unknown>): never { throw new InvalidLiveSourceEvidence(check, values); }
+/** Inside a catch-all: keep a named refusal, name any other failure. */
+function failFrom(error: unknown, check: string): never {
+  if (error instanceof InvalidLiveSourceEvidence) throw error;
+  if (error instanceof z.ZodError) fail(check, { field: error.issues[0]?.path.map(String).join('.') ?? null, issue: error.issues[0]?.code ?? null });
+  fail(check, { cause: error instanceof LiveBoundaryError ? error.code : error instanceof Error ? error.name : typeof error });
+}
 function object(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) fail();
+  if (!value || typeof value !== 'object' || Array.isArray(value)) fail('fill_not_object', { type: Array.isArray(value) ? 'array' : value === null ? 'null' : typeof value });
   return value as Record<string, unknown>;
 }
 function id(value: unknown): string {
   const input = typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? String(value) : value;
-  const parsed = unsignedId.safeParse(input); if (!parsed.success) fail(); return parsed.data;
+  const parsed = unsignedId.safeParse(input); if (!parsed.success) fail('fill_id', { type: typeof value }); return parsed.data;
 }
 export function liveSourceDigest(value: unknown): string {
   function canonical(input: unknown, depth = 0): string {
     // Bounded recursion. A generation manifest holding a settled order's
     // retained proof nests about twenty levels deep; 64 keeps headroom.
-    if (depth > 64) fail();
+    if (depth > 64) fail('digest_depth', { depth });
     if (Array.isArray(input)) return `[${input.map(v => canonical(v, depth + 1)).join(',')}]`;
     if (input && typeof input === 'object') return `{${Object.keys(input).sort().map(key => `${JSON.stringify(key)}:${canonical((input as Record<string, unknown>)[key], depth + 1)}`).join(',')}}`;
     if (input === null || typeof input === 'string' || typeof input === 'boolean' || (typeof input === 'number' && Number.isFinite(input))) return JSON.stringify(input);
-    fail();
+    fail('digest_value', { type: typeof input, depth });
   }
   return createHash('sha256').update(canonical(value)).digest('hex');
 }
@@ -62,39 +91,40 @@ export function parseLiveSourceFill(value: unknown, context: LiveSourceFillConte
   try {
     const captured = structuredClone(context), raw = object(structuredClone(value)), leaderAddress = address(captured.leaderAddress);
     if (!['testnet', 'mainnet'].includes(captured.network) || !['fills', 'twap'].includes(captured.kind) ||
-      ![captured.from, captured.to, captured.receivedAt].every(v => Number.isSafeInteger(v) && v >= 0) || captured.from > captured.to || captured.to > captured.receivedAt) fail();
+      ![captured.from, captured.to, captured.receivedAt].every(v => Number.isSafeInteger(v) && v >= 0) || captured.from > captured.to || captured.to > captured.receivedAt)
+      fail('fill_context', { network: captured.network, kind: captured.kind, from: captured.from, to: captured.to, receivedAt: captured.receivedAt });
     const row = captured.kind === 'twap' ? object(raw.fill) : raw;
     for (const entry of [raw, row]) {
       if ((entry.user !== undefined && (typeof entry.user !== 'string' || address(entry.user) !== leaderAddress)) ||
-          (entry.network !== undefined && entry.network !== captured.network)) fail();
+          (entry.network !== undefined && entry.network !== captured.network)) fail('fill_identity', { field: entry.network !== undefined && entry.network !== captured.network ? 'network' : 'user' });
     }
     const twapId = captured.kind === 'twap' ? id(raw.twapId) : row.twapId === undefined || row.twapId === null ? null : id(row.twapId);
-    if (captured.kind === 'twap' && row.twapId !== undefined && row.twapId !== null && id(row.twapId) !== twapId) fail();
+    if (captured.kind === 'twap' && row.twapId !== undefined && row.twapId !== null && id(row.twapId) !== twapId) fail('fill_twap_id');
     const oid = id(row.oid), tid = id(row.tid);
     const normalized = normalizedSchema.parse({ version: 1, kind: captured.kind, network: captured.network, leaderAddress, tid, oid, twapId,
       time: row.time, coin: row.coin, px: row.px, sz: row.sz, side: row.side, startPosition: row.startPosition,
       tradeKey: twapId === null ? `oid:${oid}` : `twap:${twapId}` });
-    if (normalized.time < captured.from || normalized.time > captured.to) fail();
+    if (normalized.time < captured.from || normalized.time > captured.to) fail('fill_time', { tid, time: normalized.time, from: captured.from, to: captured.to });
     const streamId = `${captured.network}:${leaderAddress}`;
     return { id: `${streamId}:${tid}`, streamId, network: captured.network, leaderAddress, tid, oid, providerTime: normalized.time, receivedAt: captured.receivedAt,
       coin: normalized.coin, tradeKey: normalized.tradeKey, px: normalized.px, sz: normalized.sz, side: normalized.side, startPosition: normalized.startPosition,
       normalized, raw, sourceDigest: liveSourceDigest({ source: SOURCES[captured.network], normalized, raw }), originVersion: 1 };
-  } catch { fail(); }
+  } catch (error) { failFrom(error, 'fill_parse'); }
 }
 /** Verify provider evidence against every DB mirror before taking a leg claim. */
 export function decodeLiveSourceFill(row: typeof copyLiveSourceFills.$inferSelect): LiveSourceFillEvidence {
   try {
     const normalized = normalizedSchema.parse(row.normalized), time = row.providerTime.getTime(), receivedAt = row.receivedAt.getTime();
-    if (row.network !== normalized.network) fail();
+    if (row.network !== normalized.network) fail('stored_network', { network: row.network, normalized: normalized.network });
     const fill = parseLiveSourceFill(row.raw, { network: normalized.network, leaderAddress: row.leaderAddress, from: time, to: time, receivedAt, kind: normalized.kind });
-    if (liveSourceDigest(normalized) !== liveSourceDigest(fill.normalized)) fail();
+    if (liveSourceDigest(normalized) !== liveSourceDigest(fill.normalized)) fail('stored_normalized', { tid: fill.tid });
     for (const [key, expected] of Object.entries(fill)) {
       if (key === 'raw' || key === 'normalized') continue;
       const actual = key === 'providerTime' ? time : key === 'receivedAt' ? receivedAt : row[key as keyof typeof row];
-      if (actual !== expected) fail();
+      if (actual !== expected) fail('stored_mirror', { tid: fill.tid, field: key });
     }
     return fill;
-  } catch { fail(); }
+  } catch (error) { failFrom(error, 'stored_decode'); }
 }
 export function canonicalLiveSourceLegs(fill: LiveSourceFillEvidence): CanonicalLiveSourceLeg[] {
   const certified = decodeLiveSourceFill({ ...fill, providerTime: new Date(fill.providerTime), receivedAt: new Date(fill.receivedAt), normalized: { ...fill.normalized } });
@@ -103,7 +133,7 @@ export function canonicalLiveSourceLegs(fill: LiveSourceFillEvidence): Canonical
       size: leg.size.toString(), fraction: leg.leg === 'close' ? leg.fraction.toString() : null, tradeKey: leg.tradeKey }));
 }
 export function liveSourceLegId(mandateId: string, fillId: string, leg: 'open' | 'close'): string {
-  if (typeof mandateId !== 'string' || mandateId.length < 1 || mandateId.length > 128 || typeof fillId !== 'string' || fillId.length < 1 || fillId.length > 160 || !['open', 'close'].includes(leg)) fail();
+  if (typeof mandateId !== 'string' || mandateId.length < 1 || mandateId.length > 128 || typeof fillId !== 'string' || fillId.length < 1 || fillId.length > 160 || !['open', 'close'].includes(leg)) fail('leg_id', { leg });
   return `leg:${liveSourceDigest({ mandateId, fillId, leg })}`;
 }
 
@@ -113,7 +143,7 @@ export function liveSourceLegId(mandateId: string, fillId: string, leg: 'open' |
 export function reconcileLiveSourceFills(left: LiveSourceFillEvidence, right: LiveSourceFillEvidence, mode: 'acquisition' | 'stored'): LiveSourceFillEvidence {
   const certified=(fill:LiveSourceFillEvidence)=>decodeLiveSourceFill({...fill,normalized:{...fill.normalized},providerTime:new Date(fill.providerTime),receivedAt:new Date(fill.receivedAt)});
   const a=certified(left),b=certified(right);
-  if(a.id!==b.id||!['acquisition','stored'].includes(mode))fail();
+  if(a.id!==b.id||!['acquisition','stored'].includes(mode))fail('reconcile_identity',{left:a.tid,right:b.tid,mode});
   if(a.sourceDigest===b.sourceDigest)return a;
   if(a.normalized.kind===b.normalized.kind)throw new LiveBoundaryError('live_source_duplicate_conflict');
   const ordinary=a.normalized.kind==='fills'?a:b,twap=a.normalized.kind==='twap'?a:b;

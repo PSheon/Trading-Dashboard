@@ -4,7 +4,7 @@ import type { CopyLiveSourceRepository } from '../copy-live-source.repository.js
 import type { UnitOfWork } from '../../db/unit-of-work.js';
 import { UNHELD_REJECTED, type LiveExecutionRecord } from '../live/live-execution.js';
 import type { LiveExecutionHooks, LiveExecutionRequest } from '../live/live-execution-runtime.js';
-import { canonicalLiveSourceLegs, decodeLiveSourceFill, liveSourceDigest } from '../live/copy-live-source-evidence.js';
+import { canonicalLiveSourceLegs, decodeLiveSourceFill, liveSourceDigest, liveSourceEvidenceDetail } from '../live/copy-live-source-evidence.js';
 import { liveSourceExecutionAttempt, liveSourceExecutionCloid } from '../live/copy-live-leg-attempt.js';
 import { describeUnexpected, errorCode } from '../../runtime/safe-error-text.js';
 import { TERMINAL_STATES, type LiveSettleOutcome, type LiveSettleRequest } from './copy-live-settler.js';
@@ -19,6 +19,7 @@ import { HyperliquidBudgetWait } from '../../hyperliquid/hyperliquid-budget-wait
 import { classify, liveRetryDelayMs } from '../live/error-class.js';
 import { budgetConsumer } from '../../hyperliquid/request-budgeter.service.js';
 import { LiveReadComparisonError } from '../live/live-shared-reads.js';
+import { LiveRiskBusyError, liveRiskBusyDetail } from '../live/postgres-live-risk-scope.js';
 import { liveDeploymentPolicy } from '../live-deployment.js';
 
 /** One source read's result, for the logs. */
@@ -128,8 +129,10 @@ const HOLD_HEADROOM = '1.1';
 export { describeUnexpected, safeErrorText } from '../../runtime/safe-error-text.js';
 import { LIVE_STANDBY_RENEW_MS, SHARED_CAPACITY_RETRY_MS } from '../../config/constants/hyperliquid.js';
 import { ABSTRACTION_ATTEMPT_LIMIT, CLOSE_ATTEMPT_LIMIT, MAX_LIVE_LEG_ATTEMPTS } from '../../config/constants/limits.js';
-import { HOLD_MARGIN_MS, PLANNING_MARGIN_MS } from '../../config/constants/timings.js';
+import { HOLD_MARGIN_MS, PLANNING_MARGIN_MS, TESTNET_SOURCE_RETRY_MS } from '../../config/constants/timings.js';
 const reasonOf = (error: unknown) => errorCode(error);
+/** A source read's failure for the log: its code, and which evidence check refused it (if one did). */
+const sourceReason = (error: unknown) => [reasonOf(error), liveSourceEvidenceDetail(error)].filter(Boolean).join(' ');
 
 /**
  * One pass of copy execution on the deployment's network, in this order: start funded
@@ -142,6 +145,8 @@ const reasonOf = (error: unknown) => errorCode(error);
 export class CopyLiveEngine {
   private readonly lastTestnetRead = new Map<string, number>();
   private readonly testnetSourceRetryAt = new Map<string, number>();
+  /** Failed testnet source reads in a row, per stream (retryTestnetSoon). */
+  private readonly testnetFailures = new Map<string, number>();
   /** A leg's next first-submission attempt after a failed one (retryDelayMs). */
   private readonly legRetryAt = new Map<string, number>();
   private readonly lastFastRead = new Map<string, number>();
@@ -162,7 +167,7 @@ export class CopyLiveEngine {
     // required cursor when deciding whether shared coverage can restart.
     for (const stream of this.deps.repository.streams(eligible)) {
       try { await this.ingest(stream, mandates); }
-      catch (error) { this.deps.log?.(`source ${stream.network}:${stream.leaderAddress} not read: ${reasonOf(error)}`); }
+      catch (error) { this.deps.log?.(`source ${stream.network}:${stream.leaderAddress} not read: ${sourceReason(error)}`); }
     }
   }
 
@@ -191,7 +196,7 @@ export class CopyLiveEngine {
       const poll = this.fastLeader(stream) && this.deps.fast!.feedUp?.() === false &&
         started - (this.lastFastRead.get(stream.leaderAddress) ?? 0) >= (this.options.fastPollMs ?? 7_500);
       try { await budgetConsumer('copy.source', () => this.ingest(stream, mandates, poll)); }
-      catch (error) { this.deps.log?.(`source ${stream.network}:${stream.leaderAddress} not read: ${reasonOf(error)}`); }
+      catch (error) { this.deps.log?.(`source ${stream.network}:${stream.leaderAddress} not read: ${sourceReason(error)}`); }
     }
     const limit = await this.deps.repository.signalAgeLimitMs();
     const held = await this.prepareWork(mandates.filter(mirrorsLeader));
@@ -286,7 +291,7 @@ export class CopyLiveEngine {
     let outcome: IngestOutcome | null = null;
     for (const stream of streams) {
       try { outcome = await this.ingest(stream, mandates, true); }
-      catch (error) { this.deps.log?.(`source ${stream.network}:${stream.leaderAddress} not read: ${reasonOf(error)}`); }
+      catch (error) { this.deps.log?.(`source ${stream.network}:${stream.leaderAddress} not read: ${sourceReason(error)}`); }
     }
     const ingestedAt = this.now();
     for (const m of mandates.filter(mirrorsLeader)) {
@@ -350,7 +355,7 @@ export class CopyLiveEngine {
     if (fast && this.fastLeader(stream)) {
       this.lastFastRead.set(leaderAddress, now);
       try { result = await this.deps.fast!.source.read(leaderAddress, from); viaFast = result !== null; }
-      catch (error) { this.deps.log?.(`fast source ${leaderAddress} not read: ${reasonOf(error)}`); }
+      catch (error) { this.deps.log?.(`fast source ${leaderAddress} not read: ${sourceReason(error)}`); }
     }
     if (!result) {
       if (network === 'mainnet') result = await this.deps.watched.read(leaderAddress, from, to);
@@ -364,16 +369,34 @@ export class CopyLiveEngine {
           if (error instanceof HyperliquidBudgetWait && Number.isFinite(error.retryMs))
             this.testnetSourceRetryAt.set(key, this.now() + Math.max(error.retryMs,
               error.reason === 'shared_capacity' ? SHARED_CAPACITY_RETRY_MS : 1000));
+          else this.retryTestnetSoon(key);
           throw error;
         }
       }
     }
     if (!result) return null; // The watcher has not proven this span yet.
-    const read = result, applied = await this.deps.uow.run(tx => this.deps.sources.apply(tx, current.revision, read, this.now()));
+    const read = result;
+    let applied: Awaited<ReturnType<CopyLiveSourceRepository['apply']>>;
+    try { applied = await this.deps.uow.run(tx => this.deps.sources.apply(tx, current.revision, read, this.now())); }
+    catch (error) { if (network === 'testnet') this.retryTestnetSoon(key); throw error; }
+    if (network === 'testnet') {
+      if (applied.stream.state === 'gap') this.retryTestnetSoon(key); else this.testnetFailures.delete(key);
+    }
     if (applied.stream.state === 'gap' && applied.stream.lastIssue !== current.lastIssue)
       this.deps.log?.(`source ${key} in gap (${applied.stream.lastIssue}): read [${new Date(read.from).toISOString()}, ${new Date(read.to).toISOString()}] ${viaFast ? 'fast' : 'watched'}, ` +
         `fresh ${read.fresh}, complete ${read.complete}, ${read.completedAt - read.observedAt} ms`);
     return { fast: viaFast, fills: read.fills.length, kind: applied.kind, state: applied.stream.state, through: applied.stream.coverageThrough?.getTime() ?? null };
+  }
+
+  /** A testnet source read failed (thrown, refused, or left a gap): the next
+   * one comes TESTNET_SOURCE_RETRY_MS later, doubling per failure in a row,
+   * never later than the poll interval. One bad read used to cost the whole
+   * 60 s interval, and with it a trade (gate run 9, 2026-10-14). */
+  private retryTestnetSoon(key: string): void {
+    const failures = (this.testnetFailures.get(key) ?? 0) + 1;
+    this.testnetFailures.set(key, failures);
+    const delay = Math.min(this.options.testnetSourceIntervalMs, TESTNET_SOURCE_RETRY_MS * 2 ** Math.min(failures - 1, 16));
+    this.testnetSourceRetryAt.set(key, Math.max(this.testnetSourceRetryAt.get(key) ?? 0, this.now() + delay));
   }
 
   /** Enqueues each copy's new legs, then merges what waits together into
@@ -607,7 +630,8 @@ export class CopyLiveEngine {
       this.deps.log?.(`leg ${row.id} attempt ${row.attempts + 1} failed: ${reason}; ` +
         `elapsed ${Math.max(0, this.now() - attemptedAt)} ms, source age ${Math.max(0, this.now() - row.leaderTime.getTime())} ms, ` +
         `exchange started ${timing.sentAt !== undefined}` +
-        (error instanceof LiveReadComparisonError ? `, changed reads ${error.changedReads.join(',')}` : ''));
+        (error instanceof LiveReadComparisonError ? `, changed reads ${error.changedReads.join(',')}` : '') +
+        (error instanceof LiveRiskBusyError ? `, held by ${liveRiskBusyDetail(error)}` : ''));
       if (error instanceof HyperliquidBudgetWait) this.deps.log?.(`leg ${row.id} budget unavailable: ${error.reason}, retry ${error.retryMs} ms`);
       // Stored as live_execution_failed: say what it really was (Stage 2026-10-06).
       const unexpected = describeUnexpected(error);

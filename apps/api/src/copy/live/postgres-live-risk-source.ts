@@ -24,7 +24,7 @@ import { loadMergedMembers } from './copy-live-merged-members.js';
 import type { LiveReservationStored } from './live-risk-reservation.js';
 import {LiveProviderReadEpoch} from './live-provider-read-epoch.js';
 import { beginLiveExecutionTiming, type LiveExecutionTimingHook, type LiveTimingStage } from './live-execution-diagnostics.js';
-import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
+import { liveEvidenceMaxAgeMs } from '../../config/live-evidence-window.js';
 export type CollectedAuthority=LiveRiskAuthority&{generation:LiveGenerationManifestV1;members?:LiveSourceFillEvidence[];settlementProofs?:LiveSettlementProofs};
 interface BoundPostgresLiveRiskSource { readonly proofSource:LiveAccountRiskProofSource; forHold():Promise<LiveAccountRiskInput>; }
 interface LiveRiskSourceBinding { readonly accountId:string; readonly key:string; }
@@ -53,7 +53,7 @@ export class PostgresLiveRiskSource {
     requireProof(epoch===undefined||epoch instanceof LiveProviderReadEpoch,'live_risk_source_unavailable');
     this.epoch=epoch??new LiveProviderReadEpoch(observer,resolver,remote,options,now);
   }
-  private fresh(at:number) {const now=this.now();requireProof(Number.isSafeInteger(at)&&Number.isSafeInteger(now)&&now>=at&&now-at<=LIVE_EVIDENCE_MAX_AGE_MS,'live_risk_stale');}
+  private fresh(at:number) {const now=this.now();requireProof(Number.isSafeInteger(at)&&Number.isSafeInteger(now)&&now>=at&&now-at<=liveEvidenceMaxAgeMs(),'live_risk_stale');}
   bind(session:LiveRiskDatabaseSession,raw:LiveRiskSourceBinding):BoundPostgresLiveRiskSource {
     assertOriginalLiveRiskSession(session);
     const binding=Object.freeze(structuredClone(raw));requireProof(binding&&typeof binding.accountId==='string'&&binding.accountId.length>0&&typeof binding.key==='string'&&binding.key.length>0,'live_risk_identity');

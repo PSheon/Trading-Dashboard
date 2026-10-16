@@ -133,7 +133,14 @@ export const HYPERLIQUID_STALE_LEASE_RECLAIM_MS = 5 * MINUTE_MS;
  */
 export const MAINNET_WORKER_WEIGHT = { perMin: 360, burst: 840 } as const;
 
-/** basis: derived — the provider's 60 s window plus the 5 s send window of a charge
+/** basis: copied — the exchange evidence's 5 s (LIVE_EVIDENCE_MAX_AGE_MS, the quota's bound until 2026-10-16), kept apart from it: a testnet evidence window may be longer, a send window may not (REST_CHARGE_LIFETIME_MS's 65 s rests on it)
+ * How far ahead of the quota's clock a ticket, permit or socket command may
+ * be sent by (sendUntil, a fence's deadline). A read with a longer evidence
+ * window asks the quota for at most this much at a time.
+ */
+export const HYPERLIQUID_SEND_WINDOW_MS = 5_000;
+
+/** basis: derived — the provider's 60 s window plus the 5 s send window of a charge (HYPERLIQUID_SEND_WINDOW_MS)
  * How long a REST charge holds the shared meter. Never applies to leases.
  */
 export const REST_CHARGE_LIFETIME_MS = 65_000;

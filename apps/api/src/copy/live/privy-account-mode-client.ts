@@ -12,7 +12,7 @@ import { LiveBoundaryError } from './wallet-authorization.js';
 import { sharedCapacityWait, type LiveBudget, type LiveReserveOptions, type LiveBudgetReservation } from '../../hyperliquid/hyperliquid-budget-wait.js';
 import { LIVE_RESERVE_WAIT_MS } from '../../config/constants/hyperliquid.js';
 import { ACCOUNT_MODE_OBSERVE_WEIGHT } from '../../config/constants/weights.js';
-import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
+import { liveEvidenceMaxAgeMs } from '../../config/live-evidence-window.js';
 
 export interface AccountModeIntent {
   readonly operationId: string; readonly accountId: string; readonly strategyId: number;
@@ -66,7 +66,7 @@ function live(intent: AccountModeIntent, now: number): void {
 }
 function fresh(started: number, now: number): void {
   validTime(now);
-  if (now < started || now - started > LIVE_EVIDENCE_MAX_AGE_MS) fail('account_mode_evidence_stale');
+  if (now < started || now - started > liveEvidenceMaxAgeMs()) fail('account_mode_evidence_stale');
 }
 function validSignature(signature: string): void {
   if (typeof signature !== 'string' || !/^0x[0-9a-fA-F]{128}(?:00|01|1b|1c)$/i.test(signature)) fail('account_mode_invalid_signature');
@@ -157,15 +157,15 @@ export class PrivyAccountModeClient {
       trace.push(`budget ${this.now() - t0}ms`);
       const bodies = (['userRole', 'userAbstraction', 'userDexAbstraction', 'spotClearinghouseState'] as const).map(type => ({ type, user: intent.accountAddress }));
       let started = 0;
-      const startClock = () => { signal?.throwIfAborted(); started = this.now(); validTime(started); const bound = AbortSignal.timeout(5000); options.consume?.(ACCOUNT_MODE_OBSERVE_WEIGHT); return bound; };
+      const startClock = () => { signal?.throwIfAborted(); started = this.now(); validTime(started); const bound = AbortSignal.timeout(liveEvidenceMaxAgeMs(intent.network)); options.consume?.(ACCOUNT_MODE_OBSERVE_WEIGHT); return bound; };
       const meterWaitMs = options.meterWaitMs ?? (options.prepaid ? 0 : LIVE_RESERVE_WAIT_MS);
       const t1 = this.now();
       const global = this.global;
       const responses = await boundedLiveRead(() => global
         ? global.fetchInfoBatch(WALLET_NETWORKS[intent.network].infoUrl, bodies, { maxWaitMs: meterWaitMs, signal, onDispatch: startClock })
         : (() => { const bound = startClock(); return Promise.all(bodies.map(body => this.fetcher(WALLET_NETWORKS[intent.network].infoUrl, { method: 'POST',
-          headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), redirect: 'error', signal: bound }))); })(), meterWaitMs + 5000);
-      const remaining = () => { fresh(started, this.now()); return Math.max(1, 5000 - (this.now() - started)); };
+          headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), redirect: 'error', signal: bound }))); })(), meterWaitMs + liveEvidenceMaxAgeMs(intent.network));
+      const remaining = () => { fresh(started, this.now()); return Math.max(1, liveEvidenceMaxAgeMs(intent.network) - (this.now() - started)); };
       trace.push(`meter ${started - t1}ms`, `fetch ${this.now() - started}ms ${responses.map(r => r.status).join('/')}`);
       const evidence = await Promise.all(responses.map(async (response, i) => {
         if (!response.ok) { await response.body?.cancel().catch(() => undefined); throw new Error(); }

@@ -7,6 +7,7 @@ import { setupHttp } from "./bootstrap/http.setup.js";
 import { installProcessGuards } from "./bootstrap/process-guards.js";
 import { setupShutdown } from "./bootstrap/shutdown.setup.js";
 import { swaggerEnabled } from "./bootstrap/swagger-policy.js";
+import { registerLiveEvidenceWindow } from "./config/live-evidence-window.js";
 import { validateEnvironment, type RuntimeConfig } from "./config/runtime-config.js";
 import { BackgroundJobs } from "./runtime/background-jobs.service.js";
 import { StructuredLogger } from "./runtime/structured-logger.js";
@@ -52,6 +53,9 @@ async function startApi(config: RuntimeConfig, logger: StructuredLogger): Promis
  * server), anything else the api. */
 async function bootstrap(): Promise<void> {
   const config = validateEnvironment();
+  // Before any role starts: the live evidence window of the execution network
+  // (validateEnvironment already refused a testnet window on mainnet).
+  registerLiveEvidenceWindow(config.hyperliquid.wallet.network, config.copy.testnetEvidenceMaxAgeMs);
   const logger = redactingLogger(config);
   installProcessGuards(logger);
   if (config.app.isWorker) {

@@ -2,8 +2,10 @@
 // stage-like profile, the gate's scenarios and the worker-log evidence reader.
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { installDbRtt, rttFromEnv } from "./db-rtt.mjs";
-import { EVIDENCE_MAX_MS, FOLLOW_ZERO_CODES, GATE_SCENARIOS, SCENARIOS, evidenceStats, lastStartRtt, orderEvidence, parseScenarios, parseStuckRows, profileEnv, renderGateSummary, renderSpans,
+import { EVIDENCE_MAX_MS, FOLLOW_ZERO_CODES, evidenceWindowMs, GATE_SCENARIOS, SCENARIOS, evidenceStats, lastStartRtt, orderEvidence, parseScenarios, parseStuckRows, profileEnv, renderGateSummary, renderSpans,
   scanWorkerLog, spanStats, spansByRole, stuckRowsSql, termsFor, zeroCodeCounts } from "./lib.mjs";
 
 /** A stand-in for pg's Client: records when each statement reached it. */
@@ -70,6 +72,14 @@ test("stage-like: ratio-floor's terms and files, then Stage's 8 ms round trip", 
   const env = profileEnv("stage-like"), ratio = profileEnv("ratio-floor");
   assert.equal(env.COPY_HARNESS_DB_RTT_MS, "8");
   assert.equal(env.COPY_LIVE_FAST_SOURCE, "all");
+  // The testnet evidence window (gate 11, 2026-10-16): stage-like only; the other profiles run mainnet's 5000.
+  assert.equal(env.COPY_LIVE_TESTNET_EVIDENCE_MAX_AGE_MS, "7000");
+  assert.equal(evidenceWindowMs(env), 7000);
+  for (const other of ["default", "ratio-floor", "stage-caps"]) assert.equal(evidenceWindowMs(profileEnv(other)), 5000, other);
+  assert.equal(EVIDENCE_MAX_MS, 3500);
+  // The 7000 stays local: the api image (Railway: apps/api/Dockerfile) carries apps/api and packages/shared, never scripts/.
+  const dockerfile = readFileSync(resolve(import.meta.dirname, "../../apps/api/Dockerfile"), "utf8");
+  assert.deepEqual(dockerfile.split("\n").filter((l) => /^COPY (?!--from)/.test(l)).map((l) => l.split(/\s+/)[1]).filter((src) => !["pnpm-workspace.yaml", "patches", "apps/api/package.json", "packages/shared/package.json", "tsconfig.json", "apps/api", "packages/shared"].includes(src)), []);
   for (const [key, value] of Object.entries(ratio)) assert.equal(env[key], value, key);
   assert.equal(ratio.COPY_HARNESS_DB_RTT_MS, undefined);
   assert.equal(profileEnv().COPY_HARNESS_DB_RTT_MS, undefined);
@@ -148,12 +158,17 @@ test("evidenceStats and the gate's table: p50/p95/max per scenario and over all"
   assert.equal(evidenceStats([{ evidenceMs: EVIDENCE_MAX_MS }]).over, 1);
   const table = renderGateSummary([{ name: "new-coin", ok: true, orders: orders.slice(0, 2) }, { name: "flip", ok: false, orders: orders.slice(2) }, { name: "stop-open", ok: null, orders: [] }]);
   const rows = table.split("\n");
-  assert.match(rows[0], /each order's judged evidence < 3500 ms/);
-  // Without a judged number (no fan-out computed) the raw one is judged; no projection.
-  assert.match(rows[2], /^new-coin\s+PASS\s+2\s+1000\s+2000\s+2000\s+2000\s+—$/);
-  assert.match(rows[3], /^flip\s+FAIL\s+2\s+3000\s+3600\s+3600\s+3600\s+—$/);
-  assert.match(rows[4], /^stop-open\s+SKIP\s+0\s+—\s+—\s+—\s+—\s+—$/);
-  assert.match(rows[5], /^all\s+FAIL\s+4\s+2000\s+3600\s+3600\s+3600\s+—$/);
+  assert.match(rows[0], /each order's judged evidence < 3500 ms; evidence window 5000 ms \(mainnet's\)$/);
+  // Without a judged number (no fan-out computed) the raw one is judged; no projection. The last column: the window in force.
+  assert.match(rows[2], /^new-coin\s+PASS\s+2\s+1000\s+2000\s+2000\s+2000\s+—\s+5000$/);
+  assert.match(rows[3], /^flip\s+FAIL\s+2\s+3000\s+3600\s+3600\s+3600\s+—\s+5000$/);
+  assert.match(rows[4], /^stop-open\s+SKIP\s+0\s+—\s+—\s+—\s+—\s+—\s+5000$/);
+  assert.match(rows[5], /^all\s+FAIL\s+4\s+2000\s+3600\s+3600\s+3600\s+—\s+5000$/);
+  // A 7000 run says so on the title and on every row: never read as mainnet-equivalent.
+  const wide = renderGateSummary([{ name: "new-coin", ok: true, orders: orders.slice(0, 2) }], 3500, 7000).split("\n");
+  assert.match(wide[0], /judged evidence < 3500 ms; evidence window 7000 ms \(TESTNET allowance, not mainnet-equivalent; mainnet stays 5000\)$/);
+  assert.match(wide[2], /^new-coin\s+PASS\s+2\s+1000\s+2000\s+2000\s+2000\s+—\s+7000$/);
+  assert.throws(() => evidenceWindowMs({ COPY_LIVE_TESTNET_EVIDENCE_MAX_AGE_MS: "4000" }), /not a window/);
 });
 
 test("lastStartRtt: the round trip of the worker's latest start", () => {

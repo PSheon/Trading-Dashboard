@@ -54,8 +54,8 @@ import { LiveLeverageUpdated, LiveLeverageUpdater, LiveLeverageUpdateRequired } 
 import { beginLiveExecutionTiming, LiveSpanRecorder, timedLiveSpan, type LiveExecutionTiming, type LiveExecutionTimingHook, type LiveExecutionDiagnosticHook } from './live-execution-diagnostics.js';
 import { LIVE_RESERVE_WAIT_MS, REST_CHARGE_LIFETIME_MS } from '../../config/constants/hyperliquid.js';
 import { MAX_LIVE_LEG_ATTEMPTS } from '../../config/constants/limits.js';
-import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
 import { LIVE_ORDER_BOUNDARY_WEIGHT } from '../../config/constants/weights.js';
+import { liveEvidenceMaxAgeMs } from '../../config/live-evidence-window.js';
 
 /** Leverage updates one order may make before it is sent (its coin's and
  * other positions' above their caps): each costs an exchange action and a
@@ -72,7 +72,7 @@ const bps = z.string().max(80).regex(/^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/).refine(v
 });
 const optionsSchema = z.object({ slippageBps: bps, extraRiskBufferBps: bps,
   restingOrderBuilderFeeCapTenthsBps: z.number().int().min(0).max(100),
-  timeoutMs: z.number().int().min(1).max(5000).optional(), maxSourceDeviationBps: bps.optional() }).strict();
+  timeoutMs: z.number().int().min(1).refine(v => v <= liveEvidenceMaxAgeMs()).optional(), maxSourceDeviationBps: bps.optional() }).strict();
 /** Exchange timing hooks for latency measurement (B18): when the order POST
  * starts and when its response arrives. They observe; they cannot veto. */
 export interface LiveExecutionHooks {
@@ -242,7 +242,7 @@ export class LiveExecutionRuntime {
     let metadataClient: BoundaryPrivyOrderSigningClient | undefined;
     const timings: Readonly<LiveExecutionTiming>[] = [];
     let completionDiagnostic: Readonly<{ event: 'live_execution_completion_stale'; network: HyperliquidNetwork;
-      oldestCheckedAt: number; completedAt: number; evidenceAgeMs: number; freshnessLimitMs: 5000 }> | undefined;
+      oldestCheckedAt: number; completedAt: number; evidenceAgeMs: number; freshnessLimitMs: number }> | undefined;
     const onTiming: LiveExecutionTimingHook = event => { if (timings.length < 128) timings.push(event); };
     // Below the stages: where the evidence waits (meter transactions, sockets, waves).
     const spans = new LiveSpanRecorder();
@@ -305,7 +305,7 @@ export class LiveExecutionRuntime {
         // Each account read gets its own socket: the epoch observes every live
         // account of the owner at once (one shared source refused all but one).
         sockets = new PerReadAllDexsAccountSource(() => new HyperliquidAllDexsAccountSource(this.now, undefined, this.network, this.global), authority?.accounts.length === 1 ? 3 : 2);
-        const observer = new HyperliquidLiveAccountObserver(this.network, acquire, this.global.fetchInfo, this.now, 5000, sockets);
+        const observer = new HyperliquidLiveAccountObserver(this.network, acquire, this.global.fetchInfo, this.now, liveEvidenceMaxAgeMs(this.network), sockets);
         const resolver = new HyperliquidLiveMarketResolver(this.network, acquire, this.global.fetchInfo, this.now);
         provider = new HyperliquidLiveRiskProvider(this.network, acquire, this.global.fetchInfo, this.now);
         const reservations = new PostgresLiveReservations(this.now);
@@ -393,9 +393,9 @@ export class LiveExecutionRuntime {
         const completedAt = this.now(), oldest = input.localSource.checkedAt;
         riskSourceRequire(Number.isSafeInteger(completedAt) && Number.isSafeInteger(oldest) && oldest > 0 &&
           completedAt >= oldest, 'live_risk_stale');
-        if (completedAt - oldest > LIVE_EVIDENCE_MAX_AGE_MS) completionDiagnostic = Object.freeze({
+        if (completedAt - oldest > liveEvidenceMaxAgeMs(this.network)) completionDiagnostic = Object.freeze({
           event: 'live_execution_completion_stale', network: this.network, oldestCheckedAt: oldest,
-          completedAt, evidenceAgeMs: completedAt - oldest, freshnessLimitMs: 5000,
+          completedAt, evidenceAgeMs: completedAt - oldest, freshnessLimitMs: liveEvidenceMaxAgeMs(this.network),
         });
         return result;
       } finally {

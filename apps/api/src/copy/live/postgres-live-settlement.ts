@@ -21,7 +21,8 @@ import { assessLiveReservationSettlement, type LiveReservationSettlementDecision
 import { captureLiveSettlementProof, decodeLiveSettlementProof } from './live-settlement-proof.js';
 import { validateLiveReservationPayload, freezeLiveReservation, type LiveReservationStored } from './live-risk-reservation.js';
 import { LiveBoundaryError } from './wallet-authorization.js';
-import { LIVE_EVIDENCE_MAX_AGE_MS, NEVER_PLACED_GRACE_MS } from '../../config/constants/timings.js';
+import { NEVER_PLACED_GRACE_MS } from '../../config/constants/timings.js';
+import { liveEvidenceMaxAgeMs } from '../../config/live-evidence-window.js';
 
 interface LiveSettlementObservationInput { readonly accountId: string; readonly key: string; readonly evidence: LiveOrderEvidence; readonly acknowledgement?: LiveIocAcknowledgement; }
 interface LiveSettlementAcknowledgementInput { readonly accountId:string; readonly key:string; readonly acknowledgement:LiveIocAcknowledgement; }
@@ -37,7 +38,7 @@ const json = (value: object) => value as unknown as Record<string, unknown>;
  * request arrays. Durable receipts/ledger are always loaded by this DAL. */
 export class PostgresLiveSettlement {
   constructor(private readonly now = Date.now) {}
-  private fresh(at: number) { const now = this.now(); check(Number.isSafeInteger(now) && Number.isSafeInteger(at) && at > 0 && now >= at && now - at <= LIVE_EVIDENCE_MAX_AGE_MS, 'live_settlement_stale'); }
+  private fresh(at: number) { const now = this.now(); check(Number.isSafeInteger(now) && Number.isSafeInteger(at) && at > 0 && now >= at && now - at <= liveEvidenceMaxAgeMs(), 'live_settlement_stale'); }
   private async query<T>(session: LiveRiskDatabaseSession, promise: PromiseLike<T>): Promise<T> { const value = await promise; await session.scope.assertHeld(); return value; }
   private stored(row: ReservationRow): LiveReservationStored {
     const p = validateLiveReservationPayload(row.payload);
@@ -344,7 +345,7 @@ export class PostgresLiveSettlement {
         const current = await this.receiptManifest(session,tx,row.accountId,row.key,cert.oid);
         const retained = proof.input.receipts.rows.map(r => ({...r,ledger:[...r.ledger].sort((a,b) => a.component.localeCompare(b.component))})).sort((a,b) => a.key.localeCompare(b.key));
         check(isDeepStrictEqual(current,retained),'live_settlement_replay_changed');
-        validUntil = started+5000; session.scope.assertFresh(); this.fresh(started); return {kind:'release' as const,certificate:cert};
+        validUntil = started+liveEvidenceMaxAgeMs(); session.scope.assertFresh(); this.fresh(started); return {kind:'release' as const,certificate:cert};
       }
       if (replayOnly || !('accountSource' in input)) return {kind:'pending' as const,reason:'live_settlement_not_released'};
       check(reservation.revision === input.expectedReservationRevision,'live_settlement_revision_changed');
@@ -356,7 +357,7 @@ export class PostgresLiveSettlement {
       const checkedNow = this.now();
       if (sourceTimes.some(at => !Number.isSafeInteger(at) || at <= 0 || at > checkedNow))
         return this.quarantine(session,tx,row,'live_settlement_stored_evidence_conflict');
-      if (sourceTimes.some(at => checkedNow - at > LIVE_EVIDENCE_MAX_AGE_MS)) return {kind:'pending' as const,reason:'live_settlement_terminal_stale'};
+      if (sourceTimes.some(at => checkedNow - at > liveEvidenceMaxAgeMs())) return {kind:'pending' as const,reason:'live_settlement_terminal_stale'};
       try {
         observation = this.observation(record,evidence.statusObservation as unknown as LiveOrderEvidence);
         acknowledgement = evidence.acknowledgement ? this.acknowledgement(record,evidence.acknowledgement as unknown as LiveIocAcknowledgement) : null;
@@ -405,15 +406,15 @@ export class PostgresLiveSettlement {
         check(changedLeg.length === 1,'live_settlement_source_changed');
       }
       const captured = captureLiveSettlementProof(assessmentInput,decision.certificate);
-      validUntil = Math.min(decision.certificate.validUntil,started+5000);
+      validUntil = Math.min(decision.certificate.validUntil,started+liveEvidenceMaxAgeMs());
       const changed = await this.query(session,tx.update(copyLiveRiskReservations).set({state:'released',exchangeOrderId:decision.certificate.oid,releaseReason:'verified_settlement',releaseEvidenceDigest:decision.certificate.digest,
         revision:row.revision+1,updatedAt:new Date(this.now())}).where(and(eq(copyLiveRiskReservations.key,row.key),eq(copyLiveRiskReservations.revision,row.revision),inArray(copyLiveRiskReservations.state,['unknown','resting']))).returning());
       check(changed.length === 1,'live_settlement_revision_changed');
       const saved = await this.query(session,tx.update(copyLiveExecutionEvidence).set({settlementCertificate:json(decision.certificate),settlementDigest:decision.certificate.digest,
         settlementProof:json(captured.proof),settlementProofDigest:captured.digest,revision:evidence.revision+1,updatedAt:new Date(this.now())})
         .where(and(eq(copyLiveExecutionEvidence.key,row.key),eq(copyLiveExecutionEvidence.revision,evidence.revision))).returning());
-      check(saved.length === 1,'live_settlement_revision_changed'); session.scope.assertFresh(); this.fresh(validUntil-5000); return decision;
+      check(saved.length === 1,'live_settlement_revision_changed'); session.scope.assertFresh(); this.fresh(validUntil-liveEvidenceMaxAgeMs()); return decision;
     });
-    const frozen = freezeLiveReservation(result); session.scope.assertFresh(); if (result.kind === 'release') this.fresh(validUntil-5000); else this.fresh(started); return frozen;
+    const frozen = freezeLiveReservation(result); session.scope.assertFresh(); if (result.kind === 'release') this.fresh(validUntil-liveEvidenceMaxAgeMs()); else this.fresh(started); return frozen;
   }
 }

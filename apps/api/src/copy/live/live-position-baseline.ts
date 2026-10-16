@@ -6,6 +6,7 @@ import { followerReceiptDigestV1 } from './actual-fill-accounting.js';
 import { LiveBoundaryError, address } from './wallet-authorization.js';
 import { freezeLiveReservation } from './live-risk-reservation.js';
 import { Dec } from '../../common/decimal/dec.js';
+import { liveEvidenceMaxAgeMs } from '../../config/live-evidence-window.js';
 
 interface LivePositionBaselineIdentity {
   mandateId: string; accountId: string; strategyId: number; firstExecutionKey: string; network: HyperliquidNetwork; accountAddress: string;
@@ -24,7 +25,7 @@ export function captureLivePositionBaseline(identity: LivePositionBaselineIdenti
     if (!isHyperliquidNetwork(identity.network) || !identity.mandateId || !identity.accountId || !Number.isSafeInteger(identity.strategyId) || identity.strategyId < 1 ||
       address(identity.accountAddress) !== identity.accountAddress || !identity.firstExecutionKey.startsWith(`${identity.network}:${identity.accountAddress}:`) ||
       !/^0x[0-9a-f]{32}$/.test(identity.firstExecutionKey.slice(`${identity.network}:${identity.accountAddress}:`.length))) fail();
-    const view = mapLiveAccountView(identity, snapshot, { blocked: false, reason: null }, now, 5000);
+    const view = mapLiveAccountView(identity, snapshot, { blocked: false, reason: null }, now, liveEvidenceMaxAgeMs(identity.network));
     if (view.freshness !== 'fresh' || snapshot.positions.length || snapshot.restingOrders.length ||
       !Dec.from(snapshot.totalMarginUsed).isZero || !Dec.from(snapshot.exposureUsd).isZero ||
       snapshot.dexes.some(d => !Dec.from(d.marginUsed).isZero || !Dec.from(d.crossMarginUsed).isZero || !Dec.from(d.crossMaintenanceMarginUsed).isZero)) fail();

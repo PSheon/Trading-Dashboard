@@ -3,7 +3,8 @@ import { isHyperliquidNetwork, WALLET_NETWORKS } from '@trading-dashboard/shared
 import { readInfoJson } from '../../hyperliquid/response-validation.js';
 import { LiveBoundaryError, type LiveNetwork } from './wallet-authorization.js';
 import type { LiveSharedReads } from './live-shared-reads.js';
-import { LIVE_EVIDENCE_MAX_AGE_MS, RESERVE_BOUND_MS } from '../../config/constants/timings.js';
+import { RESERVE_BOUND_MS } from '../../config/constants/timings.js';
+import { liveEvidenceMaxAgeMs } from '../../config/live-evidence-window.js';
 
 export interface LiveMarketIdentity {
   network: LiveNetwork;
@@ -80,9 +81,9 @@ export function assertMarketIdentity(m: LiveMarketIdentity): void {
 export class HyperliquidLiveMarketResolver implements LiveMarketResolver {
   private readonly endpoint: string;
   constructor(readonly network: LiveNetwork, private readonly acquire: (weight: number) => Promise<unknown>,
-    private readonly fetcher: typeof fetch = fetch, private readonly now = Date.now, private readonly maxAgeMs = 5_000) {
+    private readonly fetcher: typeof fetch = fetch, private readonly now = Date.now, private readonly maxAgeMs = liveEvidenceMaxAgeMs(network)) {
     if (!isHyperliquidNetwork(network) || typeof acquire !== 'function' ||
-        !Number.isSafeInteger(maxAgeMs) || maxAgeMs < 1 || maxAgeMs > LIVE_EVIDENCE_MAX_AGE_MS) throw new LiveBoundaryError('invalid_market_resolver');
+        !Number.isSafeInteger(maxAgeMs) || maxAgeMs < 1 || maxAgeMs > liveEvidenceMaxAgeMs(network)) throw new LiveBoundaryError('invalid_market_resolver');
     this.endpoint = WALLET_NETWORKS[network].infoUrl;
   }
   /** With an order epoch's `shared` reads (on this network), its paid, memoised

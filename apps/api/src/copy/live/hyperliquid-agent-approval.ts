@@ -6,7 +6,8 @@ import { infoWeight } from "../../hyperliquid/info-weights.js";
 import { extraAgentsSchema } from "../../hyperliquid/info-schemas.js";
 import { boundedLiveRead } from './live-market-resolver.js';
 import { address, LiveBoundaryError, type ExchangeApprovalEvidence, type ExchangeApprovalVerifier, type LiveNetwork, type WalletAuthorization } from "./wallet-authorization.js";
-import { LIVE_EVIDENCE_MAX_AGE_MS, RESERVE_BOUND_MS } from '../../config/constants/timings.js';
+import { RESERVE_BOUND_MS } from '../../config/constants/timings.js';
+import { liveEvidenceMaxAgeMs } from '../../config/live-evidence-window.js';
 
 const ethereumAddress = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
 const roleSchema = z.discriminatedUnion("role", [
@@ -52,7 +53,7 @@ export class HyperliquidAgentApprovalVerifier implements ExchangeApprovalVerifie
       }
       // Timestamp the start of the observation: slow requests cannot turn old
       // role evidence into fresh proof merely by timestamping the last response.
-      if (this.now() - checkedAt > LIVE_EVIDENCE_MAX_AGE_MS) throw new LiveBoundaryError("exchange_approval_evidence_expired");
+      if (this.now() - checkedAt > liveEvidenceMaxAgeMs()) throw new LiveBoundaryError("exchange_approval_evidence_expired");
       return { network: this.network, accountAddress: account, signerAddress: signer, checkedAt, expiresAt };
     } catch (error) {
       // A refused budget or IP meter stays a wait the caller retries (Stage

@@ -15,7 +15,8 @@ import { safeErrorText } from '../runtime/safe-error-text.js';
 import { deploymentNetwork } from './live-deployment.js';
 import { liveReadCache } from './live/live-read-cache.js';
 import { IdentitySpans, privyIdentityFresh } from './live/privy-identity-freshness.js';
-import { IN_WINDOW_METER_WAIT_MS, LIVE_EVIDENCE_MAX_AGE_MS, SETUP_NONCE_MIN_REMAINING_MS } from '../config/constants/timings.js';
+import { IN_WINDOW_METER_WAIT_MS, SETUP_NONCE_MIN_REMAINING_MS, SLOW_IDENTITY_PROOF_MS } from '../config/constants/timings.js';
+import { liveEvidenceMaxAgeMs } from '../config/live-evidence-window.js';
 import { ACCOUNT_MODE_OBSERVE_WEIGHT, ATTEMPT_WEIGHT, PREFLIGHT_WEIGHT } from '../config/constants/weights.js';
 
 export const ACCOUNT_MODE_CLIENT = Symbol('ACCOUNT_MODE_CLIENT');
@@ -74,7 +75,7 @@ function readIntent(row: AccountModeRow): AccountModeIntent {
     network: row.network, accountAddress: row.accountAddress, nonce, consentExpiresAt: nonce + 300000 });
 }
 function fresh(timestamp: number, now = Date.now()) {
-  if (!Number.isSafeInteger(now) || now <= 0 || !Number.isSafeInteger(timestamp) || timestamp <= 0 || timestamp > now || now - timestamp > LIVE_EVIDENCE_MAX_AGE_MS) throw new ConflictException('account_mode_evidence_expired');
+  if (!Number.isSafeInteger(now) || now <= 0 || !Number.isSafeInteger(timestamp) || timestamp <= 0 || timestamp > now || now - timestamp > liveEvidenceMaxAgeMs()) throw new ConflictException('account_mode_evidence_expired');
 }
 /** The Privy identity proof's own bound (PRIVY_IDENTITY_MAX_AGE_MS). */
 function identityFresh(checkedAt: number, now = Date.now()) {
@@ -138,7 +139,7 @@ export class CopyAccountModeService {
     if (!master || master.id !== row.accountWalletId || master.address !== row.accountAddress || master.externalId !== current.account.externalId || master.ownerQuorumId !== row.accountOwnerQuorumId)
       throw new ConflictException('account_mode_identity_changed');
     await timing.time('db_current_after', () => this.repository.assertCurrent(userId, row, undefined, mutation));
-    if (timing.elapsed() > LIVE_EVIDENCE_MAX_AGE_MS) this.logger.warn(`account mode ${row.id} identity proof slow ${JSON.stringify(timing)}`);
+    if (timing.elapsed() > SLOW_IDENTITY_PROOF_MS) this.logger.warn(`account mode ${row.id} identity proof slow ${JSON.stringify(timing)}`);
     identityFresh(checkedAt); return { ...current, checkedAt };
   }
   private assertObservation(row: AccountModeRow, proof: AccountModeObservation) {

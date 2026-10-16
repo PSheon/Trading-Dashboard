@@ -19,6 +19,14 @@ So the gate runs on the `stage-like` profile (`stage-like.env`: `ratio-floor.env
 `COPY_HARNESS_DB_RTT_MS=8`, every SQL statement of the api and the worker waits 8 ms first, `db-rtt.mjs`),
 with Stage's background meter load (`--contention`, `contention.mjs`), and covers every leg type.
 
+**Testnet evidence window 7000 approved by Paul 2026-10-16 (testnet 273 dexes; mainnet stays 5000).**
+`stage-like.env` sets `COPY_LIVE_TESTNET_EVIDENCE_MAX_AGE_MS=7000`: testnet lists 273 perp dexes (mainnet 11), its
+dex fan-out alone took 1.5–1.6 s and raw order evidence 4.7–5.1 s (gate 11), so every attempt was
+`live_risk_stale` and the setup's account-mode evidence expired. The api and the worker refuse to start with it
+on a mainnet `HYPERLIQUID_NETWORK`; the api image never carries `scripts/`. The gate's judged limit (< 3500 ms) is
+unchanged, and the summary's gate title, its `window` column and every evidence check's detail name the window in
+force (5000 or 7000): a 7000 run is never mainnet-equivalent.
+
 From the main checkout, one heavy step at a time:
 
 ```sh
@@ -130,7 +138,7 @@ covered by unit and database tests only):
 
 The summary (its path is the last line printed: `.claude/logs/copy-harness/<run>-summary.txt`) has every
 check, then the gate table — per scenario the result, its orders' judged evidence p50 / p95 / max (ms), the
-raw max and the mainnet projection's max — then
+raw max, the mainnet projection's max and the evidence window in force — then
 each order's evidence spans summed per role (follower / leader / target / other_account / none) and each
 span's p50 / p95 / max over the orders, so a regression shows which segment grew. Each scenario's orders,
 spans and failed attempts are also in `.claude/logs/copy-harness/<run>-<scenario>-evidence.json`, with the

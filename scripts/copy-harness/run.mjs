@@ -52,7 +52,7 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { closeSync, fstatSync, mkdirSync, openSync, readSync, statSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { EVIDENCE_FAILURES, EVIDENCE_MAX_MS, EXIT, GATE_SCENARIOS, HARNESS_LEADER, ROOT, SCENARIOS, evidenceStats, fundingGate, lastStartRtt, loadEnv, parseScenarios, parseStuckRows, planCleanup, profileEnv,
+import { EVIDENCE_FAILURES, EVIDENCE_MAX_MS, EXIT, evidenceWindowLabel, evidenceWindowMs, GATE_SCENARIOS, HARNESS_LEADER, ROOT, SCENARIOS, evidenceStats, fundingGate, lastStartRtt, loadEnv, parseScenarios, parseStuckRows, planCleanup, profileEnv,
   renderGateSummary, renderSpans, renderSummary, scanWorkerLog, stopSettled, stuckRowsSql, termsFor, waitFor, zeroCodeCounts } from "./lib.mjs";
 import { apiClient, confirmFromPortfolio, launch, login } from "./follower.mjs";
 import { MAINNET_DEXES, evidenceDetail, judgeOrders, judgedStats } from "./criteria.mjs";
@@ -71,6 +71,8 @@ catch (error) { console.error(error.message); process.exit(EXIT.usage); }
 const WORKER_LOG = resolve(flag("worker-log", resolve(ROOT, ".claude/logs/worker-3010.log")));
 const EVIDENCE_MAX = Number(flag("evidence-max-ms", String(EVIDENCE_MAX_MS)));
 if (!(EVIDENCE_MAX > 0)) { console.error("--evidence-max-ms: a positive number of ms"); process.exit(EXIT.usage); }
+// The api's evidence window under this profile (stage-like: the testnet 7000; else 5000), beside every evidence figure.
+const EVIDENCE_WINDOW = evidenceWindowMs(profileEnv(TERMS.profile));
 const MAINNET_DEX_COUNT = Number(flag("mainnet-dexes", String(MAINNET_DEXES)));
 if (!Number.isSafeInteger(MAINNET_DEX_COUNT) || MAINNET_DEX_COUNT < 1) { console.error("--mainnet-dexes: a positive integer (perpDexs entries, the main dex included)"); process.exit(EXIT.usage); }
 const MEASURE_WORKERS = flag("measure-workers", WORKER).split(",").map((u) => u.trim().replace(/\/+$/, "")).filter(Boolean);
@@ -187,7 +189,7 @@ async function measurements() {
 }
 const summary = (extra = {}, measured = null) => {
   const text = renderSummary({ checks, mode: DRY ? "dry run" : "full", ...extra }) +
-    (scenarioRows.length ? `\n\n${renderGateSummary(scenarioRows, EVIDENCE_MAX)}\n\n${renderSpans(scenarioRows)}` : "") +
+    (scenarioRows.length ? `\n\n${renderGateSummary(scenarioRows, EVIDENCE_MAX, EVIDENCE_WINDOW)}\n\n${renderSpans(scenarioRows)}` : "") +
     (measured ? `\n\n${measured}` : "");
   console.log(`\n${text}\n`);
   writeFileSync(SUMMARY, `${text}\n`);
@@ -428,10 +430,10 @@ try {
     const dexes = { venues: venues?.venues ?? null, mainnetDexes: MAINNET_DEX_COUNT };
     const orders = judgeOrders(scanned.orders, dexes);
     const stats = judgedStats(orders, EVIDENCE_MAX);
-    writeFileSync(resolve(OUT, `${runId}-${label}-evidence.json`), `${JSON.stringify({ maxMs: EVIDENCE_MAX, dexes: { ...dexes, read: venues }, stats, orders, failures }, null, 2)}\n`);
+    writeFileSync(resolve(OUT, `${runId}-${label}-evidence.json`), `${JSON.stringify({ maxMs: EVIDENCE_MAX, evidenceWindowMs: EVIDENCE_WINDOW, dexes: { ...dexes, read: venues }, stats, orders, failures }, null, 2)}\n`);
     const slowest = orders.reduce((a, b) => (!a || b.judgedMs > a.judgedMs ? b : a), null);
     check(`${label}_evidence_under_${EVIDENCE_MAX}ms`, orders.length ? stats.over === 0 : required ? false : null,
-      orders.length ? `${evidenceDetail(orders, EVIDENCE_MAX, dexes)}; slowest phases ${JSON.stringify(slowest.phases)}`
+      orders.length ? `${evidenceDetail(orders, EVIDENCE_MAX, dexes, EVIDENCE_WINDOW)}; slowest phases ${JSON.stringify(slowest.phases)}`
         : `no live_execution_timing line in ${WORKER_LOG} since the scenario began`);
     const bad = failures.filter((f) => EVIDENCE_FAILURES.includes(f.reason));
     const count = (list) => JSON.stringify(Object.fromEntries([...new Set(list.map((f) => f.reason))].map((r) => [r, list.filter((f) => f.reason === r).length])));
@@ -627,7 +629,7 @@ try {
   };
 
   // --- 6. the scenarios ---------------------------------------------------------------------------------------
-  log("scenarios", { list: SCENARIO_LIST, profile: TERMS.profile, terms: TERMS });
+  log("scenarios", { list: SCENARIO_LIST, profile: TERMS.profile, terms: TERMS, evidenceWindowMs: EVIDENCE_WINDOW });
   if (DRY) {
     await startCopy("dry_run");
     // Each scenario's leader legs, planned from live markets (nothing signed).
@@ -643,7 +645,7 @@ try {
     const recent = size === null ? null : scanWorkerLog(readLogFrom(Math.max(0, size - 4 * 2 ** 20)));
     const stats = recent && evidenceStats(recent.orders, EVIDENCE_MAX);
     check("dry_run_worker_log_timings", recent && recent.orders.length ? true : null, recent ? `${recent.orders.length} recent order(s) in ${WORKER_LOG}` +
-      (stats.orders ? `: evidence p50 ${stats.p50} / p95 ${stats.p95} / max ${stats.max} ms, ${stats.over} at or over ${EVIDENCE_MAX}` : "") : `no worker log at ${WORKER_LOG}`);
+      (stats.orders ? `: ${evidenceWindowLabel(EVIDENCE_WINDOW)}: evidence p50 ${stats.p50} / p95 ${stats.p95} / max ${stats.max} ms, ${stats.over} at or over ${EVIDENCE_MAX}` : "") : `no worker log at ${WORKER_LOG}`);
     await stuckCheck();
     await finish(checks.some((c) => c.ok === false) ? EXIT.failed : EXIT.green);
   }

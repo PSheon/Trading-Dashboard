@@ -11,7 +11,7 @@
 // 2. Signal latency in two parts: leader fill → dispatch created (the source's REST
 //    poll: a harness fact on testnet) and dispatch created → order sent (ours).
 
-import { percentile } from "./lib.mjs";
+import { MAINNET_EVIDENCE_WINDOW_MS, evidenceWindowLabel, percentile } from "./lib.mjs";
 
 /** Subscriptions every observation makes whatever the venue count: the aggregate
  * state (`allDexsClearinghouseState`) and the main dex's ("") `openOrders`. */
@@ -107,11 +107,11 @@ export function judgedStats(orders, maxMs) {
     unitMsPerDex: stat(units), projectedMainnet: stat(projected) };
 }
 
-/** The evidence check's detail: the judged number first, then the raw one, the fan-out and the mainnet projection. */
-export function evidenceDetail(orders, maxMs, dexes) {
+/** The evidence check's detail: the window in force, the judged number, then the raw one, the fan-out and the mainnet projection. */
+export function evidenceDetail(orders, maxMs, dexes, windowMs = MAINNET_EVIDENCE_WINDOW_MS) {
   const s = judgedStats(orders, maxMs), f = (v) => (v === null ? "—" : String(v));
   const triple = (t) => `p50 ${f(t.p50)} / p95 ${f(t.p95)} / max ${f(t.max)}`;
-  const parts = [`${s.orders} order(s), judged ${triple(s.judged)} ms, ${s.over} at or over ${maxMs}`, `raw ${triple(s.raw)} ms`];
+  const parts = [`${evidenceWindowLabel(windowMs)}: ${s.orders} order(s), judged ${triple(s.judged)} ms, ${s.over} at or over ${maxMs}`, `raw ${triple(s.raw)} ms`];
   if (s.adjusted) parts.push(`judged = raw minus the testnet dex fan-out (${dexes.venues} venues): fan-out ${triple(s.fanout)} ms, ${f(s.unitMsPerDex.max)} ms/dex; ` +
     `mainnet projection (${dexes.mainnetDexes ?? MAINNET_DEXES} dexes) ${triple(s.projectedMainnet)} ms`);
   else {

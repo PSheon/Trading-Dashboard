@@ -10,7 +10,7 @@ import { Logger } from "@nestjs/common";
 import { safeErrorText } from "../runtime/safe-error-text.js";
 import { LIVE_RESERVE_WAIT_MS } from '../config/constants/hyperliquid.js';
 import { AGENT_OBSERVE_WEIGHT } from '../config/constants/weights.js';
-import { LIVE_EVIDENCE_MAX_AGE_MS } from '../config/constants/timings.js';
+import { liveEvidenceMaxAgeMs } from '../config/live-evidence-window.js';
 
 export const AGENT_APPROVAL_CLIENT = Symbol("AGENT_APPROVAL_CLIENT");
 export interface AgentApprovalClient {
@@ -76,21 +76,21 @@ export class PrivyAgentApprovalClient implements AgentApprovalClient {
     try {
       // One shared-meter charge for both reads; the clock starts as they go out.
       const bodies = [{ type: "userRole", user: intent.accountAddress }, { type: "extraAgents", user: intent.accountAddress }] as const;
-      const start = () => { checkedAt = this.now(); return AbortSignal.timeout(5_000); };
+      const start = () => { checkedAt = this.now(); return AbortSignal.timeout(liveEvidenceMaxAgeMs(intent.network)); };
       const global = this.global, infoUrl = WALLET_NETWORKS[intent.network].infoUrl;
       const responses = await boundedLiveRead(() => global
         ? global.fetchInfoBatch(infoUrl, bodies, { maxWaitMs: LIVE_RESERVE_WAIT_MS, onDispatch: start })
         : (() => { const signal = start(); return Promise.all(bodies.map(body => this.fetcher(infoUrl, { method: "POST",
-          headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), redirect: "error", signal }))); })(), LIVE_RESERVE_WAIT_MS + 5_000);
+          headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), redirect: "error", signal }))); })(), LIVE_RESERVE_WAIT_MS + liveEvidenceMaxAgeMs(intent.network));
       const [role, listed] = await Promise.all(responses.map(async response => {
         if (!response.ok) { await response.body?.cancel().catch(() => undefined); throw new Error(); }
-        return boundedLiveRead(() => readInfoJson(response, "agent approval evidence", 64 * 1024), () => Math.max(1, 5_000 - (this.now() - checkedAt)));
+        return boundedLiveRead(() => readInfoJson(response, "agent approval evidence", 64 * 1024), () => Math.max(1, liveEvidenceMaxAgeMs(intent.network) - (this.now() - checkedAt)));
       }));
       // The master must be a user account (not an agent, vault or subaccount).
       if (!role || typeof role !== "object" || !("role" in role) || role.role !== "user") throw new Error();
       const list = extraAgentsSchema.parse(listed);
       const matches = list.filter(a => a.address.toLowerCase() === data.message.agentAddress);
-      if (this.now() < checkedAt || this.now() - checkedAt > LIVE_EVIDENCE_MAX_AGE_MS) throw new Error();
+      if (this.now() < checkedAt || this.now() - checkedAt > liveEvidenceMaxAgeMs(intent.network)) throw new Error();
       if (!matches.length) return null;
       if (matches.length !== 1 || (matches[0].name !== `copy${intent.strategyId}` && matches[0].name !== data.message.agentName) ||
         matches[0].validUntil !== intent.expiresAt || intent.expiresAt <= this.now()) throw new Error();

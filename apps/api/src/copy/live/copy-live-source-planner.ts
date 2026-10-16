@@ -14,7 +14,8 @@ import { followerReceiptDigestV1 } from './actual-fill-accounting.js';
 import { freezeLiveReservation } from './live-risk-reservation.js';
 import { address, LiveBoundaryError } from './wallet-authorization.js';
 import { EXCHANGE_MIN_ORDER_NOTIONAL_USD, minOrderNotional } from '../min-order-notional.js';
-import { LIVE_EVIDENCE_MAX_AGE_MS, SOURCE_EQUITY_MAX_AGE_MS, SOURCE_MID_MAX_AGE_MS } from '../../config/constants/timings.js';
+import { SOURCE_EQUITY_MAX_AGE_MS, SOURCE_MID_MAX_AGE_MS } from '../../config/constants/timings.js';
+import { liveEvidenceMaxAgeMs } from '../../config/live-evidence-window.js';
 export interface LiveSourcePlanInput {
   readonly mandate: MandateRow; readonly settings: CopyStrategySettings; readonly fill: LiveSourceFillEvidence;
   readonly leg: CanonicalLiveSourceLeg; readonly sizingBasis: unknown; readonly now: number;
@@ -79,7 +80,7 @@ export function combinedCloseFraction(fractions:readonly string[]):Dec{
   const remaining=(n*SCALE)/d,removed=SCALE-remaining;
   return Dec.from(`${removed/SCALE}.${(removed%SCALE).toString().padStart(18,'0')}`);
 }
-function fresh(at:number,now:number){requireSizing(Number.isSafeInteger(at)&&at>=0&&at<=now&&now-at<=LIVE_EVIDENCE_MAX_AGE_MS);}
+function fresh(at:number,now:number){requireSizing(Number.isSafeInteger(at)&&at>=0&&at<=now&&now-at<=liveEvidenceMaxAgeMs());}
 function equal(a:unknown,b:unknown){requireSizing(isDeepStrictEqual(a,b));}
 /** Basis points by which the execution network's mid differs from the source network's mid. */
 export function liveSourceDeviationBps(executionMid:string,sourceMid:string):Dec{
@@ -106,7 +107,7 @@ function snapshotMirror(snapshot:LiveSourceSizingEnvelopeV1['observations']['fol
   // A leader's own account mode is its choice (read with { leader: true }); every
   // freshness, coverage and sum check of the view still applies to its snapshot.
   // The follower's must be the disabled mode its setup set.
-  const view=mapLiveAccountView({accountId:id.accountId,strategyId:id.strategyId,network,accountAddress:expected.accountAddress},leader?{...snapshot,accountAbstraction:'disabled'}:snapshot,{blocked:false,reason:null},now,5000,leader);
+  const view=mapLiveAccountView({accountId:id.accountId,strategyId:id.strategyId,network,accountAddress:expected.accountAddress},leader?{...snapshot,accountAbstraction:'disabled'}:snapshot,{blocked:false,reason:null},now,liveEvidenceMaxAgeMs(network),leader);
   requireSizing(view.freshness==='fresh'&&view.coverage.complete&&view.coverage.balanceComplete&&view.coverage.orderComplete);
   equal({network:snapshot.network,accountAddress:snapshot.accountAddress,equity:snapshot.perpEquity,observedAt:snapshot.observedAt,completedAt:snapshot.completedAt,sourceDigest:snapshot.sourceDigest,snapshotDigest:followerReceiptDigestV1(snapshot)},expected);
 }

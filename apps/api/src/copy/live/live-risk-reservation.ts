@@ -7,7 +7,7 @@ import { buildOrderAction, executionKey, intentFingerprint, type HyperliquidOrde
 import { assertMarketIdentity, marketIdentityKey, type LiveMarketIdentity } from './live-market-resolver.js';
 import { address, LiveBoundaryError } from './wallet-authorization.js';
 import { ceilDecimalProduct } from './live-risk-rounding.js';
-import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
+import { liveEvidenceMaxAgeMs } from '../../config/live-evidence-window.js';
 
 export interface LiveReservationBoundsInput {
   readonly now: number; readonly identity: LiveRiskIdentity; readonly localSource: LiveAccountRiskInput['localSource'];
@@ -35,7 +35,7 @@ function intentKeys(intent: LiveOrderIntent) {
   if (intent.market) onlyKeys(intent.market, ['network', 'coin', 'dex', 'asset', 'universeIndex', 'perpDexIndex', 'sizeDecimals', 'maxLeverage', 'observedAt']);
   if (intent.builder) onlyKeys(intent.builder, ['address', 'feeTenthsBps', 'approvedMaxFeeTenthsBps']);
 }
-function fresh(at: number, now: number) { requireValue(integer(at) && at <= now && now - at <= LIVE_EVIDENCE_MAX_AGE_MS); }
+function fresh(at: number, now: number, network: HyperliquidNetwork) { requireValue(integer(at) && at <= now && now - at <= liveEvidenceMaxAgeMs(network)); }
 function money(value: unknown, signed = false) {
   requireValue(typeof value === 'string' && value.length <= 80 && /^-?(?:0|[1-9]\d*)(?:\.\d{1,18})?$/.test(value));
   const result = Dec.from(value); requireValue(signed || result.gte(0)); return result;
@@ -59,13 +59,13 @@ export function planLiveReservation(raw: LiveReservationBoundsInput): Readonly<L
     const accountAddress = address(id.accountAddress);
     requireValue(address(intent.accountAddress) === accountAddress && intent.userId === id.userId && intent.strategyId === id.strategyId &&
       intent.walletId === id.walletId && intent.authorizationId === id.authorizationId && policy.version === id.policyVersion);
-    fresh(input.localSource.checkedAt, now); digest(input.localSource.sourceDigest);
+    fresh(input.localSource.checkedAt, now, id.network); digest(input.localSource.sourceDigest);
     for (const key of Object.keys(copyRiskLimitsSchema.innerType().shape)) requireValue(Object.hasOwn(policy.limits, key));
     const limits = copyRiskLimitsSchema.parse(policy.limits);
     requireValue(intent.market); assertMarketIdentity(market); assertMarketIdentity(intent.market); assertMarketIdentity(quote.market);
     requireValue(market.network === id.network && market.asset === intent.asset && market.sizeDecimals === intent.sizeDecimals &&
       isDeepStrictEqual(marketIdentityKey(market), marketIdentityKey(intent.market)) && isDeepStrictEqual(marketIdentityKey(market), marketIdentityKey(quote.market)));
-    for (const at of [market.observedAt, intent.market.observedAt, quote.market.observedAt, quote.observedAt, leverage.observedAt, fees.observedAt]) fresh(at, now);
+    for (const at of [market.observedAt, intent.market.observedAt, quote.market.observedAt, quote.observedAt, leverage.observedAt, fees.observedAt]) fresh(at, now, id.network);
     for (const value of [quote.sourceDigest, leverage.sourceDigest, fees.sourceDigest]) digest(value);
     requireValue(isDeepStrictEqual(buildOrderAction(intent), action));
     requireValue(leverage.network === id.network && address(leverage.accountAddress) === accountAddress && leverage.coin === market.coin &&

@@ -6,8 +6,8 @@ import { readInfoJson } from '../../hyperliquid/response-validation.js';
 import { parseFollowerFill, parseFollowerFunding, type ParsedFollowerFill, type ParsedFollowerFunding } from './actual-fill-accounting.js';
 import { boundedLiveRead } from './live-market-resolver.js';
 import { address, LiveBoundaryError } from './wallet-authorization.js';
-import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
 import { GENERAL_TIME_RANGE_CAP } from '../../config/constants/hyperliquid.js';
+import { liveEvidenceMaxAgeMs } from '../../config/live-evidence-window.js';
 
 type FollowerReceiptKind = 'fills' | 'funding';
 export interface FollowerReceiptWindow {
@@ -131,7 +131,7 @@ export class HyperliquidFollowerReceiptReader {
     let requestsUsed = 0;
     const remaining = () => {
       if (!this.fresh(started)) fail('follower_reader_evidence_expired');
-      return Math.max(1, LIVE_EVIDENCE_MAX_AGE_MS - (this.now() - started));
+      return Math.max(1, liveEvidenceMaxAgeMs() - (this.now() - started));
     };
     const unresolvedRest = (window: FollowerReceiptWindow, reason: FollowerWindowReason) => {
       for (const next of [window, ...queue]) unresolvedWindows.push({ ...next, reason });
@@ -220,6 +220,6 @@ export class HyperliquidFollowerReceiptReader {
   }
   private fresh(at: number): boolean {
     const now = this.now();
-    return Number.isSafeInteger(now) && now >= at && now - at <= LIVE_EVIDENCE_MAX_AGE_MS;
+    return Number.isSafeInteger(now) && now >= at && now - at <= liveEvidenceMaxAgeMs();
   }
 }

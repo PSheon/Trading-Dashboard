@@ -88,7 +88,9 @@ test("gate 9's new_coin_evidence_under_3500ms under the new criteria: judged 276
   assert.deepEqual(stats.raw, { p50: 4256, p95: 4256, max: 4256 });
   assert.deepEqual(stats.projectedMainnet, { p50: 2930, p95: 2930, max: 2930 });
   const detail = evidenceDetail(orders, 3500, GATE9_DEXES);
-  assert.match(detail, /^1 order\(s\), judged p50 2763 \/ p95 2763 \/ max 2763 ms, 0 at or over 3500/);
+  assert.match(detail, /^evidence window 5000 ms \(mainnet's\): 1 order\(s\), judged p50 2763 \/ p95 2763 \/ max 2763 ms, 0 at or over 3500/);
+  // Under the testnet allowance (stage-like, 7000) the same figures say so; the judged limit stays 3500.
+  assert.match(evidenceDetail(orders, 3500, GATE9_DEXES, 7000), /^evidence window 7000 ms \(TESTNET allowance, not mainnet-equivalent; mainnet stays 5000\): 1 order\(s\), judged p50 2763 .* 0 at or over 3500/);
   assert.match(detail, /raw p50 4256 \/ p95 4256 \/ max 4256 ms/);
   assert.match(detail, /dex fan-out \(270 venues\): fan-out p50 1493 \/ p95 1493 \/ max 1493 ms, 16\.65 ms\/dex/);
   assert.match(detail, /mainnet projection \(11 dexes\) p50 2930 \/ p95 2930 \/ max 2930 ms/);
@@ -97,7 +99,7 @@ test("gate 9's new_coin_evidence_under_3500ms under the new criteria: judged 276
   assert.equal(judgedStats(mainnet, 3500).over, 1);
   assert.match(evidenceDetail(mainnet, 3500, GATE9_DEXES), /judged = raw \(mainnet: raw evidence\)/);
   const table = renderGateSummary([{ name: "new-coin", ok: true, orders }]).split("\n");
-  assert.match(table[2], /^new-coin\s+PASS\s+1\s+2763\s+2763\s+2763\s+4256\s+2930$/);
+  assert.match(table[2], /^new-coin\s+PASS\s+1\s+2763\s+2763\s+2763\s+4256\s+2930\s+5000$/);
 });
 
 // Gate 9's dispatch rows (strategy 129) and the leader's testnet fills.

@@ -6,6 +6,7 @@ import { booleanValue, databaseUrl, integerValue, servicePermissions } from "./p
 import { runsCopy, workerRoleValue } from "../runtime/worker-role.js";
 import { liveSetupTimings, liveStopTimings, type LiveSetupTimings, type LiveStopTimings } from "./live-timings.js";
 import { HYPERLIQUID_BACKGROUND_REST_CAP, MAINNET_WORKER_WEIGHT } from './constants/hyperliquid.js';
+import { LIVE_EVIDENCE_MAX_AGE_MS, LIVE_TESTNET_EVIDENCE_MAX_AGE_CAP_MS } from './constants/timings.js';
 
 
 
@@ -191,8 +192,24 @@ export type CopyTradingMode = "paper" | "disabled" | "testnet" | "live";
  * Privy signing key and quorum and a shared egress key; a missing one refuses
  * startup rather than running as paper.
  */
+/**
+ * COPY_LIVE_TESTNET_EVIDENCE_MAX_AGE_MS (optional, 5000..10000): the live
+ * path's evidence window on a TESTNET deployment (config/live-evidence-window.ts).
+ * Testnet lists 273 perp dexes (mainnet 11), so its order evidence took
+ * 4.7–5.1 s (gate 11, 2026-10-16). Refused whenever the execution network
+ * (HYPERLIQUID_NETWORK: where orders, setups and stops go; COPY_TRADING_MODE=live
+ * requires mainnet) is mainnet, whose window is always LIVE_EVIDENCE_MAX_AGE_MS.
+ * Unset: LIVE_EVIDENCE_MAX_AGE_MS everywhere.
+ */
+function testnetEvidenceMaxAgeMs(source: Environment, wallet: "mainnet" | "testnet"): number | undefined {
+  const key = "COPY_LIVE_TESTNET_EVIDENCE_MAX_AGE_MS", raw = source[key];
+  if (raw === undefined) return undefined;
+  if (wallet !== "testnet") throw new Error(`${key} is testnet only: the execution network (HYPERLIQUID_NETWORK) is ${wallet}, whose evidence window is always ${LIVE_EVIDENCE_MAX_AGE_MS} ms`);
+  return integerValue(key, raw, LIVE_EVIDENCE_MAX_AGE_MS, LIVE_EVIDENCE_MAX_AGE_MS, LIVE_TESTNET_EVIDENCE_MAX_AGE_CAP_MS);
+}
 function copyTrading(source: Environment, wallet: "mainnet" | "testnet", egressKey: string | undefined):
-  { mode: CopyTradingMode; workerIntervalMs: number; agent?: AgentSigningConfig; live?: LiveCopyConfig } {
+  { mode: CopyTradingMode; workerIntervalMs: number; agent?: AgentSigningConfig; live?: LiveCopyConfig; testnetEvidenceMaxAgeMs?: number } {
+  const testnetEvidence = testnetEvidenceMaxAgeMs(source, wallet);
   const mode = (source.COPY_TRADING_MODE ?? "paper").trim().toLowerCase();
   if (mode !== "paper" && mode !== "disabled" && mode !== "testnet" && mode !== "live") throw new Error("COPY_TRADING_MODE must be paper, testnet, live or disabled");
   const agent = agentSigning(source);
@@ -230,6 +247,7 @@ function copyTrading(source: Environment, wallet: "mainnet" | "testnet", egressK
     mode,
     workerIntervalMs: integerValue("COPY_WORKER_INTERVAL_MS", source.COPY_WORKER_INTERVAL_MS, 2000, 250, 60_000),
     agent, ...(live ? { live } : {}),
+    ...(testnetEvidence === undefined ? {} : { testnetEvidenceMaxAgeMs: testnetEvidence }),
   };
 }
 

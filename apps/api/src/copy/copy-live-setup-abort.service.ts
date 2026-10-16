@@ -22,6 +22,7 @@ import type { DbTransaction } from '../db/unit-of-work.js';
 import { ALERT_EVERY_MS } from '../config/constants/alerts.js';
 import { NOT_DISPATCHED_RETRY_MS, REPROVE_AFTER_MS, SETUP_ABORT_BLOCKED_RECHECK_MS, SETUP_ABORT_NOT_FLAT_ESCALATE_MS } from '../config/constants/timings.js';
 import { jsonDigest as digest } from '../common/crypto/digest.js';
+import { liveEvidenceMaxAgeMs } from '../config/live-evidence-window.js';
 
 export const SETUP_ABORT_OBSERVER = Symbol('SETUP_ABORT_OBSERVER');
 interface SetupAbortObserver { observeSetupAbortFlat(address: string): Promise<SetupAbortFlatObservation> }
@@ -241,9 +242,9 @@ export class CopyLiveSetupAbortService {
       if (!attempt) { await wait('draining', 'setup_abort_child_pending'); return; }
       flat = true;
       const context = await this.returns.contextRead(row.userId, row.accountId!, true), account = context.account;
-      // The flat observation the POST relies on: at most 5 s old when it leaves.
+      // The flat observation the POST relies on: at most the evidence window (5 s) old when it leaves.
       let proven = proof;
-      const fresh = () => { const at = this.now(), observedAt = proven.snapshot.observedAt; if (!Number.isSafeInteger(at) || at < observedAt || at >= observedAt + 5000) throw new Error('stale'); };
+      const fresh = () => { const at = this.now(), observedAt = proven.snapshot.observedAt; if (!Number.isSafeInteger(at) || at < observedAt || at >= observedAt + liveEvidenceMaxAgeMs()) throw new Error('stale'); };
       let dispatched = false, retryMs = 30_000;
       try {
         const signature = await this.signer.sign({ walletId: account.privyWalletId!, address: attempt.address, ownerQuorumId: account.ownerQuorumId!,

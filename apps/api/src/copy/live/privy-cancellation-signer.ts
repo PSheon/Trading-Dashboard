@@ -18,8 +18,8 @@ import {
   type PreparedTrackedCancellation,
   type TrackedCancellationAuthority,
 } from './live-tracked-cancellation.js';
-import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
 import { EIP712_DOMAIN_FIELDS as domainFields, PHANTOM_AGENT_DOMAIN as domain, PHANTOM_AGENT_FIELDS as agentFields } from './phantom-agent-typed-data.js';
+import { liveEvidenceMaxAgeMs } from '../../config/live-evidence-window.js';
 
 function captureCancellationPermit(
   permit: CancellationPermit,
@@ -133,7 +133,7 @@ export class PrivyTrackedCancellationSigner {
                 assertCancellationPermit(permit, operation, 'sign', this.now());
                 if (
                   this.now() < walletCheckedAt ||
-                  this.now() - walletCheckedAt > LIVE_EVIDENCE_MAX_AGE_MS
+                  this.now() - walletCheckedAt > liveEvidenceMaxAgeMs()
                 )
                   throw new LiveBoundaryError(
                     'cancel_privy_wallet_identity_stale',

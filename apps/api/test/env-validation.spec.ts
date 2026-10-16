@@ -132,6 +132,19 @@ describe("startup environment", () => {
       expect(() => validateEnvironment({ ...live, COPY_LIVE_SETUP_TRANSIENT_ATTEMPTS: "0" })).toThrow("COPY_LIVE_SETUP_TRANSIENT_ATTEMPTS");
       expect(() => validateEnvironment({ ...live, COPY_LIVE_SETUP_BACKOFF_BASE_MS: "90000" })).toThrow("must not exceed COPY_LIVE_SETUP_BACKOFF_MAX_MS");
     });
+    it("refuses the testnet evidence window whenever the execution network is mainnet: unset is 5000 everywhere (gate 11, 2026-10-16)", () => {
+      const window = "COPY_LIVE_TESTNET_EVIDENCE_MAX_AGE_MS";
+      // Keyed on HYPERLIQUID_NETWORK (where orders go), not the copy mode: refused on a live and on a paper mainnet deployment.
+      expect(() => validateEnvironment({ ...live, [window]: "7000" })).toThrow(`${window} is testnet only: the execution network (HYPERLIQUID_NETWORK) is mainnet`);
+      expect(() => validateEnvironment({ ...live, [window]: "5000" })).toThrow(`${window} is testnet only`);
+      expect(() => validateEnvironment({ ...base, HYPERLIQUID_NETWORK: "mainnet", [window]: "7000" })).toThrow(`${window} is testnet only`);
+      expect(validateEnvironment(live).copy.testnetEvidenceMaxAgeMs).toBeUndefined();
+      const testnet = { ...live, COPY_TRADING_MODE: "testnet", HYPERLIQUID_NETWORK: "testnet", COPY_LIVE_ALLOWED_PRIVY_USER_IDS: undefined };
+      expect(validateEnvironment(testnet).copy.testnetEvidenceMaxAgeMs).toBeUndefined();
+      expect(validateEnvironment({ ...testnet, [window]: "7000" }).copy.testnetEvidenceMaxAgeMs).toBe(7000);
+      expect(validateEnvironment({ ...base, [window]: "10000" }).copy.testnetEvidenceMaxAgeMs).toBe(10_000);
+      for (const bad of ["4999", "10001", "7s", ""]) expect(() => validateEnvironment({ ...testnet, [window]: bad })).toThrow(`${window} must be an integer between 5000 and 10000`);
+    });
     it("leaves a testnet deployment's caps as they were unless set, and its testnet source interval configurable", () => {
       const testnet = { ...live, COPY_TRADING_MODE: "testnet", HYPERLIQUID_NETWORK: "testnet", COPY_LIVE_ALLOWED_PRIVY_USER_IDS: undefined };
       expect(validateEnvironment(testnet).copy.live).toMatchObject({ network: "testnet", builderFee: true, caps: { maxStrategiesPerUser: 2 } });

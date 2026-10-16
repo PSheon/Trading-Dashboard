@@ -5,7 +5,8 @@ import * as schema from '@trading-dashboard/shared/database';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import type { DbExecutor, DbTransaction } from '../../db/unit-of-work.js';
 import { LiveBoundaryError, type LiveNetwork } from './wallet-authorization.js';
-import { LIVE_EVIDENCE_MAX_AGE_MS, LOCK_CHECK_REUSE_MS } from '../../config/constants/timings.js';
+import { LOCK_CHECK_REUSE_MS } from '../../config/constants/timings.js';
+import { liveEvidenceMaxAgeMs } from '../../config/live-evidence-window.js';
 
 export interface LiveRiskIdentity {
   readonly userId: number;
@@ -255,7 +256,7 @@ export class PostgresLiveRiskScope {
       if (!held || lost) fail('live_risk_serialization_lost');
       const now = this.now();
       if (!Number.isSafeInteger(now) || now <= 0 || !Number.isSafeInteger(checkedAt) ||
-          now < checkedAt || now - checkedAt > LIVE_EVIDENCE_MAX_AGE_MS) fail('live_risk_serialization_stale');
+          now < checkedAt || now - checkedAt > liveEvidenceMaxAgeMs()) fail('live_risk_serialization_stale');
     };
     const scope: LiveRiskScope = Object.freeze({ identity, assertFresh, assertHeld: async () => {
       this.externalFence?.assertFresh();

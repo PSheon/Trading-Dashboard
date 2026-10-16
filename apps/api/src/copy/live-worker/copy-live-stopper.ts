@@ -28,7 +28,8 @@ import { CLOSE_NEVER_SENT, closeCloid, closeRetryDelayMs, type CloseAccount, typ
 import type { AutoReturn } from './copy-live-auto-return.js';
 import type { CopyLiveFlatCarry } from './copy-live-flat-carry.js';
 import type { SystemStopOutcome } from '../copy-live-stop-system.js';
-import { FLAT_CARRY_RETRY_MS, LIVE_EVIDENCE_MAX_AGE_MS, REVOKE_DEADLINE_MS } from '../../config/constants/timings.js';
+import { FLAT_CARRY_RETRY_MS, REVOKE_DEADLINE_MS } from '../../config/constants/timings.js';
+import { liveEvidenceMaxAgeMs } from '../../config/live-evidence-window.js';
 
 // A single-position close gives up after retry.closeAttempts orders and a cancel
 // after retry.cancelAttempts; a stop never gives up (it backs off).
@@ -278,7 +279,7 @@ export class StopCanceller {
       const exchangeApproval = await verifier.verify(grant), checkedAt = this.now();
       return { phase, operationId: op.operationId, operationFingerprint: op.fingerprint, claimToken: op.claimToken, targetExecutionKey: op.target.record.key,
         targetFingerprint: op.target.record.fingerprint, authorization: op.authorization, ownerConsentDigest: op.ownerConsentDigest, ownerEnabled: true as const, checkedAt, exchangeApproval,
-        assertFresh: () => { if (this.now() - checkedAt > LIVE_EVIDENCE_MAX_AGE_MS) throw new LiveBoundaryError('cancel_current_authority_stale'); } };
+        assertFresh: () => { if (this.now() - checkedAt > liveEvidenceMaxAgeMs()) throw new LiveBoundaryError('cancel_current_authority_stale'); } };
     } };
     const { auth, copy } = this.config.value;
     if (!auth.appId || !auth.appSecret || !copy.agent || copy.agent.workerQuorumId !== intent.workerQuorumId) return 'stop_cancellation_signing_unavailable';

@@ -9,7 +9,7 @@ import { address, LiveBoundaryError } from './wallet-authorization.js';
 import { ceilDecimalProduct } from './live-risk-rounding.js';
 import { minOrderNotional } from '../min-order-notional.js';
 import { providerTimeNotAfter } from './clock-skew.js';
-import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
+import { liveEvidenceMaxAgeMs } from '../../config/live-evidence-window.js';
 
 export interface LiveRiskIdentity {
   readonly accountId: string; readonly userId: number; readonly strategyId: number;
@@ -79,11 +79,11 @@ function money(value: unknown, signed = false): Dec {
 function integer(value: unknown, min = 1): boolean { return Number.isSafeInteger(value) && (value as number) >= min; }
 function digest(value: unknown): void { requireProof(typeof value === 'string' && /^[0-9a-f]{64}$/.test(value), 'live_risk_source'); }
 function fresh(at: unknown, now: number): void {
-  requireProof(integer(at, 0) && (at as number) <= now && now - (at as number) <= LIVE_EVIDENCE_MAX_AGE_MS, 'live_risk_stale');
+  requireProof(integer(at, 0) && (at as number) <= now && now - (at as number) <= liveEvidenceMaxAgeMs(), 'live_risk_stale');
 }
 /** Hyperliquid's own time: as `fresh`, up to PROVIDER_CLOCK_SKEW_MS ahead of ours. */
 function freshProvider(at: unknown, now: number): void {
-  requireProof(integer(at, 0) && providerTimeNotAfter(at as number, now) && now - (at as number) <= LIVE_EVIDENCE_MAX_AGE_MS, 'live_risk_stale');
+  requireProof(integer(at, 0) && providerTimeNotAfter(at as number, now) && now - (at as number) <= liveEvidenceMaxAgeMs(), 'live_risk_stale');
 }
 function unique(values: readonly (string | number)[], reason: string): void {
   requireProof(new Set(values).size === values.length, reason);

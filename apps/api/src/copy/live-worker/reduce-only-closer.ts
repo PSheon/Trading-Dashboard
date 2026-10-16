@@ -24,7 +24,7 @@ import { BoundaryPrivyOrderSigningClient } from '../live/privy-order-client.js';
 import { PrivyOrderSigner } from '../live/privy-order-signer.js';
 import { address, LiveBoundaryError, WalletAuthorizationService } from '../live/wallet-authorization.js';
 import { liveReadCache } from '../live/live-read-cache.js';
-import { LIVE_EVIDENCE_MAX_AGE_MS, SNAPSHOT_MAX_AGE_MS } from '../../config/constants/timings.js';
+import { liveEvidenceMaxAgeMs, liveSnapshotMaxAgeMs } from '../../config/live-evidence-window.js';
 
 /** A close must reduce the observed position: opposite side, no larger (never open, enlarge or flip). */
 export function assertCloseWithinPosition(intent: Pick<LiveOrderIntent, 'side' | 'size'>, position: { size: string } | undefined): void {
@@ -97,7 +97,7 @@ export class ReduceOnlyCloser {
   private async readObservation(accountAddress: string, acquire: (weight: number) => Promise<void>): Promise<LiveAccountSnapshot> {
     const sockets = new PerReadAllDexsAccountSource(() => new HyperliquidAllDexsAccountSource(this.now, undefined, this.network, this.global, { closeAfterRead: true }), 2);
     try {
-      const value = await new HyperliquidLiveAccountObserver(this.network, acquire, this.global.fetchInfo, this.now, 5000, sockets, undefined, liveReadCache(this.network)).observe(accountAddress);
+      const value = await new HyperliquidLiveAccountObserver(this.network, acquire, this.global.fetchInfo, this.now, liveEvidenceMaxAgeMs(this.network), sockets, undefined, liveReadCache(this.network)).observe(accountAddress);
       this.snapshot = { at: this.now(), value };
       return value;
     } finally { await sockets.close(); }
@@ -113,14 +113,14 @@ export class ReduceOnlyCloser {
       if (!intent.reduceOnly || intent.timeInForce !== 'Ioc' || intent.network !== this.network || address(intent.accountAddress) !== address(account.accountAddress))
         throw new LiveBoundaryError('close_gate_not_reduce_only');
       if (!await stillWanted()) throw new LiveBoundaryError('close_no_longer_requested');
-      const held = this.snapshot && this.now() - this.snapshot.at <= SNAPSHOT_MAX_AGE_MS && this.snapshot.value.accountAddress === address(account.accountAddress)
+      const held = this.snapshot && this.now() - this.snapshot.at <= liveSnapshotMaxAgeMs(this.network) && this.snapshot.value.accountAddress === address(account.accountAddress)
         ? this.snapshot : { at: this.now(), value: await this.readObservation(account.accountAddress, acquire) };
       const position = held.value.positions.find(p => p.coin === intent.market?.coin);
       assertCloseWithinPosition(intent, position);
       const observedAt = held.at;
       const permit: LiveExecutionPermit = { phase, key: record.key, fingerprint: record.fingerprint, assertFresh: () => {
         const now = this.now();
-        if (!Number.isSafeInteger(now) || now - observedAt > LIVE_EVIDENCE_MAX_AGE_MS) throw new LiveBoundaryError('close_evidence_expired');
+        if (!Number.isSafeInteger(now) || now - observedAt > liveEvidenceMaxAgeMs(this.network)) throw new LiveBoundaryError('close_evidence_expired');
       } };
       return permit;
     } };
@@ -166,7 +166,7 @@ export class ReduceOnlyCloser {
     return this.prepaid(observerRestWeight(account.accountAddress, liveReadCache(this.network)) + 4 * 40 + 4 * 20 + 3, async acquire => {
       const { executor, resolver } = this.executor(account, request.stillWanted, purpose, acquire);
       // Reuse the caller's observation only if still fresh after the quota wait.
-      const held = this.snapshot && this.now() - this.snapshot.at <= SNAPSHOT_MAX_AGE_MS && this.snapshot.value.accountAddress === address(account.accountAddress) ? this.snapshot.value : null;
+      const held = this.snapshot && this.now() - this.snapshot.at <= liveSnapshotMaxAgeMs(this.network) && this.snapshot.value.accountAddress === address(account.accountAddress) ? this.snapshot.value : null;
       const snapshot = held ?? await this.readObservation(account.accountAddress, acquire);
       const position = snapshot.positions.find(p => p.coin === request.coin);
       if (!position || Dec.from(position.size).isZero) return null;

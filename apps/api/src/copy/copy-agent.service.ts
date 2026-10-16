@@ -15,8 +15,9 @@ import { deploymentNetwork } from "./live-deployment.js";
 import { takeReserved, type LiveBudgetReservation } from "../hyperliquid/hyperliquid-budget-wait.js";
 import { allInOrder, IdentitySpans, privyIdentityFresh, type IdentitySpan } from "./live/privy-identity-freshness.js";
 import { AGENT_APPROVED_UNRECORDED_ALERT_MS, ALERT_EVERY_MS } from '../config/constants/alerts.js';
-import { FUNDING_NONCE_EXPIRY_MS, LIVE_EVIDENCE_MAX_AGE_MS, SLOW_IDENTITY_PROOF_MS } from '../config/constants/timings.js';
+import { FUNDING_NONCE_EXPIRY_MS, SLOW_IDENTITY_PROOF_MS } from '../config/constants/timings.js';
 import { AGENT_OBSERVE_WEIGHT } from '../config/constants/weights.js';
+import { liveEvidenceMaxAgeMs } from '../config/live-evidence-window.js';
 
 /** The agent's identity proof aged past PRIVY_IDENTITY_MAX_AGE_MS: a wait
  * (transient), never a block. Carries the proof's read spans. */
@@ -276,7 +277,7 @@ export class CopyAgentService {
       const ended = await this.repository.transition(row, { state: "blocked", issue: "agent_approval_not_executed" });
       return wire(ended ?? await this.repository.find(userId, row.id));
     }
-    if (!evidence || evidence.validUntil !== intent.expiresAt || !Number.isSafeInteger(evidence.checkedAt) || evidence.checkedAt > Date.now() || Date.now() - evidence.checkedAt > LIVE_EVIDENCE_MAX_AGE_MS) return wire(row);
+    if (!evidence || evidence.validUntil !== intent.expiresAt || !Number.isSafeInteger(evidence.checkedAt) || evidence.checkedAt > Date.now() || Date.now() - evidence.checkedAt > liveEvidenceMaxAgeMs()) return wire(row);
     // Exchange evidence (5 s) spans the tx's lock waits; DB state is rechecked inside it.
     try {
       const active = await this.uow.run(tx => this.repository.activate(tx, userId, row, evidence.checkedAt));

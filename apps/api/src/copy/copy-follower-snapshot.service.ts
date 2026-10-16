@@ -8,6 +8,7 @@ import { LiveBoundaryError } from './live/wallet-authorization.js';
 import { CopyFollowerSnapshotRepository, FollowerSnapshotDeferred, type FollowerSnapshotIssue } from './copy-follower-snapshot.repository.js';
 import { safeErrorText } from '../runtime/safe-error-text.js';
 import { budgetConsumer } from '../hyperliquid/request-budgeter.service.js';
+import { liveEvidenceMaxAgeMs } from '../config/live-evidence-window.js';
 
 export const FOLLOWER_SNAPSHOT_READER = Symbol('FOLLOWER_SNAPSHOT_READER');
 interface FollowerSnapshotReader { observe(accountAddress: string, beforeRead?: () => Promise<void>): Promise<LiveAccountSnapshot>; close?(): void }
@@ -27,7 +28,7 @@ export class CopyFollowerSnapshotService {
       if (snapshot.sourceDigest !== result.observation.sourceDigest || snapshot.observedAt !== result.observation.observedAt.getTime() ||
           snapshot.completedAt !== result.observation.completedAt.getTime() || snapshot.coverage.earliestProviderTime !== result.observation.earliestProviderTime.getTime())
         throw new LiveBoundaryError('follower_snapshot_invalid');
-      const view = mapLiveAccountView(identity, snapshot, result.quarantine, Date.now(), 5000);
+      const view = mapLiveAccountView(identity, snapshot, result.quarantine, Date.now(), liveEvidenceMaxAgeMs(identity.network));
       return copyFollowerSnapshotReadSchema.parse({ ...view, ...(result.job?.issue ? { freshness: 'stale', lastReadIssue: result.job.issue } : {}) });
     } catch { return copyFollowerSnapshotReadSchema.parse({ ...identity, status: 'unavailable', observation: null, reason: 'invalid_evidence' }); }
   }

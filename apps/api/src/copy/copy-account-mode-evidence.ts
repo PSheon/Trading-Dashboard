@@ -13,8 +13,9 @@ import type { AccountModeAbsenceOptions, AccountModeAbsenceProof, AccountModeAbs
 import type { HyperliquidGlobalTransport } from '../hyperliquid/hyperliquid-global-transport.js';
 import { HyperliquidBudgetWait, sharedCapacityWait, type LiveBudget, type LiveReserveOptions } from '../hyperliquid/hyperliquid-budget-wait.js';
 import { LIVE_RESERVE_WAIT_MS } from '../config/constants/hyperliquid.js';
-import { LIVE_EVIDENCE_MAX_AGE_MS, SOURCE_SPACING_MS } from '../config/constants/timings.js';
+import { SOURCE_SPACING_MS } from '../config/constants/timings.js';
 import { ACCOUNT_MODE_ABSENCE_WEIGHT } from '../config/constants/weights.js';
+import { liveEvidenceMaxAgeMs } from '../config/live-evidence-window.js';
 
 const integer = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const decimal = z.string().max(80).regex(/^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/);
@@ -39,7 +40,7 @@ const SOCKET_REFUSALS = new Set(['hyperliquid_quota_exhausted', 'hyperliquid_quo
 const causeOf = (error: unknown): string => error instanceof LiveBoundaryError ? error.code : error instanceof z.ZodError ? 'schema' :
   error instanceof Error ? (error.name === 'Error' ? 'error' : error.name) : 'unknown';
 function unique(values: readonly string[]) { if (new Set(values).size !== values.length) fail(); }
-function fresh(at: number, now: number) { if (!Number.isSafeInteger(at) || at <= 0 || at > now || now - at > LIVE_EVIDENCE_MAX_AGE_MS) fail(); }
+function fresh(at: number, now: number) { if (!Number.isSafeInteger(at) || at <= 0 || at > now || now - at > liveEvidenceMaxAgeMs()) fail(); }
 
 
 /** Proves empty exposure across every perp venue. One all-venue source per process: a proof waits
@@ -96,8 +97,8 @@ export class HyperliquidAccountModeAbsenceReader implements AccountModeAbsenceRe
       if (!options.prepaid) await this.acquire(ACCOUNT_MODE_ABSENCE_WEIGHT, { signal });
       turn ??= await this.turn({ signal });
       let started = 0;
-      const startClock = () => { signal?.throwIfAborted(); started = this.now(); fresh(started, started); const bound = AbortSignal.timeout(5000); options.consume?.(42); return bound; };
-      const remaining = () => { fresh(started, this.now()); return Math.max(1, 5000 - (this.now() - started)); };
+      const startClock = () => { signal?.throwIfAborted(); started = this.now(); fresh(started, started); const bound = AbortSignal.timeout(liveEvidenceMaxAgeMs()); options.consume?.(42); return bound; };
+      const remaining = () => { fresh(started, this.now()); return Math.max(1, liveEvidenceMaxAgeMs() - (this.now() - started)); };
       const check = (value: unknown) => {
         fresh(started, this.now());
         if (value && typeof value === 'object' && !Array.isArray(value)) {
@@ -117,7 +118,7 @@ export class HyperliquidAccountModeAbsenceReader implements AccountModeAbsenceRe
       // One meter charge for the first three reads; the clock starts as they go out.
       const meterWaitMs = options.prepaid ? 0 : LIVE_RESERVE_WAIT_MS;
       step = 'first_batch';
-      const first = await boundedLiveRead(() => send([{ type: 'perpDexs' }, { type: 'spotClearinghouseState', user }, { type: 'extraAgents', user }], meterWaitMs, startClock), meterWaitMs + 5000);
+      const first = await boundedLiveRead(() => send([{ type: 'perpDexs' }, { type: 'spotClearinghouseState', user }, { type: 'extraAgents', user }], meterWaitMs, startClock), meterWaitMs + liveEvidenceMaxAgeMs());
       const [rawDexes, spot, agents] = await answers(first);
       step = 'perp_dexs';
       const list = dexSchema.parse(rawDexes);

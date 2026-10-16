@@ -10,7 +10,7 @@ import { digestLiveEvidence, liveEvidenceDecimal, liveEvidenceOid, liveOrderIden
 import { freezeLiveReservation, validateLiveReservationPayload, type LiveReservationStored } from './live-risk-reservation.js';
 import { address } from './wallet-authorization.js';
 import { providerTimeNotAfter } from './clock-skew.js';
-import { LIVE_EVIDENCE_MAX_AGE_MS, LIVE_FILL_SCAN_MARGIN_MS } from '../../config/constants/timings.js';
+import { liveEvidenceMaxAgeMs, liveFillScanMarginMs } from '../../config/live-evidence-window.js';
 
 interface LiveSettlementLedgerComponent {
   readonly receiptKey: string; readonly component: string; readonly token: string; readonly amount: string;
@@ -33,7 +33,7 @@ export interface LiveReservationSettlementInput {
      * by a scan that booked every fill to it and resolved every window; absent
      * while the scan carries an issue), never from a caller. With no IOC
      * acknowledgement, a cancelled order's filled quantity is its booked fills
-     * once this passes the cancel by LIVE_FILL_SCAN_MARGIN_MS. */
+     * once this passes the cancel by liveFillScanMarginMs(). */
     readonly scannedThrough?: number };
   readonly accountSource: LiveAccountRiskInput['accountSource'];
 }
@@ -52,9 +52,9 @@ function requireProof(value: unknown, reason: string, kind: 'pending'|'quarantin
   if (!value) throw new SettlementIssue(kind, reason);
 }
 function integer(value: unknown, min = 0): value is number { return Number.isSafeInteger(value) && (value as number) >= min; }
-function fresh(at: number, now: number) { requireProof(integer(at) && at <= now && now - at <= LIVE_EVIDENCE_MAX_AGE_MS, 'live_settlement_stale'); }
+function fresh(at: number, now: number) { requireProof(integer(at) && at <= now && now - at <= liveEvidenceMaxAgeMs(), 'live_settlement_stale'); }
 /** Hyperliquid's own time: as `fresh`, up to PROVIDER_CLOCK_SKEW_MS ahead of ours. */
-function freshProvider(at: number, now: number) { requireProof(integer(at) && providerTimeNotAfter(at, now) && now - at <= LIVE_EVIDENCE_MAX_AGE_MS, 'live_settlement_stale'); }
+function freshProvider(at: number, now: number) { requireProof(integer(at) && providerTimeNotAfter(at, now) && now - at <= liveEvidenceMaxAgeMs(), 'live_settlement_stale'); }
 function digest(value: unknown) { requireProof(typeof value === 'string' && /^[0-9a-f]{64}$/.test(value), 'live_settlement_source_unproven'); }
 function decimal(value: unknown, signed = false): Dec {
   requireProof(typeof value === 'string' && value.length <= 80 && /^-?(?:0|[1-9]\d*)(?:\.\d{1,18})?$/.test(value), 'live_settlement_account_invalid');
@@ -94,7 +94,7 @@ export function assessLiveReservationSettlement(raw: LiveReservationSettlementIn
     // "canceled"): its booked fills are the quantity once the account's fill
     // scan is complete past the cancel (every fill of the order is earlier).
     const scanned = receipts.scannedThrough, fromFills = quantity === null && evidence.classification === 'cancelled' &&
-      integer(scanned, 1) && scanned >= evidence.statusTimestamp + LIVE_FILL_SCAN_MARGIN_MS;
+      integer(scanned, 1) && scanned >= evidence.statusTimestamp + liveFillScanMarginMs();
     requireProof(quantity !== null || fromFills, 'live_settlement_quantity_unproven');
     requireProof(receipts.accountId === p.accountId && receipts.completeForOrder === true && Array.isArray(receipts.rows) && receipts.rows.length <= 10000,
       'live_settlement_receipt_coverage_unproven'); fresh(receipts.checkedAt, now);
@@ -192,7 +192,7 @@ export function assessLiveReservationSettlement(raw: LiveReservationSettlementIn
       reservationRevision: reservation.revision, oid: evidence.oid, cloid: evidence.cloid, providerStatus: evidence.providerStatus, statusTimestamp: evidence.statusTimestamp,
       filledSize: total.toString(), terminalSourceDigest: evidence.sourceDigest, acknowledgementDigest, accountSourceDigest: source.sourceDigest,
       receiptManifestDigest: digestLiveEvidence(manifest), receipts: manifest.map(row => ({ key: row.key, digest: row.digest })), assessedAt: now,
-      oldestObservedAt, validUntil: oldestObservedAt + 5000 };
+      oldestObservedAt, validUntil: oldestObservedAt + liveEvidenceMaxAgeMs() };
     return freezeLiveReservation({ kind: 'release' as const, certificate: { ...certificate, digest: digestLiveEvidence({ certificate, evidence, acknowledgement: input.acknowledgement, source, manifest }) } });
   } catch (error) {
     if (error instanceof SettlementIssue) return Object.freeze({ kind: error.kind, reason: error.reason });

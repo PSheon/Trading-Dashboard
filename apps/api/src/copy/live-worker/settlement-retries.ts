@@ -42,9 +42,14 @@ export class SettlementRetries {
       this.rows.set(key, { attempts: decision.attempts, at: this.now(), owner: true });
       return { kind: 'needs_owner', attempts: decision.attempts, code: decision.classified.code ?? 'unknown' };
     }
-    const next = decision.kind === 'retry' ? decision.attempts : attempts;
-    this.rows.set(key, { attempts: next, at: this.now() + decision.delayMs, owner: false });
-    return { kind: 'retry', delayMs: decision.delayMs, attempts: next };
+    // A meter wait is back on the loop's next tick, never at the meter's
+    // quote: its claim (keyed by the order, HYPERLIQUID_LIVE_DEMAND_HOLD_MS)
+    // keeps its place only while each pass renews it (gate 11, 2026-10-16:
+    // a 55 s quote kept the pass away, the claim lapsed, and the order's
+    // settlement waited out the window behind other work).
+    if (decision.kind === 'wait') { this.rows.set(key, { attempts, at: this.now(), owner: false }); return { kind: 'retry', delayMs: 0, attempts }; }
+    this.rows.set(key, { attempts: decision.attempts, at: this.now() + decision.delayMs, owner: false });
+    return { kind: 'retry', delayMs: decision.delayMs, attempts: decision.attempts };
   }
   /** A pass's outcome: one that settled or ended is forgotten; a `pending` one
    * counts as a failed pass (unless it is a bounded wait), as a thrown error would. */

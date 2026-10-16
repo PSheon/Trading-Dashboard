@@ -55,12 +55,12 @@ describe('a settlement that can never prove its order', () => {
     api.onModuleDestroy();
   });
 
-  it('a meter wait is not a failed pass: it comes back when the meter says, and is never quarantined for waiting', () => {
+  it('a meter wait is not a failed pass: its next pass is the next tick (renewing its keyed claim, not waiting out the quote), and it is never quarantined for waiting', () => {
     let clock = 0;const retries = new SettlementRetries(() => clock);
     for (let i = 0; i < 3 * SETTLEMENT_RETRY_ATTEMPTS; i++) {
-      const verdict = retries.failed(KEY, new HyperliquidRestCapacityError(4_000));
-      expect(verdict).toMatchObject({ kind: 'retry', attempts: 0 });
-      expect(retries.due(KEY)).toBe(false); clock += 5_000; expect(retries.due(KEY)).toBe(true);
+      const verdict = retries.failed(KEY, new HyperliquidRestCapacityError(55_000));
+      expect(verdict).toEqual({ kind: 'retry', delayMs: 0, attempts: 0 });
+      expect(retries.due(KEY)).toBe(true); clock += 3_000;
     }
     // A bounded wait (the never-placed grace) is not counted either; a settled pass forgets it.
     expect(retries.outcome(KEY, { kind: 'pending', reason: 'live_settlement_never_placed_grace' })).toBeNull();

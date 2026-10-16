@@ -98,6 +98,19 @@ it('recovers the exact original key across retries and a restarted service after
   expect(await db.select().from(copyLiveStopOperations)).toHaveLength(1);
   await expect(service.request(1, 'mandate', { ...body(), idempotencyKey: 'durable-stop-request-0002', expectedMandateRevision: 3 })).rejects.toMatchObject({ status: 409 });
 });
+it('reads the stop history and a stop by key without the owner\'s copy lock, so a live order holding it is never in a page\'s way, nor a page in its', async () => {
+  // Gate 11 (2026-10-16): the overview took the owner's copy lock and held it
+  // ~4 s per poll (105 stops at 8 ms a statement); the order's try-lock on it
+  // failed live_risk_busy until its signal expired. Here a live order holds it.
+  const original = await service.request(1, 'mandate', body());
+  const order = await pool.connect();
+  try {
+    await order.query('select pg_advisory_lock(7404, 1)');
+    const bounded = <T>(work: Promise<T>) => Promise.race([work, new Promise<never>((_r, reject) => setTimeout(() => reject(Error('read waited for the copy lock')), 2000))]);
+    expect(await bounded(service.overview(1))).toEqual({ items: [original], truncated: false });
+    expect(await bounded(service.byKey(1, body().idempotencyKey))).toEqual(original);
+  } finally { await order.query('select pg_advisory_unlock(7404, 1)'); order.release(); }
+});
 it("lists only this deployment's network: another network's stop is history, not a 409 for the whole list (Stage 2026-10-12)", async () => {
   const original = await service.request(1, 'mandate', body());
   expect(await service.overview(1)).toEqual({ items: [original], truncated: false });

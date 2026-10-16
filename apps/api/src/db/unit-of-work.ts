@@ -8,4 +8,7 @@ export type DbExecutor = DrizzleDb | DbTransaction;
 export class UnitOfWork {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
   run<T>(work: (tx: DbTransaction) => Promise<T>): Promise<T> { return this.db.transaction(work); }
+  /** A read-only view: one consistent snapshot (repeatable read), no lock
+   * taken, so a page never holds a lock a writer (a live order) waits on. */
+  read<T>(work: (tx: DbTransaction) => Promise<T>): Promise<T> { return this.db.transaction(work, { isolationLevel: "repeatable read", accessMode: "read only" }); }
 }

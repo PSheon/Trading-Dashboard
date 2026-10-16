@@ -254,10 +254,18 @@ try {
   for (const a of actions) {
     if (a.kind === "cancel_setup") await follower.client.post(`/me/copy/live/setups/${a.setupId}/cancel`).catch((e) => log("cleanup_cancel_failed", { setupId: a.setupId, error: e.message }));
     if (a.kind === "stop") await follower.client.post(`/me/copy/live/mandates/${a.mandateId}/stop`, { idempotencyKey: `harness-cleanup-${randomUUID()}`, expectedMandateRevision: a.revision });
+    if (a.kind === "return_all") {
+      try {
+        const reserved = await follower.client.post(`/me/copy/live/execution-wallets/${a.accountId}/returns`, { idempotencyKey: `harness-cleanup-${randomUUID()}`, amount: "all" });
+        const op = reserved.operation ?? reserved;
+        await follower.client.post(`/me/copy/live/returns/${op.id}/approve`);
+        log("cleanup_return_all", { strategyId: a.strategyId, accountId: a.accountId, operationId: op.id });
+      } catch (e) { log("cleanup_return_failed", { strategyId: a.strategyId, accountId: a.accountId, error: e.message }); }
+    }
     if (a.kind === "await_setup") log("cleanup_setup_in_progress", { setupId: a.setupId, note: "a confirmed setup can't be cancelled; it is stopped once it runs" });
   }
-  if (actions.some((a) => a.kind === "stop" || a.kind === "await_stop" || a.kind === "await_setup")) {
-    const settled = await waitFor(portfolio, (items) => planCleanup(items).every((a) => a.kind === "cancel_setup") && items.filter((i) => i.leaderAddress === HARNESS_LEADER).every((i) => i.stage === "stopped" ? stopSettled(i) : !["starting", "active", "paused", "stopping", "sweeping"].includes(i.stage)),
+  if (actions.some((a) => a.kind === "stop" || a.kind === "await_stop" || a.kind === "await_setup" || a.kind === "return_all")) {
+    const settled = await waitFor(portfolio, (items) => planCleanup(items).every((a) => a.kind === "cancel_setup" || a.kind === "return_all") && items.filter((i) => i.leaderAddress === HARNESS_LEADER).every((i) => i.stage === "stopped" ? stopSettled(i) : !["starting", "active", "paused", "stopping", "sweeping"].includes(i.stage)),
       { timeoutMs: 600_000, intervalMs: 5000 });
     if (!check("cleanup_previous_copies", settled.ok, settled.ok ? `${actions.length} action(s)` : "a previous copy did not settle in 10 min")) await finish(EXIT.failed);
   } else check("cleanup_previous_copies", true, actions.length ? `${actions.length} setup(s) cancelled` : "nothing to clean");

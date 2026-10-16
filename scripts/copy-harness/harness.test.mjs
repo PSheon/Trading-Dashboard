@@ -51,7 +51,10 @@ test("planCleanup cancels setups waiting for consent or ended, waits for stops a
   assert.deepEqual(planCleanup([item({ stage: "setup", mandate: null, setup: { id: "s1", stage: "awaiting_consent" } })]), [{ kind: "cancel_setup", strategyId: 1, setupId: "s1" }]);
   assert.equal(planCleanup([item({ stage: "setup", mandate: null, setup: { id: "s1", stage: "failed" } })])[0].kind, "cancel_setup");
   assert.equal(planCleanup([item({ stage: "stopping" })])[0].kind, "await_stop");
-  assert.equal(planCleanup([item({ stage: "sweeping" })])[0].kind, "await_stop");
+  assert.equal(planCleanup([item({ stage: "sweeping", sweep: { status: "submitted" } })])[0].kind, "await_stop");
+  assert.equal(planCleanup([item({ stage: "sweeping", pendingTransfer: { id: "t1" } })])[0].kind, "await_stop");
+  // A start that ended without a generation: its arrived funds wait for the owner's return.
+  assert.deepEqual(planCleanup([item({ stage: "sweeping", mandate: null })]), [{ kind: "return_all", strategyId: 1, accountId: "acc" }]);
   assert.equal(planCleanup([item({ stage: "funding", mandate: null, setup: { id: "s2", stage: "funding_submitted" } })])[0].kind, "await_setup");
 });
 

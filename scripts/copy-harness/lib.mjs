@@ -66,6 +66,11 @@ export function planCleanup(items, leader = HARNESS_LEADER) {
     const setup = item.setup ?? null;
     if (setup && (UNFINISHED_SETUP.has(setup.stage) || ENDED_SETUP.has(setup.stage))) actions.push({ kind: "cancel_setup", strategyId: item.strategyId, setupId: setup.id });
     else if (RUNNING.has(item.stage) && item.mandate) actions.push({ kind: "stop", strategyId: item.strategyId, mandateId: item.mandate.id, revision: item.mandate.revision, accountId: item.accountId });
+    // A start that ended without a generation leaves its arrived funds for the
+    // owner to return (copy-live-portfolio.repository): stage sweeping with no
+    // sweep or transfer moving. The harness returns them as the owner would;
+    // waiting would never settle (gate 11 run 4, 2026-10-16).
+    else if (item.stage === "sweeping" && !item.sweep && !item.pendingTransfer && item.accountId) actions.push({ kind: "return_all", strategyId: item.strategyId, accountId: item.accountId });
     else if (item.stage === "stopping" || item.stage === "sweeping") actions.push({ kind: "await_stop", strategyId: item.strategyId, accountId: item.accountId });
     else if (setup && ["consented", "funding_submitted", "funded", "mode_set", "agent_active", "builder_ready"].includes(setup.stage)) actions.push({ kind: "await_setup", strategyId: item.strategyId, setupId: setup.id });
   }

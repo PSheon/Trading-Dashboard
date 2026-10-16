@@ -63,6 +63,8 @@ export interface BoundHyperliquidQuota {
    * whole window (0: now). Claimed before the order's SQL locks: never in an
    * original session. */
   claimLiveRest?(weight:number,deadline:number,token:string):Promise<number>;
+  /** A live claim is over (`token`, as claimed): its demand markers go, so it keeps nothing free. */
+  releaseLiveRest?(token:string,deadline:number):Promise<void>;
   /** A worker running live copies: keeps one order's need free (live_standby). Optional: test doubles. */
   standbyLiveRest?(weight:number,deadline:number):Promise<void>;
   reserveSocket(deadline:number,network?:LiveNetwork):Promise<{readonly connect:HyperliquidSendPermit;readonly connection:HyperliquidSocketQuota}>;
@@ -97,6 +99,13 @@ export function runInLiveLane<T>(token:string,work:()=>Promise<T>):Promise<T>{
 }
 /** A fresh live order's demand token. */
 export function newLiveLaneToken():string{return randomBytes(8).toString('hex');}
+/** A live claim's token from a stable key (a terminal settlement's order
+ * key): the same in every process and pass, so a pass that claims again
+ * renews its own earlier claim instead of queueing behind it. */
+export function liveLaneTokenFor(key:string):string{
+  if(typeof key!=='string'||key.length<1||key.length>200)fail('hyperliquid_quota_invalid');
+  return createHash('sha256').update(`live-lane:${key}`).digest('hex').slice(0,16);
+}
 /** A setup's lane token: from its id, the same in every process and pass. */
 export function setupLaneToken(key:string):string{
   if(typeof key!=='string'||key.length<1||key.length>200)fail('hyperliquid_quota_invalid');
@@ -310,6 +319,9 @@ export class PostgresHyperliquidQuota {
       await this.apply(binding,(_now,sendUntil)=>({kind:'live_demand',id,weight,sendUntil}),deadline,undefined,undefined,plan=>{waitMs=plan.waitMs;});
       if(waitMs===undefined)fail('hyperliquid_quota_invalid');
       return waitMs!;
+    },releaseLiveRest:async(token:string,deadline:number)=>{
+      if(session||typeof token!=='string'||!LIVE_LANE_TOKEN.test(token))fail('hyperliquid_quota_invalid');
+      await this.apply(binding,()=>({kind:'live_release',token}),deadline);
     },standbyLiveRest:async(weight:number,deadline:number)=>{
       if(session||!Number.isSafeInteger(weight)||weight<1||weight>HYPERLIQUID_MAX_LIVE_DEMAND)fail('hyperliquid_quota_invalid');
       const id=liveStandbyTicket(weight);

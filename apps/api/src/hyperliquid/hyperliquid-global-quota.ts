@@ -23,6 +23,8 @@ export type HyperliquidQuotaRequest=
  /** A setup's step is over: what its grant still holds is given back. */
  |{readonly kind:'setup_release';readonly token:string}
  |{readonly kind:'live_demand';readonly id:string;readonly weight:number;readonly sendUntil:number}
+ /** A live claim is over (its work done, or it gave up waiting): its demand markers go, so it holds no room. */
+ |{readonly kind:'live_release';readonly token:string}
  /** A worker with live copies running: keep one order's need free (HYPERLIQUID_LIVE_STANDBY_HOLD_MS). */
  |{readonly kind:'live_standby';readonly id:string;readonly weight:number;readonly sendUntil:number}
  |{readonly kind:'connect';readonly id:string;readonly sendUntil:number;readonly lease:Omit<HyperliquidQuotaLease,'state'|'revision'|'subscriptions'|'createdAt'|'updatedAt'|'closedAt'>;
@@ -320,6 +322,7 @@ const requestSchema=z.union([
   z.object({kind:z.literal('setup_demand'),id:identifier,weight:integer.positive().max(1200),sendUntil:integer.positive(),connects:integer.positive().max(HYPERLIQUID_MAX_SETUP_CONNECTS).optional(),queue:z.literal(true).optional()}).strict(),
   z.object({kind:z.literal('setup_release'),token:z.string().regex(SETUP_LANE_TOKEN)}).strict(),
   z.object({kind:z.literal('live_demand'),id:identifier,weight:integer.positive().max(HYPERLIQUID_MAX_LIVE_DEMAND),sendUntil:integer.positive()}).strict(),
+  z.object({kind:z.literal('live_release'),token:z.string().regex(LIVE_LANE_TOKEN)}).strict(),
   z.object({kind:z.literal('live_standby'),id:identifier,weight:integer.positive().max(HYPERLIQUID_MAX_LIVE_DEMAND),sendUntil:integer.positive()}).strict(),
   z.object({kind:z.literal('rest'),id:identifier,weight:integer.positive().max(1200),sendUntil:integer.positive(),lane:z.enum(['background','setup','live','page']).optional(),heldMs:integer.max(65_000).optional(),
     settle:z.array(z.object({id:identifier,units:integer.positive().max(1200)}).strict()).max(HYPERLIQUID_MAX_SETTLEMENTS).optional()}).strict(),
@@ -581,6 +584,13 @@ export function planHyperliquidQuota(raw:{readonly now:number;readonly state:Hyp
       recordDemandMarker(request.id,request.sendUntil,e=>LIVE_DEMAND_TICKET.exec(e.id)?.[2]===ticket[2]);
       const rest=events.filter(e=>e.kind==='rest'),live=liveClaims(rest,now),token=ticket[2]!,need=live.left(token);
       waitMs=Math.min(65000,preempting(pool=>beside(pool,need,HYPERLIQUID_REST_CAP,live.outstanding(token),[live.until(token)]))??65000);
+    }
+    else if(request.kind==='live_release'){
+      // A claim that is over keeps nothing free: without this, one that gave
+      // up waiting held its need for HYPERLIQUID_LIVE_DEMAND_HOLD_MS, and every
+      // claim after it (a settlement's next pass) was quoted behind it (gate
+      // 11 run 6, 2026-10-16). Its charges stay: they were sent.
+      for(let i=events.length-1;i>=0;i--)if(LIVE_DEMAND_TICKET.exec(events[i]!.id)?.[2]===request.token)events.splice(i,1);
     }
     else if(request.kind==='live_standby'){
       // A worker with live copies running: its marker (1 unit, an ordinary

@@ -2,7 +2,7 @@ import {AsyncLocalStorage} from 'node:async_hooks';
 import {setTimeout as wait} from 'node:timers/promises';
 import { HyperliquidRestCapacityError, sharedRestRetryAfterMs } from './hyperliquid-capacity-error.js';
 import { HYPERLIQUID_MAX_LIVE_DEMAND, type HyperliquidMeterComposition, type HyperliquidRestLane } from './hyperliquid-global-quota.js';
-import {PostgresHyperliquidQuota,newLiveLaneToken,runInBackgroundLane,runInLiveLane,runInSetupLane,setupLaneToken,type BoundHyperliquidQuota,type HyperliquidMeterSnapshot,type HyperliquidSendPermit} from './postgres-hyperliquid-quota.js';
+import {PostgresHyperliquidQuota,liveLaneTokenFor,newLiveLaneToken,runInBackgroundLane,runInLiveLane,runInSetupLane,setupLaneToken,type BoundHyperliquidQuota,type HyperliquidMeterSnapshot,type HyperliquidSendPermit} from './postgres-hyperliquid-quota.js';
 import {assertOriginalLiveRiskSession,type LiveRiskDatabaseSession} from '../copy/live/postgres-live-risk-scope.js';
 import {LiveBoundaryError} from '../copy/live/wallet-authorization.js';
 import {infoListSurcharge,infoPrepaidWeight,infoWeight} from './info-weights.js';
@@ -91,21 +91,36 @@ export class HyperliquidGlobalTransport {
   * needs free, and the room that frees up is its first. Waits (recording the
   * demand again every LIVE_DEMAND_RENEW_MS) until it fits; answers its token
   * (run the order in runLive(token)). Throws HyperliquidRestCapacityError
-  * when it won't fit before `giveUpAt`. Undefined when this meter records no
-  * demand: the order runs as before. Nothing is sent.
+  * when it won't fit before `giveUpAt`: a claim that gives up is released
+  * (it keeps nothing free), unless it has a `key` (a terminal settlement's
+  * order key): that claim keeps its place for the key's next pass, which
+  * renews it (the same token, liveLaneTokenFor) instead of queueing behind
+  * it; its holder releases it (releaseLive) once its work is over.
+  * Undefined when this meter records no demand: the order runs as before.
+  * Nothing is sent.
   */
- async claimLive(weight:number,giveUpAt:number):Promise<string|undefined>{
+ async claimLive(weight:number,giveUpAt:number,key?:string):Promise<string|undefined>{
   if(this.isOriginal()||!Number.isFinite(weight)||weight<1||!Number.isFinite(giveUpAt))fail('hyperliquid_quota_invalid');
   const budget=this.currentQuota();if(!budget.claimLiveRest)return undefined;
-  const token=newLiveLaneToken(),need=Math.min(HYPERLIQUID_MAX_LIVE_DEMAND,Math.ceil(weight));
+  const token=key===undefined?newLiveLaneToken():liveLaneTokenFor(key),need=Math.min(HYPERLIQUID_MAX_LIVE_DEMAND,Math.ceil(weight));
   for(;;){
    let wait:number;
    try{wait=await budget.claimLiveRest(need,this.now()+5000,token);}
    catch(error){const retry=sharedRestRetryAfterMs(error);if(retry===undefined)throw error;wait=retry;}
    if(wait<=0)return token;
-   if(this.now()+wait>giveUpAt)throw new HyperliquidRestCapacityError(Math.min(REST_CHARGE_LIFETIME_MS,Math.max(1,Math.ceil(wait))));
+   if(this.now()+wait>giveUpAt){
+    if(key===undefined)await this.releaseLiveToken(token);
+    throw new HyperliquidRestCapacityError(Math.min(REST_CHARGE_LIFETIME_MS,Math.max(1,Math.ceil(wait))));
+   }
    await this.sleep(Math.min(wait,LIVE_DEMAND_RENEW_MS));
   }
+ }
+ /** A keyed live claim (claimLive's `key`) is over: its demand markers go,
+  * so it keeps nothing free. Never throws (best effort: the claim lapses
+  * after HYPERLIQUID_LIVE_DEMAND_HOLD_MS anyway). */
+ async releaseLive(key:string):Promise<void>{await this.releaseLiveToken(liveLaneTokenFor(key));}
+ private async releaseLiveToken(token:string):Promise<void>{
+  try{await this.currentQuota().releaseLiveRest?.(token,this.now()+5000);}catch{/* lapses on its own */}
  }
  /** A worker running live copies: records that one order's need (`weight`,
   * its heaviest evidence) is kept free on the shared meter for

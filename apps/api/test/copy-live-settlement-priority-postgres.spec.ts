@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { setTimeout as wait } from 'node:timers/promises';
 import pg from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
+import { eq } from 'drizzle-orm';
 import * as schema from '@trading-dashboard/shared/database';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { UnitOfWork } from '../src/db/unit-of-work.js';
@@ -26,9 +27,12 @@ import { closeTestDb, getTestDb } from './db-test-utils.js';
  *
  * Before: the settlement announced no need; its reads were refused at once
  * on a full window. After: it claims its need (claimLive) and the room that
- * frees up is its first.
+ * frees up is its first. Gate 11 run 6 (2026-10-16): with real 60 s charges
+ * that need took longer to free up than a pass waits, and each pass's new
+ * claim queued behind its own abandoned ones; the claim is now keyed by the
+ * order across passes and released when a pass is over.
  */
-const RTT_MS = 8, INFO = 'https://api.hyperliquid-testnet.xyz/info', BOUND_MS = 20_000;
+const RTT_MS = 8, INFO = 'https://api.hyperliquid-testnet.xyz/info';
 let db: ReturnType<typeof getTestDb>;
 beforeAll(() => { db = getTestDb(); });
 afterAll(async () => { await closeTestDb(); });
@@ -39,19 +43,26 @@ const record = (now: number) => ({ key: `testnet:${ACCOUNT}:0x${'1'.repeat(32)}`
   outcome: { state: 'filled', filledSize: '0.001' } }) as unknown as LiveExecutionRecord;
 
 describe('terminal settlement beside saturated background and page lanes on the shared Postgres meter', () => {
-  it('its fill scan goes out within seconds and is never refused', { timeout: BOUND_MS + 30_000 }, async () => {
+  it('its fill scan goes out once its need has freed up, across the loop\'s passes, never queued behind its own earlier pass', { timeout: 120_000 }, async () => {
+    // Gate 11 run 6 (2026-10-16): every charge in the window lives 60 s, so
+    // room frees at ~20 units/s, and a settlement's need (~500) takes ~25 s to
+    // free up: more than its pass waits (SETTLEMENT_CLAIM_WAIT_MS, 15 s). Each
+    // pass (every 3 s) claimed under a new token and gave up at once, its
+    // abandoned claim kept its need outstanding, and the next pass was
+    // quoted behind it: refused for minutes while the room sat free.
     const restore = installDbRtt(pg.Client, RTT_MS);
     const egressKey = `settle-lane-${randomUUID()}`, pool = new pg.Pool({ connectionString: process.env.TEST_DATABASE_URL, max: 16 });
     const uow = () => new UnitOfWork(drizzle(pool, { schema }));
     const raw = vi.fn<typeof fetch>(async () => Response.json([]));
-    const transport = new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(uow()), { egressKey, ownerId: 'worker' }, raw);
+    const transport = new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(uow()), { egressKey, ownerId: 'api' }, raw);
     const stop = new AbortController();
     try {
-      // The whole window taken: background at its cap (840) and pages the
-      // rest (360), charged over the last minute, so it comes free a little at a time.
+      // The whole window taken, as on the gate: background at its cap (840)
+      // and pages the rest (360), charged over the last minute, so 20 comes
+      // free each second.
       const now = Date.now();
       const events = Array.from({ length: 60 }, (_, i) => ({ id: i < 42 ? `seed-${i}` : `page:${randomUUID()}`, kind: 'rest' as const, units: 20,
-        reservedAt: now - 60_000 + i * 150, expiresAt: now + i * 150 }));
+        reservedAt: now - 60_000 + (i + 1) * 1000, expiresAt: now + (i + 1) * 1000 }));
       await db.insert(schema.hyperliquidEgressQuota).values({ egressKey, events, updatedAt: new Date(now - 1) });
 
       const counts = { background: 0, page: 0, refused: 0 }, contention = new PostgresHyperliquidQuota(uow());
@@ -82,14 +93,32 @@ describe('terminal settlement beside saturated background and page lanes on the 
       const budget = { refillMs: () => { throw Error('evidence stage reached'); } } as unknown as RequestBudgeterService;
       const settler = new CopyLiveSettler('testnet', pool, transport, budget, scanner);
       vi.spyOn(settler as unknown as { record(key: string): Promise<LiveExecutionRecord> }, 'record').mockResolvedValue(record(now));
-      const started = Date.now();
-      await expect(settler.settle({ userId: 1, accountId: randomUUID(), accountAddress: ACCOUNT, sourceNetwork: 'testnet',
-        leaderAddress: '0x00000000000000000000000000000000000000b2', key: record(now).key })).rejects.toThrow('evidence stage reached');
+      const claimed = vi.spyOn(transport, 'claimLive');
+      // The api's loop: a pass every 3 s while the settlement is pending.
+      const started = Date.now();let passes = 0, refusals = 0;
+      for (; scanned === undefined && Date.now() - started < 90_000; passes++) {
+        const passAt = Date.now();
+        try {
+          await settler.settle({ userId: 1, accountId: randomUUID(), accountAddress: ACCOUNT, sourceNetwork: 'testnet',
+            leaderAddress: '0x00000000000000000000000000000000000000b2', key: record(now).key });
+        } catch (error) {
+          if (!(error instanceof Error) || error.message !== 'evidence stage reached') { expect(sharedRestRetryAfterMs(error)).toBeDefined(); refusals++; }
+        }
+        await wait(Math.max(0, passAt + 3000 - Date.now()));
+      }
       expect(scanned).toBeDefined();
-      expect(scanned! - started).toBeLessThan(BOUND_MS);
+      // Its need frees up at 20 a second (its marker's unit too); then a pass at most and the reads.
+      const need = claimed.mock.calls[0]![0];
+      expect(need).toBeGreaterThan(240);
+      expect(scanned! - started).toBeLessThan((need + 1) * 50 + 3000 + 5000);
+      // Only the passes before its quote came within SETTLEMENT_CLAIM_WAIT_MS gave up.
+      expect(refusals).toBeLessThanOrEqual(Math.ceil(Math.max(0, (need + 1) * 50 - 15_000) / 3000) + 1);
       expect(raw.mock.calls.filter(([, init]) => (JSON.parse(init?.body as string) as { type: string }).type === 'userFillsByTime')).toHaveLength(2);
-      // The lanes it went ahead of were asking all along (pages were granted, and refused).
-      expect(counts.page).toBeGreaterThan(0); expect(counts.refused).toBeGreaterThan(0);
+      // The lanes it went ahead of were asking all along: every 20 that freed up was its, not theirs.
+      expect(counts.refused).toBeGreaterThan(0);
+      // Its pass is over: its claim keeps nothing free.
+      const [row] = await db.select().from(schema.hyperliquidEgressQuota).where(eq(schema.hyperliquidEgressQuota.egressKey, egressKey));
+      expect((row!.events as { id: string }[]).filter(e => e.id.startsWith('live-demand:'))).toEqual([]);
       stop.abort(); await Promise.all(loops);
     } finally {
       stop.abort(); restore(); await pool.end();
@@ -126,6 +155,32 @@ describe('terminal settlement beside saturated background and page lanes on the 
       await transport.runLive(token!, () => transport.fetchInfo(INFO, { method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ type: 'userFillsByTime', user: ACCOUNT, startTime: now - 120_000, endTime: now }) }));
       expect(raw).toHaveBeenCalledTimes(1);
+    } finally {
+      await pool.end();
+    }
+  });
+  it('a claim that gives up keeps nothing free; a keyed one keeps one place for its key\'s next pass until it is released', { timeout: 30_000 }, async () => {
+    // Gate 11 (2026-10-16): abandoned claims, a new token every 3 s, held
+    // 530–809 of need outstanding, and the next order was quoted 57.9 s and refused.
+    const egressKey = `settle-release-${randomUUID()}`, pool = new pg.Pool({ connectionString: process.env.TEST_DATABASE_URL, max: 4 });
+    const uow = () => new UnitOfWork(drizzle(pool, { schema }));
+    try {
+      const now = Date.now();
+      await db.insert(schema.hyperliquidEgressQuota).values({ egressKey, events: [{ id: 'held', kind: 'rest', units: 1200, reservedAt: now - 1_000, expiresAt: now + 59_000 }], updatedAt: new Date(now - 1) });
+      const transport = new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(uow()), { egressKey, ownerId: 'api' }, vi.fn<typeof fetch>());
+      const markers = async () => {
+        const [row] = await db.select().from(schema.hyperliquidEgressQuota).where(eq(schema.hyperliquidEgressQuota.egressKey, egressKey));
+        return (row!.events as { id: string }[]).filter(e => e.id.startsWith('live-demand:')).map(e => e.id.split(':')[2]);
+      };
+      const refused = async (work: Promise<unknown>) => { try { await work; } catch (error) { return sharedRestRetryAfterMs(error); } return undefined; };
+      expect(await refused(transport.claimLive(500, Date.now() + 1_000))).toBeGreaterThan(1_000);
+      expect(await markers()).toEqual([]);
+      const key = record(now).key;
+      for (let pass = 0; pass < 3; pass++) expect(await refused(transport.claimLive(500, Date.now() + 1_000, key))).toBeGreaterThan(1_000);
+      const kept = await markers();
+      expect(kept).toHaveLength(1);
+      await transport.releaseLive(key);
+      expect(await markers()).toEqual([]);
     } finally {
       await pool.end();
     }

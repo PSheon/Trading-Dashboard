@@ -74,8 +74,8 @@ function readIntent(row: AccountModeRow): AccountModeIntent {
   const nonce = Date.now(); return accountModeIntentSchema.parse({ operationId: row.id, accountId: row.accountId, strategyId: row.strategyId,
     network: row.network, accountAddress: row.accountAddress, nonce, consentExpiresAt: nonce + 300000 });
 }
-function fresh(timestamp: number, now = Date.now()) {
-  if (!Number.isSafeInteger(now) || now <= 0 || !Number.isSafeInteger(timestamp) || timestamp <= 0 || timestamp > now || now - timestamp > liveEvidenceMaxAgeMs()) throw new ConflictException('account_mode_evidence_expired');
+function fresh(network: HyperliquidNetwork, timestamp: number, now = Date.now()) {
+  if (!Number.isSafeInteger(now) || now <= 0 || !Number.isSafeInteger(timestamp) || timestamp <= 0 || timestamp > now || now - timestamp > liveEvidenceMaxAgeMs(network)) throw new ConflictException('account_mode_evidence_expired');
 }
 /** The Privy identity proof's own bound (PRIVY_IDENTITY_MAX_AGE_MS). */
 function identityFresh(checkedAt: number, now = Date.now()) {
@@ -145,7 +145,7 @@ export class CopyAccountModeService {
   private assertObservation(row: AccountModeRow, proof: AccountModeObservation) {
     if (proof.network !== row.network || proof.accountAddress !== row.accountAddress || proof.source !== WALLET_NETWORKS[row.network].infoUrl ||
         !/^0x[0-9a-f]{64}$/.test(proof.sourceDigest) || proof.completedAt < proof.earliestObservedAt) throw new ConflictException('account_mode_evidence_changed');
-    fresh(proof.earliestObservedAt); fresh(proof.completedAt);
+    fresh(row.network, proof.earliestObservedAt); fresh(row.network, proof.completedAt);
   }
   /**
    * Fresh evidence for one decision: Privy identity, then mode and all-venue absence in parallel,
@@ -170,15 +170,15 @@ export class CopyAccountModeService {
     if (absence.network !== row.network || absence.accountAddress !== row.accountAddress || absence.complete !== true || absence.empty !== true ||
         !/^[0-9a-f]{64}$/.test(absence.sourceDigest) || !Array.isArray(absence.dexes) || !absence.dexes.includes('') || new Set(absence.dexes).size !== absence.dexes.length || absence.completedAt < absence.observedAt)
       throw new ConflictException('account_mode_absence_unproven');
-    fresh(absence.observedAt); fresh(absence.completedAt); identityFresh(identity.checkedAt); fresh(started);
+    fresh(row.network, absence.observedAt); fresh(row.network, absence.completedAt); identityFresh(identity.checkedAt); fresh(row.network, started);
     const finalMode = await this.exchange.observe(readIntent(row), { prepaid: true, meterWaitMs: IN_WINDOW_METER_WAIT_MS, consume }); this.assertObservation(row, finalMode); baseline(finalMode);
     // The exchange's evidence: 5 s from its oldest read. The identity: its own bound.
     const oldestObservedAt = Math.min(started, absence.observedAt, finalMode.earliestObservedAt);
-    const assertCompletion = (now: number) => { fresh(oldestObservedAt, now); identityFresh(identity.checkedAt, now); };
+    const assertCompletion = (now: number) => { fresh(row.network, oldestObservedAt, now); identityFresh(identity.checkedAt, now); };
     const assertFresh = () => {
-      fresh(started); identityFresh(identity.checkedAt); fresh(absence.observedAt); this.assertObservation(row, finalMode);
+      fresh(row.network, started); identityFresh(identity.checkedAt); fresh(row.network, absence.observedAt); this.assertObservation(row, finalMode);
       // Earlier sources must still be fresh when all validation completes.
-      fresh(oldestObservedAt);
+      fresh(row.network, oldestObservedAt);
     };
     assertFresh(); return { identity, observation: finalMode, absence, started, assertFresh, assertCompletion };
   }

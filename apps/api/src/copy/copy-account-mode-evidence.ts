@@ -40,7 +40,7 @@ const SOCKET_REFUSALS = new Set(['hyperliquid_quota_exhausted', 'hyperliquid_quo
 const causeOf = (error: unknown): string => error instanceof LiveBoundaryError ? error.code : error instanceof z.ZodError ? 'schema' :
   error instanceof Error ? (error.name === 'Error' ? 'error' : error.name) : 'unknown';
 function unique(values: readonly string[]) { if (new Set(values).size !== values.length) fail(); }
-function fresh(at: number, now: number) { if (!Number.isSafeInteger(at) || at <= 0 || at > now || now - at > liveEvidenceMaxAgeMs()) fail(); }
+function fresh(at: number, now: number, network: HyperliquidNetwork) { if (!Number.isSafeInteger(at) || at <= 0 || at > now || now - at > liveEvidenceMaxAgeMs(network)) fail(); }
 
 
 /** Proves empty exposure across every perp venue. One all-venue source per process: a proof waits
@@ -97,10 +97,10 @@ export class HyperliquidAccountModeAbsenceReader implements AccountModeAbsenceRe
       if (!options.prepaid) await this.acquire(ACCOUNT_MODE_ABSENCE_WEIGHT, { signal });
       turn ??= await this.turn({ signal });
       let started = 0;
-      const startClock = () => { signal?.throwIfAborted(); started = this.now(); fresh(started, started); const bound = AbortSignal.timeout(liveEvidenceMaxAgeMs()); options.consume?.(42); return bound; };
-      const remaining = () => { fresh(started, this.now()); return Math.max(1, liveEvidenceMaxAgeMs() - (this.now() - started)); };
+      const startClock = () => { signal?.throwIfAborted(); started = this.now(); fresh(started, started, this.network); const bound = AbortSignal.timeout(liveEvidenceMaxAgeMs(this.network)); options.consume?.(42); return bound; };
+      const remaining = () => { fresh(started, this.now(), this.network); return Math.max(1, liveEvidenceMaxAgeMs(this.network) - (this.now() - started)); };
       const check = (value: unknown) => {
-        fresh(started, this.now());
+        fresh(started, this.now(), this.network);
         if (value && typeof value === 'object' && !Array.isArray(value)) {
           const row = value as Record<string, unknown>;
           if (row.user !== undefined && (typeof row.user !== 'string' || address(row.user) !== user) || row.network !== undefined && row.network !== this.network) fail();
@@ -118,7 +118,7 @@ export class HyperliquidAccountModeAbsenceReader implements AccountModeAbsenceRe
       // One meter charge for the first three reads; the clock starts as they go out.
       const meterWaitMs = options.prepaid ? 0 : LIVE_RESERVE_WAIT_MS;
       step = 'first_batch';
-      const first = await boundedLiveRead(() => send([{ type: 'perpDexs' }, { type: 'spotClearinghouseState', user }, { type: 'extraAgents', user }], meterWaitMs, startClock), meterWaitMs + liveEvidenceMaxAgeMs());
+      const first = await boundedLiveRead(() => send([{ type: 'perpDexs' }, { type: 'spotClearinghouseState', user }, { type: 'extraAgents', user }], meterWaitMs, startClock), meterWaitMs + liveEvidenceMaxAgeMs(this.network));
       const [rawDexes, spot, agents] = await answers(first);
       step = 'perp_dexs';
       const list = dexSchema.parse(rawDexes);
@@ -141,7 +141,7 @@ export class HyperliquidAccountModeAbsenceReader implements AccountModeAbsenceRe
       }, remaining));
       wsEnded = this.now(); step = 'ws_evidence';
       if (proof.state.network !== this.network || address(proof.state.accountAddress) !== user || proof.orders.network !== this.network || address(proof.orders.accountAddress) !== user) fail();
-      for (const at of [proof.state.observedAt, proof.orders.observedAt, proof.orders.completedAt]) fresh(at, this.now());
+      for (const at of [proof.state.observedAt, proof.orders.observedAt, proof.orders.completedAt]) fresh(at, this.now(), this.network);
       if (proof.orders.completedAt < proof.orders.observedAt) fail();
       const aggregate = z.object({ user: z.string(), clearinghouseStates: z.array(z.tuple([z.string().max(40), stateSchema])).max(MAX_LIVE_PERP_DEXES) }).parse(proof.state.data);
       if (address(aggregate.user) !== user) fail(); unique(aggregate.clearinghouseStates.map(([dex]) => dex));
@@ -150,7 +150,7 @@ export class HyperliquidAccountModeAbsenceReader implements AccountModeAbsenceRe
         if (state.user !== undefined && (typeof state.user !== 'string' || address(state.user) !== user) || state.network !== undefined && state.network !== this.network) fail();
       }
       if (aggregate.clearinghouseStates.length !== dexes.length || aggregate.clearinghouseStates.some(([dex]) => !dexes.includes(dex))) fail();
-      for (const [, state] of aggregate.clearinghouseStates) fresh(state.time, this.now());
+      for (const [, state] of aggregate.clearinghouseStates) fresh(state.time, this.now(), this.network);
       const orders = z.object({ requestedDexes: z.array(z.string()).max(MAX_LIVE_PERP_DEXES), venues: z.array(z.object({
         dex: z.string(), user: z.string(), observedAt: integer, receivedAt: integer, orders: z.array(z.unknown()).max(0),
       })).max(MAX_LIVE_PERP_DEXES) }).parse(proof.orders);
@@ -159,7 +159,7 @@ export class HyperliquidAccountModeAbsenceReader implements AccountModeAbsenceRe
           orders.requestedDexes.some(dex => !dexes.includes(dex)) || orders.venues.some(v => !dexes.includes(v.dex))) fail();
       for (const venue of orders.venues) {
         if (address(venue.user) !== user || venue.receivedAt < venue.observedAt || venue.observedAt < proof.orders.observedAt || venue.receivedAt > proof.orders.completedAt) fail();
-        fresh(venue.observedAt, this.now()); fresh(venue.receivedAt, this.now());
+        fresh(venue.observedAt, this.now(), this.network); fresh(venue.receivedAt, this.now(), this.network);
       }
       step = 'final_perp_dexs';
       const [finalRaw] = await answers(await boundedLiveRead(() => send([{ type: 'perpDexs' }], Math.max(0, Math.min(LIVE_RESERVE_WAIT_MS, remaining() - 2_000)), () => { const bound = AbortSignal.timeout(remaining()); options.consume?.(20); return bound; }), remaining));
@@ -168,7 +168,7 @@ export class HyperliquidAccountModeAbsenceReader implements AccountModeAbsenceRe
       if (JSON.stringify(finalDexes) !== JSON.stringify(list)) fail();
       step = 'freshness';
       const observedAt = Math.min(started, proof.state.observedAt, proof.orders.observedAt, ...aggregate.clearinghouseStates.map(([, s]) => s.time)), completedAt = this.now();
-      fresh(observedAt, completedAt);
+      fresh(observedAt, completedAt, this.network);
       return Object.freeze({ network: this.network, accountAddress: user, observedAt, completedAt, dexes: Object.freeze(dexes),
         sourceDigest: accountModeDigest({ user, list, spot, agents, proof, started, completedAt }), complete: true as const, empty: true as const });
     } catch (error) {

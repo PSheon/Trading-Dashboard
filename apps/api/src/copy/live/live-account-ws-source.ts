@@ -211,7 +211,7 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
   /** What the quota is asked for: a read's deadline, at most HYPERLIQUID_SEND_WINDOW_MS ahead (a testnet
    * evidence window may be longer than the quota's send window; on mainnet both are 5 s and this is the deadline). */
   private sendBy(deadline:number):number{return Math.min(deadline,this.now()+HYPERLIQUID_SEND_WINDOW_MS);}
-  private remaining(deadline:number):number{const left=deadline-this.now();if(left<=0||left>liveEvidenceMaxAgeMs())fail('live_account_orders_deadline_exceeded');return left;}
+  private remaining(deadline:number):number{const left=deadline-this.now();if(left<=0||left>liveEvidenceMaxAgeMs(this.network))fail('live_account_orders_deadline_exceeded');return left;}
   /** Reads end with a close of their socket, not with unsubscribes. */
   private closesAfterRead():boolean{return this.global!==undefined&&(this.options.closeAfterRead===true||this.global.isOriginal());}
   private async commands(subscriptions:readonly Record<string,unknown>[],deadline:number,unsubscribe=true):Promise<HyperliquidCommandPermit|undefined>{
@@ -224,7 +224,7 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
     else socket.send(JSON.stringify(command));
   }
   private admit(timeoutMs: number): void {
-    if (this.disposed||this.busy || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > liveEvidenceMaxAgeMs()) fail('live_account_aggregate_unavailable');
+    if (this.disposed||this.busy || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > liveEvidenceMaxAgeMs(this.network)) fail('live_account_aggregate_unavailable');
   }
 
   async read(accountAddress: string, timeoutMs: number): Promise<LiveAllDexsStateEvidence> {

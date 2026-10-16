@@ -53,7 +53,7 @@ export class HyperliquidAgentApprovalVerifier implements ExchangeApprovalVerifie
       }
       // Timestamp the start of the observation: slow requests cannot turn old
       // role evidence into fresh proof merely by timestamping the last response.
-      if (this.now() - checkedAt > liveEvidenceMaxAgeMs()) throw new LiveBoundaryError("exchange_approval_evidence_expired");
+      if (this.now() - checkedAt > liveEvidenceMaxAgeMs(this.network)) throw new LiveBoundaryError("exchange_approval_evidence_expired");
       return { network: this.network, accountAddress: account, signerAddress: signer, checkedAt, expiresAt };
     } catch (error) {
       // A refused budget or IP meter stays a wait the caller retries (Stage

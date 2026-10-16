@@ -131,7 +131,7 @@ export class HyperliquidFollowerReceiptReader {
     let requestsUsed = 0;
     const remaining = () => {
       if (!this.fresh(started)) fail('follower_reader_evidence_expired');
-      return Math.max(1, liveEvidenceMaxAgeMs() - (this.now() - started));
+      return Math.max(1, liveEvidenceMaxAgeMs(this.network) - (this.now() - started));
     };
     const unresolvedRest = (window: FollowerReceiptWindow, reason: FollowerWindowReason) => {
       for (const next of [window, ...queue]) unresolvedWindows.push({ ...next, reason });
@@ -220,6 +220,6 @@ export class HyperliquidFollowerReceiptReader {
   }
   private fresh(at: number): boolean {
     const now = this.now();
-    return Number.isSafeInteger(now) && now >= at && now - at <= liveEvidenceMaxAgeMs();
+    return Number.isSafeInteger(now) && now >= at && now - at <= liveEvidenceMaxAgeMs(this.network);
   }
 }

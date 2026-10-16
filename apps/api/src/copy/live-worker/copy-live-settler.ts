@@ -178,7 +178,7 @@ export class CopyLiveSettler {
       .from(copyFollowerScans).where(eq(copyFollowerScans.accountId, accountId));
     if (claim) await claim.assertHeld();
     return !!row && row.issue === null && row.through !== null && Number.isSafeInteger(record.updatedAt) &&
-      row.through >= record.updatedAt + PROVIDER_CLOCK_SKEW_MS + liveFillScanMarginMs();
+      row.through >= record.updatedAt + PROVIDER_CLOCK_SKEW_MS + liveFillScanMarginMs(this.network);
   }
 
   private async record(key: string, claim?: SettlementClaim): Promise<LiveExecutionRecord | null> {
@@ -209,8 +209,8 @@ export class CopyLiveSettler {
     }
     const checkedAt = this.now(), remaining = () => {
       const now = this.now();
-      if (!Number.isSafeInteger(now) || now - checkedAt > liveEvidenceMaxAgeMs()) throw new LiveBoundaryError('live_boundary_evidence_expired');
-      return Math.max(1, liveEvidenceMaxAgeMs() - (now - checkedAt));
+      if (!Number.isSafeInteger(now) || now - checkedAt > liveEvidenceMaxAgeMs(this.network)) throw new LiveBoundaryError('live_boundary_evidence_expired');
+      return Math.max(1, liveEvidenceMaxAgeMs(this.network) - (now - checkedAt));
     };
     const market = await boundedLiveRead(() => resolver.resolveAsset(record.action.orders[0]!.a), remaining());
     // orderStatus weighs 2 (Hyperliquid's light reads; the shared meter's table).

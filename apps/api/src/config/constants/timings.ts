@@ -304,3 +304,17 @@ export const SETTLEMENT_PENDING_LOG_INTERVAL_MS = 30_000;
  * its own earlier passes.
  */
 export const SETTLEMENT_CLAIM_WAIT_MS = 15_000;
+
+/** basis: measured — gate 11 (2026-10-16): a terminal settlement's pass took 3–6 s; the one that could not prove its order failed every pass for 50+ min
+ * A failed settlement pass is tried again this long after it (flat; a failed
+ * provider read waits PROVIDER_READ_RETRY_MS), not on every 3 s tick: each
+ * pass claims live demand and opens the account's sockets.
+ */
+export const SETTLEMENT_RETRY_MS = 6_000;
+
+/** basis: derived — SETTLEMENT_RETRY_MS (6 s, 10 s after a failed read) × 10: about 1–1.5 min of failed passes
+ * Failed passes (counted by decideRetry: a meter wait is not one) after
+ * which a settlement stops retrying: its order is quarantined for its owner
+ * (needs_owner) with an ALERT, and nothing claims live demand for it again.
+ */
+export const SETTLEMENT_RETRY_ATTEMPTS = 10;

@@ -39,7 +39,7 @@ export const apiSettlementProvider: FactoryProvider<CopyLiveApiSettlementService
         new HyperliquidFollowerReceiptReader(network, reserve, fetcher, Date.now, weight => { if (weight > 0) budget.adjust(-weight); },
           { acquire: liveBudget(budget, { maxWaitMs: Math.min(180000, budget.refillMs()), signal: claim.signal }), maxWaitMs: Math.min(180000, budget.refillMs()) + 2000 }));
       const settler = new CopyLiveSettler(network, pool, transport, budget, scanner);
-      return { repository: new CopyLiveApiSettlementRepository(db), settle: request => settler.settle(request, claim),
+      return { repository: new CopyLiveApiSettlementRepository(db), settle: request => settler.settle(request, claim), quarantine: (request, reason) => settler.quarantine(request, reason, claim),
         saveSettlement: key => new CopyFollowerSnapshotRepository(db, config).saveSettlement(key) };
     });
   },

@@ -2,7 +2,7 @@ import { Pool } from 'pg';
 import { beforeAll, beforeEach, afterAll, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { copyLiveExecutions, copyLiveRiskReservations, copyLiveExecutionEvidence, copyLiveReductionCarry, copyLiveSignalLegs, copyLiveIntentProvenance, copyLiveMandates,
-  copyLiveSourceFills, copyLiveSourceStreams, copyStrategyVersions, copyFollowerScans, copyFollowerReceipts, copyFollowerLedger, copyStrategies, users, copyWalletAuthorizations, copyAgentSetups } from '@trading-dashboard/shared/database';
+  copyLiveSourceFills, copyLiveSourceStreams, copyStrategyVersions, copyFollowerScans, copyFollowerReceipts, copyFollowerLedger, copyStrategies, users, copyWalletAuthorizations, copyAgentSetups, copyLiveStopOperations } from '@trading-dashboard/shared/database';
 import { PostgresLivePreparation } from '../src/copy/live/postgres-live-preparation.js';
 import { PostgresLiveSettlement } from '../src/copy/live/postgres-live-settlement.js';
 import { NEVER_PLACED } from '../src/copy/live/live-execution.js';
@@ -174,6 +174,42 @@ describe('atomic source terminal settlement on one PostgreSQL connection',()=>{
       await db.update(copyLiveMandates).set({state:'revoked',revision:3,updatedAt:new Date(clock)});await db.update(copyWalletAuthorizations).set({revokedAt:new Date(clock)});
       await db.insert(copyStrategyVersions).values({strategyId:9,version:3,settings:{...seed.f.strategy.settings,perTradeUsd:1,sizingMode:'fixed'}});
     },60001);expect(result.result.kind).toBe('release');expect((await db.select().from(copyLiveSignalLegs))[0]!.state).toBe('settled');
+  });
+  it('settles an order whose position its copy\'s stop closed before the settlement, from the order\'s own fills, once the stop is proven flat after it',async()=>{
+    // Gate 11 (2026-10-16): a copy was stopped and closed while its first
+    // order's settlement was pending; every pass then compared the account's
+    // position (now flat) with the generation's and failed
+    // live_settlement_position_changed, forever.
+    const stop=(state:'closing'|'flat',flatAt:number|null)=>db.insert(copyLiveStopOperations).values({id:'11111111-1111-4111-8111-111111111111',userId:1,strategyId:9,accountId:'account',mandateId:'mandate',
+      idempotencyKey:'settle-after-stop-0001',originalMandateRevision:2,network:'testnet',accountAddress:seed.f.identity.accountAddress,ownerPrivyUserId:'did:privy:risk-source',
+      ownerAddress:`0x${'ab'.repeat(20)}`,accountWalletId:'master',accountOwnerQuorumId:'owner',originalIntentDigest:'a'.repeat(64),originalConsentDigest:'b'.repeat(64),state,targetManifest:{},
+      targetDigest:'c'.repeat(64),trackedExecutionCount:0,trackingComplete:true,...(flatAt===null?{}:{flatCertificate:{},flatDigest:'d'.repeat(64),flatVerifiedAt:new Date(flatAt)}),
+      createdAt:new Date(clock-1000),updatedAt:new Date(flatAt??clock)});
+    // A stop still closing proves nothing: the position is compared, and changed.
+    const p=await prepare();
+    await expect(complete(p,10,'0.9','0','filled',async()=>{await stop('closing',null);})).rejects.toThrow('live_settlement_position_changed');
+    expect((await db.select().from(copyLiveRiskReservations))[0]!.state).toBe('unknown');
+    // Proven flat after the order: settled from its evidence and fills, its leg and journal too.
+    await db.update(copyLiveStopOperations).set({state:'flat',flatCertificate:{},flatDigest:'d'.repeat(64),flatVerifiedAt:new Date(clock),updatedAt:new Date(clock)});
+    clock+=5;const source={...seed.f.accountSource,checkedAt:clock,snapshot:snapshot('0')};
+    const result=await scope.run(identity(),async(_s,session)=>settlement.settle(session,{accountId:'account',key:p.record.key,expectedReservationRevision:2,accountSource:source}));
+    expect(result.kind).toBe('release');
+    if(result.kind==='release')expect(result.certificate.filledSize).toBe('0.9');
+    expect((await db.select().from(copyLiveRiskReservations))[0]).toMatchObject({state:'released',releaseReason:'verified_settlement'});
+    expect((await db.select().from(copyLiveSignalLegs))[0]!.state).toBe('settled');expect((await db.select().from(copyLiveExecutions))[0]!.state).toBe('filled');
+  });
+  it('quarantines an order whose settlement retries are over, naming the account\'s flat stop, and settles nothing after',async()=>{
+    const p=await prepare();await attempt(p,10);
+    await db.insert(copyLiveStopOperations).values({id:'11111111-1111-4111-8111-111111111111',userId:1,strategyId:9,accountId:'account',mandateId:'mandate',
+      idempotencyKey:'settle-after-stop-0002',originalMandateRevision:2,network:'testnet',accountAddress:seed.f.identity.accountAddress,ownerPrivyUserId:'did:privy:risk-source',
+      ownerAddress:`0x${'ab'.repeat(20)}`,accountWalletId:'master',accountOwnerQuorumId:'owner',originalIntentDigest:'a'.repeat(64),originalConsentDigest:'b'.repeat(64),state:'stopped',targetManifest:{},
+      targetDigest:'c'.repeat(64),trackedExecutionCount:0,trackingComplete:true,flatCertificate:{},flatDigest:'d'.repeat(64),flatVerifiedAt:new Date(clock+1),createdAt:new Date(clock-1000),updatedAt:new Date(clock+1)});
+    clock+=5;
+    const quarantined=await scope.run(identity(),async(_s,session)=>settlement.quarantineUnsettled(session,{accountId:'account',key:p.record.key,reason:'live_settlement_needs_owner'}));
+    expect(quarantined).toEqual({kind:'quarantine',reason:'live_settlement_needs_owner',flat:{stopId:'11111111-1111-4111-8111-111111111111',flatDigest:'d'.repeat(64),flatVerifiedAt:clock-4}});
+    expect((await db.select().from(copyLiveRiskReservations))[0]!.state).toBe('quarantined');
+    // Again: answered as it is, nothing changed.
+    expect(await scope.run(identity(),async(_s,session)=>settlement.quarantineUnsettled(session,{accountId:'account',key:p.record.key,reason:'live_settlement_needs_owner'}))).toMatchObject({kind:'quarantine',reason:'live_settlement_quarantined'});
   });
   it('settles a rejected close with zero receipts and retains the full unpaid intended debt',async()=>{
     await complete(await prepare(),10,'0.9','0.9');const fill=await nextFill(2),p=await prepare(fill.id,'close','0.9');

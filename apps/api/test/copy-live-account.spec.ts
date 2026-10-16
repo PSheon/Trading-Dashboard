@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HyperliquidLiveAccountObserver, HyperliquidAllDexsAccountSource } from '../src/copy/live/live-account-observer.js';
 import { EventEmitter } from 'node:events';
 import { Logger } from '@nestjs/common';
@@ -7,6 +7,7 @@ import {offlineGlobalTransport} from './hyperliquid-global-test-utils.js';
 import { classify } from '../src/copy/live/error-class.js';
 import { HyperliquidRestCapacityError } from '../src/hyperliquid/hyperliquid-capacity-error.js';
 import type {HyperliquidSocketQuota} from '../src/hyperliquid/postgres-hyperliquid-quota.js';
+import { registerLiveEvidenceWindow } from '../src/config/live-evidence-window.js';
 
 const account = `0x${'22'.repeat(20)}`;
 const now = 1_790_000_000_000;
@@ -21,7 +22,8 @@ function state(active = true) {
 }
 const open = { coin: 'BTC', side: 'B', limitPx: '65000', sz: '0.004', origSz: '0.01', oid: 10,
   timestamp: now - 1000, reduceOnly: false, cloid: `0x${'ab'.repeat(16)}`, isTrigger: false, isPositionTpsl: false };
-function setup(override?: (body: Record<string, unknown>, value: unknown) => unknown, includeAllOrders = true) {
+/** `maxAgeMs` 'window': the observer's default, the evidence window in force (config/live-evidence-window.ts). */
+function setup(override?: (body: Record<string, unknown>, value: unknown) => unknown, includeAllOrders = true, maxAgeMs: number | 'window' = 5000) {
   let clock = now;
   const reads: Record<string, unknown>[] = [];
   let listed: ({ name: string } | null)[] = [null, { name: 'xyz' }];
@@ -62,10 +64,29 @@ function setup(override?: (body: Record<string, unknown>, value: unknown) => unk
       dex, user, observedAt: clock, receivedAt: clock, orders: apply({ type: 'frontendOpenOrders', user, ...(dex ? { dex } : {}) },
         dex ? [] : [structuredClone(open)]) as unknown[],
     })) }));
-  const observer = new HyperliquidLiveAccountObserver('testnet', acquire, fetcher, () => clock, 5000,
+  const observer = new HyperliquidLiveAccountObserver('testnet', acquire, fetcher, () => clock, maxAgeMs === 'window' ? undefined : maxAgeMs,
     { read: aggregateRead, ...(includeAllOrders ? { readOrders: ordersRead } : {}) });
   return { observer, reads, acquire, fetcher, aggregateRead, ordersRead, setClock: (value: number) => { clock = value; } };
 }
+
+describe('the testnet evidence window (COPY_LIVE_TESTNET_EVIDENCE_MAX_AGE_MS; gate 11, 2026-10-16: 273 testnet dexes)', () => {
+  afterEach(() => registerLiveEvidenceWindow('testnet', undefined));
+  const aged = (ageMs: number) => setup((body, value) => body.type === 'clearinghouseState' ? { ...value as object, time: now - ageMs } : value, true, 'window');
+  it('a testnet observer at 7000 accepts a 6 s-old provider time and refuses one 7.001 s old', async () => {
+    registerLiveEvidenceWindow('testnet', 7000);
+    await expect(aged(6000).observer.observe(account)).resolves.toMatchObject({ network: 'testnet', accountAddress: account });
+    await expect(aged(7001).observer.observe(account)).rejects.toMatchObject({ code: 'live_account_evidence_expired', reason: 'older_than_bound', ageMs: 7001, maxAgeMs: 7000 });
+  });
+  it('unset, testnet stays at 5000; a mainnet deployment and a mainnet observer are 5000 whatever was set', async () => {
+    await expect(aged(5001).observer.observe(account)).rejects.toMatchObject({ code: 'live_account_evidence_expired', maxAgeMs: 5000 });
+    registerLiveEvidenceWindow('mainnet', undefined);
+    await expect(aged(5001).observer.observe(account)).rejects.toMatchObject({ code: 'live_account_evidence_expired', maxAgeMs: 5000 });
+    registerLiveEvidenceWindow('testnet', 7000);
+    expect(() => new HyperliquidLiveAccountObserver('mainnet', async () => {}, fetch, Date.now, 5001)).toThrow('live_account_invalid_observer');
+    expect(() => new HyperliquidLiveAccountObserver('testnet', async () => {}, fetch, Date.now, 7001)).toThrow('live_account_invalid_observer');
+    expect(() => new HyperliquidLiveAccountObserver('testnet', async () => {}, fetch, Date.now, 7000)).not.toThrow();
+  });
+});
 
 describe('setup abort return evidence is separate from trading authority', () => {
   const flatFunded = (body: Record<string, unknown>, value: unknown): unknown => {
@@ -738,6 +759,28 @@ describe('official all-dex snapshot transport (offline)', () => {
       expect(quota.renew).toHaveBeenCalledOnce();expect(quota.ping).toHaveBeenCalledOnce();expect(JSON.parse(socket.send.mock.calls.at(-1)![0])).toEqual({method:'ping'});
       await source.close();await vi.advanceTimersByTimeAsync(20001);expect(quota.ping).toHaveBeenCalledOnce();
     }finally{vi.useRealTimers();}
+  });
+  it('a testnet read in a 7000 ms evidence window asks the quota for at most its 5 s send window (HYPERLIQUID_SEND_WINDOW_MS)',async()=>{
+    vi.useFakeTimers();registerLiveEvidenceWindow('testnet',7000);try{
+      const global=offlineGlobalTransport(vi.fn()),socket=new OfflineSocket();socket.readyState=WebSocket.OPEN;
+      const subscribe=vi.fn<HyperliquidSocketQuota['subscribe']>(async subs=>{
+        const expected=subs.flatMap(sub=>[{method:'subscribe',subscription:sub.subscription},{method:'unsubscribe',subscription:sub.subscription}]);
+        return {dispatch:(body,work)=>{const i=expected.findIndex(c=>JSON.stringify(c)===JSON.stringify(body));if(i<0)throw Error();return work(expected.splice(i,1)[0]!);}};
+      });
+      const quota:HyperliquidSocketQuota={cancelBeforeConnect:vi.fn(async()=>{}),attach:vi.fn(),subscribe,unsubscribe:vi.fn(),renew:vi.fn(async()=>{}),ping:vi.fn<HyperliquidSocketQuota['ping']>(async()=>({assertFresh:()=>{},dispatch:work=>work()})),uncertain:vi.fn(async()=>{}),whenIdle:vi.fn(async()=>{}),close:vi.fn(async()=>{socket.readyState=WebSocket.CLOSED;socket.emit('close',1000);})};
+      const reserveSocket=vi.fn(async()=>({connect:{assertFresh:()=>{},dispatch:<T>(work:()=>T):T=>work()},connection:quota}));
+      vi.spyOn(global.transport,'currentQuota').mockReturnValue({acquireRest:vi.fn(),reserveSocket});
+      socket.send.mockImplementation(body=>{const command=JSON.parse(body);if(command.method==='ping')return;queueMicrotask(()=>{
+        socket.emit('message',Buffer.from(JSON.stringify({channel:'subscriptionResponse',data:command})));if(command.method==='subscribe')socket.emit('message',Buffer.from(JSON.stringify({channel:'allDexsClearinghouseState',data:{user:account,clearinghouseStates:[]}})));
+      });});
+      const source=new HyperliquidAllDexsAccountSource(Date.now,()=>socket as unknown as WebSocket,'testnet',global.transport);
+      const started=Date.now();
+      await expect(source.read(account,7000)).resolves.toMatchObject({network:'testnet'});
+      expect(reserveSocket).toHaveBeenCalledWith(started+5000,'testnet');
+      expect(subscribe.mock.calls[0]![1]).toBe(started+5000);
+      await expect(source.read(account,7001)).rejects.toThrow('live_account_aggregate_unavailable');
+      await source.close();
+    }finally{registerLiveEvidenceWindow('testnet',undefined);vi.useRealTimers();}
   });
 
 });

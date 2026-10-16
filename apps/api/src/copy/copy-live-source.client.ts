@@ -5,6 +5,7 @@ import { boundedLiveRead } from './live/live-market-resolver.js';
 import { settleListAnswer } from '../hyperliquid/hyperliquid-global-transport.js';
 import { RESERVE_BOUND_MS } from '../config/constants/timings.js';
 import { SOURCE_READ_WORST_WEIGHT } from '../config/constants/weights.js';
+import { liveEvidenceMaxAgeMs } from '../config/live-evidence-window.js';
 interface LiveSourceReadRequest { leaderAddress: string; from: number; to: number; maxRequests: number; maxDepth?: number; maxFills?: number; }
 interface LiveSourceWindow { kind: 'fills' | 'twap'; from: number; to: number; depth: number; }
 interface LiveSourceWindowObservation extends LiveSourceWindow { observedAt: number; completedAt: number; count: number; responseDigest: string; saturated: boolean;
@@ -26,7 +27,7 @@ const requestSchema = z.object({ leaderAddress: z.string(), from: integer, to: i
   maxRequests: z.number().int().min(1).max(64), maxDepth: z.number().int().min(0).max(48).default(24),
   maxFills: z.number().int().min(1).max(10000).default(10000),
 }).strict();
-const DEADLINE = 5000, ROW_CAP = 2000, POSSIBLE_CAP = 500, BODY_CAP = 2 * 1024 * 1024;
+const ROW_CAP = 2000, POSSIBLE_CAP = 500, BODY_CAP = 2 * 1024 * 1024;
 const listWeight = (rows: number) => Math.min(SOURCE_READ_WORST_WEIGHT, 20 + Math.ceil(rows / 20));
 function fail(code: string): never { throw new LiveBoundaryError(code); }
 async function json(response: Response, remaining: () => number, signal: AbortSignal) {
@@ -78,9 +79,11 @@ export class HyperliquidLiveSourceClient {
     if (!Number.isSafeInteger(started) || started < requestedAt) { refundUnused(); fail('live_source_request_invalid'); }
     const unresolved: LiveSourceReadResult['unresolved'] = [], observations: LiveSourceWindowObservation[] = [];
     const fills = new Map<string, LiveSourceFillEvidence>(); let requestsUsed = 0;
-    const timer = setTimeout(() => controller.abort(), DEADLINE); timer.unref();
-    const fresh = () => Number.isSafeInteger(this.now()) && this.now() >= started && this.now() - started <= DEADLINE && !controller.signal.aborted;
-    const remaining = () => { if (!fresh()) fail('live_source_evidence_expired'); return Math.max(1, DEADLINE - (this.now() - started)); };
+    // The evidence window of the leader's network (5 s; a testnet leader: the testnet window).
+    const deadlineMs = liveEvidenceMaxAgeMs(this.network);
+    const timer = setTimeout(() => controller.abort(), deadlineMs); timer.unref();
+    const fresh = () => Number.isSafeInteger(this.now()) && this.now() >= started && this.now() - started <= deadlineMs && !controller.signal.aborted;
+    const remaining = () => { if (!fresh()) fail('live_source_evidence_expired'); return Math.max(1, deadlineMs - (this.now() - started)); };
     const rest = (window: LiveSourceWindow, reason: LiveSourceReadResult['unresolved'][number]['reason']) => {
       unresolved.push(...[window, ...queue].map(w => ({ ...w, reason }))); queue.length = 0;
     };
@@ -107,7 +110,7 @@ export class HyperliquidLiveSourceClient {
       return { observedAt, rows };
     };
     try {
-      // The two initial channels read together within the same DEADLINE.
+      // The two initial channels read together within the same deadline.
       const initial = new Map<LiveSourceWindow, PromiseSettledResult<{ observedAt: number; rows: unknown }>>();
       if (request.maxRequests >= 2) {
         const windows = [...queue];

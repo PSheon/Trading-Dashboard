@@ -9,8 +9,8 @@ import { verifyTypedData } from 'viem';
 import { marketIdentityKey, type LiveMarketIdentity } from './live-market-resolver.js';
 import type { LiveNetwork } from './wallet-authorization.js';
 import { beginLiveExecutionTiming, type LiveExecutionTimingHook } from './live-execution-diagnostics.js';
-import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
 import { EIP712_DOMAIN_FIELDS as domainFields, PHANTOM_AGENT_FIELDS as agentFields } from './phantom-agent-typed-data.js';
+import { liveEvidenceMaxAgeMs } from '../../config/live-evidence-window.js';
 
 export type PrivyOrderSignInput = Parameters<ReturnType<ReturnType<PrivyClient["wallets"]>["ethereum"]>["signTypedData"]>[1];
 export type PrivySigningAuthorization = Pick<PrivyOrderSignInput, "authorization_context">;
@@ -32,7 +32,7 @@ type LiveSigningBoundaryVerifier = (record: LiveExecutionRecord, intent: LiveOrd
 /** Pure proof checks after the final lease; no await may follow before sign/POST. */
 export function assertLiveSigningBoundaryProof(proof: LiveSigningBoundaryProof, record: LiveExecutionRecord,
   intent: LiveOrderIntent, now: number): void {
-  const fresh = (at: number) => Number.isSafeInteger(at) && at <= now && now - at <= LIVE_EVIDENCE_MAX_AGE_MS;
+  const fresh = (at: number) => Number.isSafeInteger(at) && at <= now && now - at <= liveEvidenceMaxAgeMs();
   if (intent.market && (!proof.market || !fresh(proof.market.observedAt) ||
       !isDeepStrictEqual(marketIdentityKey(intent.market), marketIdentityKey(proof.market))))
     throw new LiveBoundaryError('live_market_proof_invalid');
@@ -116,7 +116,7 @@ export class PrivyOrderSigner {
           this.assertAuthorizationFresh(finalAuthorization, intent);
           if (boundaryVerifier) assertLiveSigningBoundaryProof(proof, record, intent, this.now());
           const now = this.now();
-          if (!Number.isSafeInteger(walletCheckedAt) || now < walletCheckedAt || now - walletCheckedAt > LIVE_EVIDENCE_MAX_AGE_MS)
+          if (!Number.isSafeInteger(walletCheckedAt) || now < walletCheckedAt || now - walletCheckedAt > liveEvidenceMaxAgeMs())
             throw new LiveBoundaryError('privy_wallet_identity_stale');
           if (record.expiresAfter <= now) throw new LiveBoundaryError('signing_order_expired');
         };

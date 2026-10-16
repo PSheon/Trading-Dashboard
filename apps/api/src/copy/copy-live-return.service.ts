@@ -9,8 +9,9 @@ import { CopyFundingExchangeClient } from './copy-funding-exchange.client.js';
 import { wire } from './copy-funding.service.js';
 import { builderOutcome, CopyLiveReturnRepository, type BuilderApprovalRow } from './copy-live-return.repository.js';
 import { WORKER_MASTER_SIGNER, type WorkerMasterSigner } from './live/privy-policy-master-signer.js';
-import { LIVE_EVIDENCE_MAX_AGE_MS, RETURN_CONSENT_WINDOW_MS } from '../config/constants/timings.js';
+import { RETURN_CONSENT_WINDOW_MS } from '../config/constants/timings.js';
 import { jsonDigest as digest } from '../common/crypto/digest.js';
+import { liveEvidenceMaxAgeMs } from '../config/live-evidence-window.js';
 
 function input<T>(schema: z.ZodType<T>, value: unknown): T {
   const parsed = schema.safeParse(value);
@@ -76,7 +77,7 @@ export class CopyLiveReturnService {
     }
     if (!Dec.from(await this.exchange.withdrawable(row.network, row.address)).gte(row.amount)) throw new ConflictException({ statusCode: 409, code: 'no_free_collateral', message: 'Not enough transferable USDC' });
     const checkedAt = this.now();
-    const fresh = () => { const at = this.now(); if (!Number.isSafeInteger(at) || at - checkedAt > LIVE_EVIDENCE_MAX_AGE_MS || at >= consentExpiresAt) throw new Error('stale'); };
+    const fresh = () => { const at = this.now(); if (!Number.isSafeInteger(at) || at - checkedAt > liveEvidenceMaxAgeMs() || at >= consentExpiresAt) throw new Error('stale'); };
     const attempt = await this.repository.begin(userId, id);
     if (!attempt) return wire(await this.repository.find(userId, id));
     // `dispatched` flips right before the POST: a refusal before it was not sent.

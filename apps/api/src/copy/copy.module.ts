@@ -83,6 +83,7 @@ import { HyperliquidLiveAccountObserver } from './live/live-account-observer.js'
 // provided by HyperliquidModule (re-exported here for existing imports).
 export { WALLET_NETWORK_HL, walletNetworkHyperliquid, type WalletNetworkHyperliquid } from "../hyperliquid/wallet-network-hyperliquid.js";
 import { ATTEMPT_STEP_WEIGHT } from '../config/constants/weights.js';
+import { liveEvidenceMaxAgeMs } from '../config/live-evidence-window.js';
 /** A setup step's clients' reservations, on the setup bucket
  * (WalletNetworkHyperliquid.setupBudget: never the order bucket): queued
  * (never refused at once on the estimate) for at most the setup step's
@@ -134,7 +135,7 @@ const setupReserve = (config: AppConfig, { network, dedicated }: Pick<WalletNetw
     { provide: SETUP_ABORT_OBSERVER, inject: [WALLET_NETWORK_HL], useFactory: ({ budget, transport, network }: WalletNetworkHyperliquid) =>
       // Original refund proofs may queue before their evidence clock, within the
       // existing 120s abort lease. This preserves the live reserve and 5s proof.
-      new HyperliquidLiveAccountObserver(network, liveBudget(budget, { maxWaitMs: 50_000 }), transport.fetchInfo, Date.now, 5000,
+      new HyperliquidLiveAccountObserver(network, liveBudget(budget, { maxWaitMs: 50_000 }), transport.fetchInfo, Date.now, liveEvidenceMaxAgeMs(network),
         new HyperliquidAllDexsAccountSource(Date.now, undefined, network, transport, { closeAfterRead: true }), 52_000) },
     { provide: WORKER_MASTER_SIGNER, inject: [AppConfig], useFactory: (config: AppConfig) => new PrivyPolicyMasterSigner({ appId: config.value.auth.appId, appSecret: config.value.auth.appSecret,
       workerQuorumId: config.value.copy.agent?.workerQuorumId, authorizationPrivateKey: config.value.copy.agent?.authorizationPrivateKey }) },

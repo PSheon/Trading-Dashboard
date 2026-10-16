@@ -17,7 +17,7 @@ import {
 import { address, LiveBoundaryError } from './wallet-authorization.js';
 import type { LiveSharedReads } from './live-shared-reads.js';
 import { RISK_PROVIDER_WEIGHT } from '../../config/constants/weights.js';
-import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
+import { liveEvidenceMaxAgeMs } from '../../config/live-evidence-window.js';
 
 export interface LiveRiskProviderOptions {
   readonly extraRiskBufferBps: string;
@@ -67,7 +67,7 @@ const fraction = nonnegative.refine((v) => Dec.from(v).lte(1));
 const settingsSchema = z.object({
   extraRiskBufferBps: nonnegative.refine((v) => Dec.from(v).lte(10000)),
   restingOrderBuilderFeeCapTenthsBps: integer.refine((v) => v <= 100),
-  timeoutMs: integer.refine((v) => v >= 1 && v <= LIVE_EVIDENCE_MAX_AGE_MS).optional(),
+  timeoutMs: integer.refine((v) => v >= 1 && v <= liveEvidenceMaxAgeMs()).optional(),
 });
 const metaSchema = z.object({
   collateralToken: integer,
@@ -185,7 +185,7 @@ export class HyperliquidLiveRiskProvider {
       const market = structuredClone(suppliedMarket),
         options = settingsSchema.parse(structuredClone(suppliedOptions));
       const user = address(accountAddress),
-        timeout = options.timeoutMs ?? 5000;
+        timeout = options.timeoutMs ?? liveEvidenceMaxAgeMs(this.network);
       // Official userFees has no dex parameter. HIP-3 deployer/growth/AQA fee
       // scope needs separate proven settings; do not silently use base tier.
       // Refused before any weight is taken.
@@ -207,7 +207,7 @@ export class HyperliquidLiveRiskProvider {
           !Number.isSafeInteger(at) ||
           at < 0 ||
           at > now ||
-          now - at > LIVE_EVIDENCE_MAX_AGE_MS ||
+          now - at > liveEvidenceMaxAgeMs(this.network) ||
           now - started > timeout
         )
           deny('live_risk_provider_stale');

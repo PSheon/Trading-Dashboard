@@ -1897,7 +1897,9 @@ export const copyLivePositionBaselines = pgTable("copy_live_position_baselines",
   uniqueIndex("copy_live_baseline_first_execution_uq").on(t.firstExecutionKey),
   check("copy_live_baseline_identity_check", sql`${t.network} in ('testnet','mainnet') and ${t.accountAddress} ~ '^0x[0-9a-f]{40}$' and ${t.accountAddress} <> '0x0000000000000000000000000000000000000000' and ${t.producerVersion} = 1`),
   check("copy_live_baseline_evidence_check", sql`${t.sourceDigest} ~ '^[0-9a-f]{64}$' and ${t.snapshotDigest} ~ '^[0-9a-f]{64}$' and ${t.baselineDigest} ~ '^[0-9a-f]{64}$' and jsonb_typeof(${t.record}) = 'object'`),
-  check("copy_live_baseline_time_check", sql`extract(epoch from ${t.observedAt}) > 0 and ${t.completedAt} >= ${t.observedAt} and ${t.createdAt} >= ${t.completedAt} and ${t.createdAt} <= ${t.observedAt} + interval '5 seconds'`),
+  // The evidence window (apps/api config/live-evidence-window.ts): mainnet 5 s; testnet up to its cap, 10 s
+  // (LIVE_TESTNET_EVIDENCE_MAX_AGE_CAP_MS, migration 0086). Any other network fails.
+  check("copy_live_baseline_time_check", sql`extract(epoch from ${t.observedAt}) > 0 and ${t.completedAt} >= ${t.observedAt} and ${t.createdAt} >= ${t.completedAt} and ((${t.network} = 'mainnet' and ${t.createdAt} <= ${t.observedAt} + interval '5 seconds') or (${t.network} = 'testnet' and ${t.createdAt} <= ${t.observedAt} + interval '10 seconds'))`),
 ]);
 
 /** The live worker's work list: one row per (mandate, leader fill, leg) it
@@ -2267,7 +2269,9 @@ export const copyFollowerObservations = pgTable("copy_follower_observations", {
   uniqueIndex("copy_follower_observations_digest_uq").on(t.accountId, t.sourceDigest),
   index("copy_follower_observations_history_idx").on(t.accountId, t.observedAt, t.id),
   check("copy_follower_observations_identity_check", sql`${t.network} in ('testnet','mainnet') and ${t.accountAddress} ~ '^0x[0-9a-f]{40}$' and ${t.accountAddress} <> '0x0000000000000000000000000000000000000000' and ${t.sourceDigest} ~ '^[0-9a-f]{64}$' and ${t.producerVersion} = 1 and jsonb_typeof(${t.snapshot}) = 'object'`),
-  check("copy_follower_observations_time_check", sql`${t.completedAt} >= ${t.observedAt} and ${t.completedAt} <= ${t.observedAt} + interval '5 seconds' and ${t.earliestProviderTime} <= ${t.completedAt} and ${t.earliestProviderTime} >= ${t.completedAt} - interval '5 seconds'`),
+  // The evidence window (apps/api config/live-evidence-window.ts): mainnet 5 s; testnet up to its cap, 10 s
+  // (LIVE_TESTNET_EVIDENCE_MAX_AGE_CAP_MS, migration 0086). Any other network fails.
+  check("copy_follower_observations_time_check", sql`${t.completedAt} >= ${t.observedAt} and ${t.earliestProviderTime} <= ${t.completedAt} and ((${t.network} = 'mainnet' and ${t.completedAt} <= ${t.observedAt} + interval '5 seconds' and ${t.earliestProviderTime} >= ${t.completedAt} - interval '5 seconds') or (${t.network} = 'testnet' and ${t.completedAt} <= ${t.observedAt} + interval '10 seconds' and ${t.earliestProviderTime} >= ${t.completedAt} - interval '10 seconds'))`),
 ]);
 
 /** Persisted admission spans API/worker replicas and process restarts. The

@@ -13,6 +13,7 @@ import { wire } from "./copy.mappers.js";
 import { strategyValue } from "./copy-planner.service.js";
 import { CopyRepository } from "./copy.repository.js";
 import { ACTUAL_FRESH_MS, COPY_SNAPSHOT_INTERVAL_MS, FRESH_MS, MIDS_TTL_MS } from '../config/constants/cache-ttls.js';
+import { liveEvidenceMaxAgeMs } from '../config/live-evidence-window.js';
 
 /** The portfolio chart's resolution: about this many intervals per window. */
 const PORTFOLIO_POINTS = 120;
@@ -56,7 +57,7 @@ export class CopyPerformanceService {
             snapshot.completedAt !== o.completedAt.getTime() || snapshot.coverage.earliestProviderTime !== o.earliestProviderTime.getTime()) continue;
         // Valid and fresh as of its own completion (the snapshot GET's rules).
         const view = mapLiveAccountView({ accountId: row.account.id, strategyId: row.strategyId, network, accountAddress: row.account.address },
-          snapshot, { blocked: false, reason: null }, snapshot.completedAt, 5000);
+          snapshot, { blocked: false, reason: null }, snapshot.completedAt, liveEvidenceMaxAgeMs(network));
         const netDeposits = actualNetDeposits(row.transfers, snapshot.observedAt);
         if (!netDeposits) continue;
         const equity = Dec.from(view.metrics.perpEquity);

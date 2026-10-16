@@ -209,6 +209,22 @@ export function refusableCoin(markets, { perTradeUsd, maxPerTradeUsd, minOrderUs
 
 /** An order's evidence must stay well inside the 5 s window (live_risk_stale) — the gate's limit. */
 export const EVIDENCE_MAX_MS = 3500;
+/** The api's evidence window on mainnet (LIVE_EVIDENCE_MAX_AGE_MS; read-only copy). */
+export const MAINNET_EVIDENCE_WINDOW_MS = 5000;
+/** The evidence window a profile runs the api and the worker with: COPY_LIVE_TESTNET_EVIDENCE_MAX_AGE_MS
+ * (testnet only; stage-like: 7000), else mainnet's 5000. */
+export function evidenceWindowMs(env = {}) {
+  const raw = env.COPY_LIVE_TESTNET_EVIDENCE_MAX_AGE_MS;
+  if (raw === undefined || raw === "") return MAINNET_EVIDENCE_WINDOW_MS;
+  const ms = Number(raw);
+  if (!Number.isSafeInteger(ms) || ms < MAINNET_EVIDENCE_WINDOW_MS) throw new Error(`COPY_LIVE_TESTNET_EVIDENCE_MAX_AGE_MS: ${raw} is not a window`);
+  return ms;
+}
+/** Which window an evidence figure was measured under: a wider one is never mainnet-equivalent. */
+export function evidenceWindowLabel(ms = MAINNET_EVIDENCE_WINDOW_MS) {
+  return ms === MAINNET_EVIDENCE_WINDOW_MS ? `evidence window ${ms} ms (mainnet's)`
+    : `evidence window ${ms} ms (TESTNET allowance, not mainnet-equivalent; mainnet stays ${MAINNET_EVIDENCE_WINDOW_MS})`;
+}
 /** Attempt failures that mean the evidence or its generation proof could not be held: the gate fails on any. */
 export const EVIDENCE_FAILURES = Object.freeze(["live_risk_stale", "live_risk_serialization_stale", "market_evidence_expired",
   "live_risk_generation_unproven", "live_generation_unproven", "live_preparation_generation_changed", "live_read_deadline_exceeded"]);
@@ -358,7 +374,7 @@ export function evidenceStats(orders, maxMs = EVIDENCE_MAX_MS) {
  * then the raw max and the mainnet projection's max, then all of them. Judged: `judgedMs` (a testnet
  * order without its dex fan-out, criteria.mjs), else the raw `evidenceMs`.
  */
-export function renderGateSummary(rows, maxMs = EVIDENCE_MAX_MS) {
+export function renderGateSummary(rows, maxMs = EVIDENCE_MAX_MS, windowMs = MAINNET_EVIDENCE_WINDOW_MS) {
   const width = Math.max(8, ...rows.map((r) => r.name.length));
   const ms = (v) => (v === null || v === undefined ? "—" : String(Math.round(v))).padStart(6);
   const mark = (ok) => ok === true ? "PASS" : ok === false ? "FAIL" : "SKIP";
@@ -366,10 +382,10 @@ export function renderGateSummary(rows, maxMs = EVIDENCE_MAX_MS) {
   const line = (name, ok, orders) => {
     const s = evidenceStats(judged(orders), maxMs), raw = evidenceStats(orders, maxMs);
     const projected = orders.map((o) => o.fanout?.projectedMainnetMs).filter(Number.isFinite);
-    return `${name.padEnd(width)}  ${mark(ok).padEnd(6)}  ${String(s.orders).padStart(6)}  ${ms(s.p50)} ${ms(s.p95)} ${ms(s.max)} ${ms(raw.max)} ${ms(projected.length ? Math.max(...projected) : null)}`;
+    return `${name.padEnd(width)}  ${mark(ok).padEnd(6)}  ${String(s.orders).padStart(6)}  ${ms(s.p50)} ${ms(s.p95)} ${ms(s.max)} ${ms(raw.max)} ${ms(projected.length ? Math.max(...projected) : null)} ${ms(windowMs)}`;
   };
-  const lines = [`pre-mainnet gate: every leg settled or refused for an expected reason, each order's judged evidence < ${maxMs} ms`,
-    `${"scenario".padEnd(width)}  result  orders     p50    p95    max    raw  mainnet  (judged evidence ms: testnet without the dex fan-out; raw max; mainnet projection max)`];
+  const lines = [`pre-mainnet gate: every leg settled or refused for an expected reason, each order's judged evidence < ${maxMs} ms; ${evidenceWindowLabel(windowMs)}`,
+    `${"scenario".padEnd(width)}  result  orders     p50    p95    max    raw  mainnet window  (judged evidence ms: testnet without the dex fan-out; raw max; mainnet projection max; the evidence window in force)`];
   for (const r of rows) lines.push(line(r.name, r.ok, r.orders ?? []));
   if (rows.length > 1) lines.push(line("all", rows.some((r) => r.ok === false) ? false : rows.every((r) => r.ok === null) ? null : true, rows.flatMap((r) => r.orders ?? [])));
   return lines.join("\n");

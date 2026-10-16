@@ -6,8 +6,8 @@ import type { PrivyOrderSigningClient, PrivyOrderSignInput } from './privy-order
 import { boundedLiveRead } from './live-market-resolver.js';
 import { LiveBoundaryError } from './wallet-authorization.js';
 import { Logger } from '@nestjs/common';
-import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
 import { EIP712_DOMAIN_FIELDS, PHANTOM_AGENT_DOMAIN as domain, PHANTOM_AGENT_FIELDS } from './phantom-agent-typed-data.js';
+import { liveEvidenceMaxAgeMs } from '../../config/live-evidence-window.js';
 
 const types = { EIP712Domain: EIP712_DOMAIN_FIELDS, Agent: PHANTOM_AGENT_FIELDS };
 
@@ -130,7 +130,7 @@ export class BoundaryPrivyOrderSigningClient implements PrivyOrderSigningClient 
       walletId(id); const input = structuredClone(rawInput), started = this.now();
       const remaining = () => {
         const now = this.now();
-        if (!Number.isSafeInteger(started) || started <= 0 || !Number.isSafeInteger(now) || now <= 0 || now < started || now - started > LIVE_EVIDENCE_MAX_AGE_MS ||
+        if (!Number.isSafeInteger(started) || started <= 0 || !Number.isSafeInteger(now) || now <= 0 || now < started || now - started > liveEvidenceMaxAgeMs() ||
             !Number.isSafeInteger(input.request_expiry) || input.request_expiry! <= now || input.request_expiry! > started + 60_000) throw new Error();
         return Math.max(1, Math.min(10_000, input.request_expiry! - now));
       };

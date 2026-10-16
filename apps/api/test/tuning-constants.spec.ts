@@ -27,6 +27,7 @@ const ALLOWED: Readonly<Record<string, string>> = {
   'copy/live/live-read-cache.ts:TTL_MS': 'a per-read-type table, each entry with its reason beside the cache that owns it',
   'copy/copy-performance.service.ts:WINDOW_MS': 'a typed per-window table (1d/7d/30d), not a tuning value',
   'copy/live/live-execution-diagnostics.ts:SPAN_LIMIT': 'a record cap on a diagnostic, not a tuning value',
+  'copy/copy-live-source.client.ts:ROW_CAP': "the source reader's response caps (with POSSIBLE_CAP, BODY_CAP), unseen by this guard until its DEADLINE became the evidence window (2026-10-16); they move with a basis line in phase 2",
 };
 const BASIS = /^\/\*\* basis: (measured|derived|copied|guessed) — .+/;
 

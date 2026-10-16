@@ -40,8 +40,13 @@ await withTestDatabase(async (url) => {
     assert.deepEqual(dropped.rows, []);
     // 0072: one network per deployment: an actual copy records its network, and the network checks take mainnet.
     await pool.query('SELECT network FROM copy_strategies LIMIT 0');
-    const pinned = await pool.query("SELECT conname FROM pg_constraint WHERE contype = 'c' AND pg_get_constraintdef(oid) LIKE '%network = ''testnet''::text%'");
-    assert.deepEqual(pinned.rows, []);
+    const pinned = await pool.query("SELECT conname FROM pg_constraint WHERE contype = 'c' AND pg_get_constraintdef(oid) LIKE '%network = ''testnet''::text%' ORDER BY conname");
+    // 0086: the two evidence-window time checks name testnet as one branch of a per-network bound (mainnet 5 s,
+    // testnet 10 s); they pin no row to testnet, and each has its mainnet branch.
+    const perNetwork = ['copy_follower_observations_time_check', 'copy_live_baseline_time_check'];
+    assert.deepEqual(pinned.rows.map(row => row.conname), perNetwork);
+    const branches = await pool.query("SELECT conname FROM pg_constraint WHERE conname = ANY($1) AND pg_get_constraintdef(oid) LIKE '%network = ''mainnet''::text%' ORDER BY conname", [perNetwork]);
+    assert.deepEqual(branches.rows.map(row => row.conname), perNetwork);
     const agentIndexes = await pool.query("SELECT indexname FROM pg_indexes WHERE tablename = 'copy_agent_setups' AND indexname IN ('copy_agent_setups_active_uq', 'copy_agent_setups_pending_uq', 'copy_agent_setups_current_uq') ORDER BY indexname");
     assert.deepEqual(agentIndexes.rows.map(row => row.indexname), ['copy_agent_setups_active_uq', 'copy_agent_setups_pending_uq']);
     console.log('Persistent history schema is queryable after release migrations');

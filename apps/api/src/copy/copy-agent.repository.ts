@@ -8,7 +8,7 @@ import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { DbTransaction } from "../db/unit-of-work.js";
 import { lockCopyUser } from "./copy-user-lock.js";
 import { allocateSignerNonce } from "./signer-nonce.js";
-import { LIVE_EVIDENCE_MAX_AGE_MS } from '../config/constants/timings.js';
+import { liveEvidenceMaxAgeMs } from '../config/live-evidence-window.js';
 export type AgentSetupRow = typeof copyAgentSetups.$inferSelect;
 @Injectable()
 export class CopyAgentRepository {
@@ -132,7 +132,7 @@ export class CopyAgentRepository {
     if (locked.state !== "approval_unknown" || !locked.approvalAttemptedAt || locked.revision !== row.revision) throw new ConflictException("agent_approval_evidence_stale");
     const assertFresh = () => {
       const now = Date.now();
-      if (!Number.isSafeInteger(observedAt) || observedAt > now || now - observedAt > LIVE_EVIDENCE_MAX_AGE_MS) throw new ConflictException("agent_approval_evidence_stale");
+      if (!Number.isSafeInteger(observedAt) || observedAt > now || now - observedAt > liveEvidenceMaxAgeMs()) throw new ConflictException("agent_approval_evidence_stale");
       if (locked.expiresAt.getTime() <= now) throw new ConflictException("agent_expired");
     };
     assertFresh();

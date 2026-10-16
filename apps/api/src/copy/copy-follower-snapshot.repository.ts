@@ -15,6 +15,7 @@ import { deploymentNetwork } from './live-deployment.js';
 import type { DbExecutor } from '../db/unit-of-work.js';
 import { decodeLiveSettlementProof } from './live/live-settlement-proof.js';
 import { followerForegroundReadEligible, followerRecoveryAccount, followerFreshForeground, followerAccountFreshForeground } from './copy-foreground-read-priority.js';
+import { liveEvidenceMaxAgeMs } from '../config/live-evidence-window.js';
 
 type FollowerSnapshotClaim = Readonly<{ accountId: string; userId: number; strategyId: number; accountAddress: string; accountRevision: number; ownerPrivyUserId: string; claimToken: string; admission: 'ordinary' | 'recovery' | 'fairness' }>;
 export class FollowerSnapshotDeferred extends LiveBoundaryError {
@@ -117,7 +118,7 @@ export class CopyFollowerSnapshotRepository {
   async save(rawClaim: FollowerSnapshotClaim, rawSnapshot: LiveAccountSnapshot, now = Date.now()): Promise<boolean> {
     const claim = structuredClone(rawClaim), snapshot = structuredClone(rawSnapshot), network = this.network;
     // Strict pure validation strips no fields and retains original timestamps.
-    mapLiveAccountView({ accountId: claim.accountId, strategyId: claim.strategyId, network, accountAddress: claim.accountAddress }, snapshot, { blocked: false, reason: null }, now, 5000);
+    mapLiveAccountView({ accountId: claim.accountId, strategyId: claim.strategyId, network, accountAddress: claim.accountAddress }, snapshot, { blocked: false, reason: null }, now, liveEvidenceMaxAgeMs(network));
     return this.db.transaction(async tx => {
       await lockCopyUser(tx, claim.userId);
       const [account] = await tx.select().from(copyExecutionAccounts).where(eq(copyExecutionAccounts.id, claim.accountId)).for('share');
@@ -161,7 +162,7 @@ export class CopyFollowerSnapshotRepository {
       if (!owned?.account.address) throw new LiveBoundaryError('follower_account_identity_changed');
       const identity = { accountId: r.accountId, userId: r.userId, strategyId: r.strategyId, accountAddress: owned.account.address,
         accountRevision: owned.account.revision, ownerPrivyUserId: owned.account.privyUserId };
-      mapLiveAccountView({ ...identity, network: this.network }, source.snapshot, { blocked: false, reason: null }, now, 5000);
+      mapLiveAccountView({ ...identity, network: this.network }, source.snapshot, { blocked: false, reason: null }, now, liveEvidenceMaxAgeMs(this.network));
       await tx.insert(copyFollowerObservationJobs).values({ accountId: r.accountId }).onConflictDoNothing();
       const [job] = await tx.select().from(copyFollowerObservationJobs).where(eq(copyFollowerObservationJobs.accountId, r.accountId)).for('update');
       return this.persist(tx, identity, source.snapshot, job!, true);

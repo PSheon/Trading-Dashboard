@@ -1,5 +1,5 @@
 import { isHyperliquidNetwork, type HyperliquidNetwork } from "@trading-dashboard/shared/contracts";
-import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
+import { liveEvidenceMaxAgeMs } from '../../config/live-evidence-window.js';
 
 export type LiveNetwork = HyperliquidNetwork;
 type WalletScope = "copy:trade" | "copy:reduce";
@@ -66,7 +66,7 @@ export function assertVerifiedAuthorizationFresh(verified: VerifiedWalletAuthori
   const proof = verified.evidence;
   if (!proof || proof.network !== grant.network || address(proof.accountAddress) !== grant.accountAddress ||
       address(proof.signerAddress) !== grant.signerAddress || !Number.isSafeInteger(proof.checkedAt) ||
-      proof.checkedAt > now || now - proof.checkedAt > LIVE_EVIDENCE_MAX_AGE_MS ||
+      proof.checkedAt > now || now - proof.checkedAt > liveEvidenceMaxAgeMs() ||
       (proof.expiresAt !== null && (!Number.isSafeInteger(proof.expiresAt) || proof.expiresAt <= now))) {
     throw new LiveBoundaryError("exchange_approval_evidence_invalid");
   }

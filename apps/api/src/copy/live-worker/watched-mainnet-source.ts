@@ -5,7 +5,7 @@ import type { DbExecutor } from '../../db/unit-of-work.js';
 import type { LiveSourceReadResult } from '../copy-live-source.client.js';
 import { liveSourceDigest, parseLiveSourceFill, type LiveSourceFillEvidence } from '../live/copy-live-source-evidence.js';
 import { address, LiveBoundaryError } from '../live/wallet-authorization.js';
-import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
+import { liveEvidenceMaxAgeMs } from '../../config/live-evidence-window.js';
 
 /** Rows per window; a fuller window stops one millisecond before its last row. */
 const WATCHED_WINDOW_ROWS = 400;
@@ -59,8 +59,8 @@ export class WatchedMainnetSource {
     const completedAt = this.now();
     const observations = [{ kind: 'fills' as const, from, to: through, depth: 0, observedAt, completedAt, count: rows.length,
       responseDigest: liveSourceDigest(rows.map(row => row.raw)), saturated: false, ...(sealed ? { sealed: true as const } : {}) }];
-    const result = { network: 'mainnet' as const, leaderAddress, from, to: through, observedAt, completedAt, fresh: completedAt - observedAt <= LIVE_EVIDENCE_MAX_AGE_MS,
-      complete: completedAt - observedAt <= LIVE_EVIDENCE_MAX_AGE_MS, historicalCompleteness: 'unproven' as const, requestsUsed: 1, kinds: ['fills' as const],
+    const result = { network: 'mainnet' as const, leaderAddress, from, to: through, observedAt, completedAt, fresh: completedAt - observedAt <= liveEvidenceMaxAgeMs('mainnet'),
+      complete: completedAt - observedAt <= liveEvidenceMaxAgeMs('mainnet'), historicalCompleteness: 'unproven' as const, requestsUsed: 1, kinds: ['fills' as const],
       fills: [...parsed.values()].sort((a, b) => a.providerTime - b.providerTime || (BigInt(a.tid) < BigInt(b.tid) ? -1 : 1)), observations, unresolved: [] };
     return { ...result, sourceDigest: liveSourceDigest(result) };
   }
@@ -69,7 +69,7 @@ export class WatchedMainnetSource {
   private unreadable(leaderAddress: string, from: number, observedAt: number, rows: { raw: unknown }[]): LiveSourceReadResult {
     this.log?.(`ALERT watched source: ${leaderAddress} has ${rows.length}+ fills at ${new Date(from).toISOString()}, more than one window holds; ` +
       'that millisecond cannot be certified, stream set to gap (incomplete_coverage)');
-    const completedAt = this.now(), fresh = completedAt - observedAt <= LIVE_EVIDENCE_MAX_AGE_MS;
+    const completedAt = this.now(), fresh = completedAt - observedAt <= liveEvidenceMaxAgeMs('mainnet');
     const observations = [{ kind: 'fills' as const, from, to: from, depth: 0, observedAt, completedAt, count: rows.length,
       responseDigest: liveSourceDigest(rows.map(row => row.raw)), saturated: true }];
     const result = { network: 'mainnet' as const, leaderAddress, from, to: from, observedAt, completedAt, fresh, complete: false,

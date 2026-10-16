@@ -22,10 +22,11 @@ import { LiveBoundaryError } from '../live/wallet-authorization.js';
 import { LiveSharedReads } from '../live/live-shared-reads.js';
 import type { LiveSourceNetwork } from '../live/copy-live-source-evidence.js';
 import { liveReadCache } from '../live/live-read-cache.js';
-import { LIVE_EVIDENCE_MAX_AGE_MS, LIVE_FILL_SCAN_MARGIN_MS, NEVER_PLACED_GRACE_MS, PROVIDER_CLOCK_SKEW_MS, SETTLEMENT_CLAIM_WAIT_MS } from '../../config/constants/timings.js';
+import { NEVER_PLACED_GRACE_MS, PROVIDER_CLOCK_SKEW_MS, SETTLEMENT_CLAIM_WAIT_MS } from '../../config/constants/timings.js';
 import { sharedRestRetryAfterMs } from '../../hyperliquid/hyperliquid-capacity-error.js';
 import { RESPONSE_WEIGHT } from '../live/follower-receipt-reader.js';
 import { errorCode } from '../../runtime/safe-error-text.js';
+import { liveEvidenceMaxAgeMs, liveFillScanMarginMs } from '../../config/live-evidence-window.js';
 
 export const TERMINAL_STATES: ReadonlySet<string> = new Set(['filled', 'partial', 'cancelled', 'rejected']);
 export interface LiveSettleRequest {
@@ -142,7 +143,7 @@ export class CopyLiveSettler {
           const released = await settlement.releaseNeverPlaced(session, { accountId: request.accountId, key: request.key });
           return released.kind === 'released' ? { kind: 'unplaced' as const } : released;
         }
-        const observer = new HyperliquidLiveAccountObserver(this.network, acquire, fetchInfo, this.now, 5000, sockets, undefined, liveReadCache(this.network));
+        const observer = new HyperliquidLiveAccountObserver(this.network, acquire, fetchInfo, this.now, liveEvidenceMaxAgeMs(this.network), sockets, undefined, liveReadCache(this.network));
         const snapshot = await observer.observe(request.accountAddress);
         const [reservation] = await session.read(db => db.select({ revision: copyLiveRiskReservations.revision, accountId: copyLiveRiskReservations.accountId,
           strategyId: copyLiveRiskReservations.strategyId }).from(copyLiveRiskReservations).where(eq(copyLiveRiskReservations.key, request.key)));
@@ -169,7 +170,7 @@ export class CopyLiveSettler {
 
   /**
    * Whether the issue-free fill-scan cursor is past this order's terminal write
-   * plus PROVIDER_CLOCK_SKEW_MS + LIVE_FILL_SCAN_MARGIN_MS (the DAL's own
+   * plus PROVIDER_CLOCK_SKEW_MS + liveFillScanMarginMs() (the DAL's own
    * margin), so a scan would book nothing more. Path choice only; the DAL still proves.
    */
   private async scanCovered(accountId: string, record: LiveExecutionRecord, claim?: SettlementClaim): Promise<boolean> {
@@ -177,7 +178,7 @@ export class CopyLiveSettler {
       .from(copyFollowerScans).where(eq(copyFollowerScans.accountId, accountId));
     if (claim) await claim.assertHeld();
     return !!row && row.issue === null && row.through !== null && Number.isSafeInteger(record.updatedAt) &&
-      row.through >= record.updatedAt + PROVIDER_CLOCK_SKEW_MS + LIVE_FILL_SCAN_MARGIN_MS;
+      row.through >= record.updatedAt + PROVIDER_CLOCK_SKEW_MS + liveFillScanMarginMs(this.network);
   }
 
   private async record(key: string, claim?: SettlementClaim): Promise<LiveExecutionRecord | null> {
@@ -194,7 +195,7 @@ export class CopyLiveSettler {
         this.global.fetchInfoBatch(WALLET_NETWORKS[this.network].infoUrl, bodies, {
           maxWaitMs: 0, signal: claim ? AbortSignal.any([claim.signal, signal]) : signal,
           onDispatch: () => { claim?.assertFresh(); onDispatch(); return signal; },
-        }), this.now, 5000, acquire);
+        }), this.now, liveEvidenceMaxAgeMs(this.network), acquire);
       try {
         await shared.pay(22);
         await shared.wave([{ type: 'meta' }, status]);
@@ -208,8 +209,8 @@ export class CopyLiveSettler {
     }
     const checkedAt = this.now(), remaining = () => {
       const now = this.now();
-      if (!Number.isSafeInteger(now) || now - checkedAt > LIVE_EVIDENCE_MAX_AGE_MS) throw new LiveBoundaryError('live_boundary_evidence_expired');
-      return Math.max(1, 5000 - (now - checkedAt));
+      if (!Number.isSafeInteger(now) || now - checkedAt > liveEvidenceMaxAgeMs(this.network)) throw new LiveBoundaryError('live_boundary_evidence_expired');
+      return Math.max(1, liveEvidenceMaxAgeMs(this.network) - (now - checkedAt));
     };
     const market = await boundedLiveRead(() => resolver.resolveAsset(record.action.orders[0]!.a), remaining());
     // orderStatus weighs 2 (Hyperliquid's light reads; the shared meter's table).

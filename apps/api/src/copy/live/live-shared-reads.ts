@@ -9,6 +9,7 @@ import { LiveReadCache } from './live-read-cache.js';
 import { infoPrepaidWeight, infoPrepaidWeights } from '../../hyperliquid/info-weights.js';
 import { HYPERLIQUID_BACKGROUND_REST_CAP, HYPERLIQUID_REST_CAP } from '../../config/constants/hyperliquid.js';
 import { LIVE_ORDER_BOUNDARY_WEIGHT } from '../../config/constants/weights.js';
+import { liveEvidenceMaxAgeMs } from '../../config/live-evidence-window.js';
 
 /** What the shared meter charges for a read evidence uses (info-weights.ts,
  * the table hyperliquid-global-transport.ts charges by): 2 for the cheap
@@ -150,7 +151,7 @@ export class LiveSharedReads {
   readonly #endpoint: string;
   /** `network`: the execution network every reader of this epoch observes; `batch` must send to the same network. */
   constructor(readonly network: HyperliquidNetwork, private readonly fetcher: typeof fetch, private readonly batch: LiveInfoBatch | undefined, private readonly now: () => number,
-    private readonly maxAgeMs = 5000, private readonly acquire?: (weight: number, options?: LiveReserveOptions) => Promise<unknown>,
+    private readonly maxAgeMs = liveEvidenceMaxAgeMs(network), private readonly acquire?: (weight: number, options?: LiveReserveOptions) => Promise<unknown>,
     private readonly cache?: LiveReadCache) {
     if (!isHyperliquidNetwork(network)) throw new LiveBoundaryError('invalid_market_resolver');
     this.#endpoint = WALLET_NETWORKS[network].infoUrl;

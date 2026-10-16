@@ -3,7 +3,7 @@ import { copyFollowerSnapshotSchema, isHyperliquidNetwork, type CopyFollowerSnap
 import { Dec } from '../../common/decimal/dec.js';
 import { address, LiveBoundaryError } from './wallet-authorization.js';
 import { providerTimeNotAfter } from './clock-skew.js';
-import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
+import { liveEvidenceMaxAgeMs } from '../../config/live-evidence-window.js';
 
 interface FollowerViewIdentity { accountId: string; strategyId: number; network: HyperliquidNetwork; accountAddress: string }
 function freeze<T>(value: T): T { if (value && typeof value === 'object') { Object.values(value).forEach(freeze); Object.freeze(value); } return value; }
@@ -16,8 +16,8 @@ export function mapLiveAccountView(identity: FollowerViewIdentity, snapshot: Liv
   /** A copied leader's snapshot (read with { leader: true }): a HIP-3 venue's other collateral is its own choice. */
   leader = false): CopyFollowerSnapshot {
   try {
-    if (!Number.isSafeInteger(nowMs) || nowMs < 0 || !Number.isSafeInteger(maxAgeMs) || maxAgeMs < 1 || maxAgeMs > LIVE_EVIDENCE_MAX_AGE_MS ||
-      !isHyperliquidNetwork(identity.network) || snapshot.network !== identity.network || address(snapshot.accountAddress) !== address(identity.accountAddress)) throw new Error();
+    if (!Number.isSafeInteger(nowMs) || nowMs < 0 || !Number.isSafeInteger(maxAgeMs) || !isHyperliquidNetwork(identity.network) || maxAgeMs < 1 || maxAgeMs > liveEvidenceMaxAgeMs(identity.network) ||
+      snapshot.network !== identity.network || address(snapshot.accountAddress) !== address(identity.accountAddress)) throw new Error();
     const freshUntil = Math.min(snapshot.observedAt, snapshot.coverage.earliestProviderTime) + maxAgeMs;
     const view = copyFollowerSnapshotSchema.parse({ mode: 'actual', network: identity.network, accountId: identity.accountId, strategyId: identity.strategyId,
       accountAddress: address(identity.accountAddress), status: 'observed', freshness: nowMs <= freshUntil ? 'fresh' : 'stale', lastReadIssue: null,

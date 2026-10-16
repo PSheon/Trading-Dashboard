@@ -14,7 +14,7 @@ import { HyperliquidGlobalTransport } from '../../hyperliquid/hyperliquid-global
 import type { HyperliquidSendPermit } from '../../hyperliquid/postgres-hyperliquid-quota.js';
 import { observeLiveExecutionFailure, type LiveExecutionDiagnosticHook, type LiveDiagnosticStage } from './live-execution-diagnostics.js';
 import { liveInfoWeight } from './live-shared-reads.js';
-import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
+import { liveEvidenceMaxAgeMs } from '../../config/live-evidence-window.js';
 
 interface LiveTransportDependencies {
   marketResolver: LiveMarketResolver;
@@ -166,7 +166,7 @@ export class HyperliquidLiveTransport implements LiveExchangeTransport {
   async query(record: LiveExecutionRecord): Promise<ExchangeOutcome | null> {
     record = structuredClone(record);
     if (record.authorization.network !== this.network) throw new LiveBoundaryError("transport_network_mismatch");
-    const market = await boundedLiveRead(() => this.resolver().resolveAsset(record.action.orders[0].a), 5_000);
+    const market = await boundedLiveRead(() => this.resolver().resolveAsset(record.action.orders[0].a), liveEvidenceMaxAgeMs(this.network));
     if (record.market && !isDeepStrictEqual(marketIdentityKey(record.market), marketIdentityKey(market)))
       throw new LiveBoundaryError('exchange_market_identity_mismatch');
     this.assertObservationFresh(market.observedAt);
@@ -199,7 +199,7 @@ export class HyperliquidLiveTransport implements LiveExchangeTransport {
     const record = structuredClone(supplied), checkedAt = this.now();
     if (record.authorization.network !== this.network) throw new LiveBoundaryError('transport_network_mismatch');
     const remaining = () => {
-      this.assertObservationFresh(checkedAt); return Math.max(1, 5000 - (this.now() - checkedAt));
+      this.assertObservationFresh(checkedAt); return Math.max(1, liveEvidenceMaxAgeMs(this.network) - (this.now() - checkedAt));
     };
     const market = await boundedLiveRead(() => this.resolver().resolveAsset(record.action.orders[0].a), remaining());
     await boundedLiveRead(() => this.acquire(liveInfoWeight({ type: 'orderStatus' })), remaining());
@@ -219,7 +219,7 @@ export class HyperliquidLiveTransport implements LiveExchangeTransport {
   }
   private async verifyMarket(intent: LiveOrderIntent, record: LiveExecutionRecord): Promise<LiveMarketIdentity> {
     if (!intent.market) throw new LiveBoundaryError('live_market_identity_missing');
-    const coin = intent.market.coin, market = await boundedLiveRead(() => this.resolver().resolve(coin), 5_000);
+    const coin = intent.market.coin, market = await boundedLiveRead(() => this.resolver().resolve(coin), liveEvidenceMaxAgeMs(this.network));
     if (!isDeepStrictEqual(marketIdentityKey(intent.market), marketIdentityKey(market)) ||
         (record.market && !isDeepStrictEqual(marketIdentityKey(record.market), marketIdentityKey(market))) ||
         market.asset !== record.action.orders[0].a || market.sizeDecimals !== intent.sizeDecimals)
@@ -228,7 +228,7 @@ export class HyperliquidLiveTransport implements LiveExchangeTransport {
     return market;
   }
   private assertObservationFresh(at: number): void {
-    if (!Number.isSafeInteger(at) || at > this.now() || this.now() - at > LIVE_EVIDENCE_MAX_AGE_MS)
+    if (!Number.isSafeInteger(at) || at > this.now() || this.now() - at > liveEvidenceMaxAgeMs(this.network))
       throw new LiveBoundaryError('live_boundary_evidence_expired');
   }
   private async verifyBuilder(record: LiveExecutionRecord): Promise<LiveBuilderApprovalProof | null> {

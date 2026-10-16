@@ -10,6 +10,13 @@ import { INDEX_LAG_MS } from './background.js';
  */
 export const LIVE_EVIDENCE_MAX_AGE_MS = 5_000;
 
+/** basis: guessed — twice the mainnet window: testnet lists 273 perp dexes (mainnet 11), its dex fan-out alone took 1.5–1.6 s and order evidence 4.7–5.1 s (gate 11, 2026-10-16); verify: gate 11 records judged evidence p50/p99 under the window in force
+ * The ceiling of COPY_LIVE_TESTNET_EVIDENCE_MAX_AGE_MS, the testnet-only
+ * evidence window (config/live-evidence-window.ts). Mainnet is always
+ * LIVE_EVIDENCE_MAX_AGE_MS: startup refuses the setting on a mainnet deployment.
+ */
+export const LIVE_TESTNET_EVIDENCE_MAX_AGE_CAP_MS = 2 * LIVE_EVIDENCE_MAX_AGE_MS;
+
 /** basis: measured — the skew monitor on Stage read 3.5 s before sampling at frame arrival and under 1 s after (2026-10-13)
  * How far our clock and Hyperliquid's may disagree before a provider
  * timestamp comparison fails (closed): a provider "not after now" time may
@@ -199,9 +206,11 @@ export const PLANNING_MARGIN_MS = 15_000;
  */
 export const HOLD_MARGIN_MS = 30_000;
 
-/** basis: derived — inside the 5 s evidence clock, with a second for the close's own checks
+/** basis: guessed — a second of the evidence clock kept for a close's own checks (was SNAPSHOT_MAX_AGE_MS = LIVE_EVIDENCE_MAX_AGE_MS − 1 s); verify: gate 9 close evidence age
+ * A close reuses its held snapshot while it is at most the evidence window
+ * minus this old (liveSnapshotMaxAgeMs, config/live-evidence-window.ts).
  */
-export const SNAPSHOT_MAX_AGE_MS = LIVE_EVIDENCE_MAX_AGE_MS - 1_000;
+export const SNAPSHOT_CHECK_MARGIN_MS = 1_000;
 
 /** basis: guessed — an up-front weight reservation takes at most 10 s when the budget sets no bound; verify: none needed
  */
@@ -264,6 +273,8 @@ export const NEVER_PLACED_GRACE_MS = LIVE_HTTP_TIMEOUT_MS + LIVE_CLOCK_SKEW_ALLO
  * bounded by the certificate's freshProvider snapshot. A request in flight is
  * not a term (the provider reads its index on arrival). A fill booked after
  * release still quarantines the account (copy-follower-ledger.ts).
+ * The mainnet value; the live path reads liveFillScanMarginMs
+ * (config/live-evidence-window.ts), which follows the evidence window in force.
  */
 export const LIVE_FILL_SCAN_MARGIN_MS = INDEX_LAG_MS + LIVE_EVIDENCE_MAX_AGE_MS;
 

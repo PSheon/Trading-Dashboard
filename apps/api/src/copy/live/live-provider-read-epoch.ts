@@ -11,7 +11,7 @@ import { address } from './wallet-authorization.js';
 import { effectiveLeverage } from '../copy-risk.js';
 import { LiveLeverageUpdateRequired } from './live-leverage-update.js';
 import { beginLiveExecutionTiming, withLiveSpanRole, type LiveExecutionTimingHook, type LiveTimingStage } from './live-execution-diagnostics.js';
-import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
+import { liveEvidenceMaxAgeMs } from '../../config/live-evidence-window.js';
 
 /** Shared provider reads for an epoch (on the readers' network): the budget the epoch pays
  * its reads from, the info fetch, and the batch transport for each wave. */
@@ -76,7 +76,7 @@ export class LiveProviderReadEpoch {
   }
   private fresh(at: number): void {
     const now = this.now();
-    riskSourceRequire(Number.isSafeInteger(at) && at > 0 && Number.isSafeInteger(now) && now >= at && now - at <= LIVE_EVIDENCE_MAX_AGE_MS, 'live_risk_stale');
+    riskSourceRequire(Number.isSafeInteger(at) && at > 0 && Number.isSafeInteger(now) && now >= at && now - at <= liveEvidenceMaxAgeMs(this.resolver.network), 'live_risk_stale');
   }
   /** This session's shared reads (after `collect`), so the exchange boundary
    * verifies the market against the same metadata within the same clock. */
@@ -115,7 +115,7 @@ export class LiveProviderReadEpoch {
       riskSourceRequire(!binding.includeLeader || frames.leader !== null, 'live_risk_epoch_mismatch');
       return frames;
     }
-    const shared = this.sharing ? new LiveSharedReads(this.resolver.network, this.sharing.fetcher, this.sharing.batch, this.now, 5000, this.sharing.acquire, this.sharing.cache) : undefined;
+    const shared = this.sharing ? new LiveSharedReads(this.resolver.network, this.sharing.fetcher, this.sharing.batch, this.now, liveEvidenceMaxAgeMs(this.resolver.network), this.sharing.acquire, this.sharing.cache) : undefined;
     const frames = this.sharing ? this.collectShared(session, binding, authority, authorityDigest, started, shared!, mark) : (async (): Promise<LiveProviderEpochFrames> => {
       const snapshots: LiveAccountSnapshot[] = [];
       const accountsWork = (async () => {

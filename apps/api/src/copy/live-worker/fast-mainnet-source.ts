@@ -3,7 +3,8 @@ import { isOutOfScopeSpotFill } from '../../watcher/action-classifier.js';
 import type { LiveSourceReadResult } from '../copy-live-source.client.js';
 import { liveSourceDigest, parseLiveSourceFill, type LiveSourceFillEvidence } from '../live/copy-live-source-evidence.js';
 import { address, LiveBoundaryError } from '../live/wallet-authorization.js';
-import { FOLLOW_UP_MAX_MS, FOLLOW_UP_MIN_MS, LIVE_EVIDENCE_MAX_AGE_MS, WITNESS_EXPIRY_MS } from '../../config/constants/timings.js';
+import { FOLLOW_UP_MAX_MS, FOLLOW_UP_MIN_MS, WITNESS_EXPIRY_MS } from '../../config/constants/timings.js';
+import { liveEvidenceMaxAgeMs } from '../../config/live-evidence-window.js';
 
 /** Fast-source provider reads (mainnet live lane; worst-case list weight
  * acquired, unused part returned: `HyperliquidInfoClient.postList`). */
@@ -148,7 +149,7 @@ export class FastMainnetSource {
       const fill = parseLiveSourceFill(row, { network: 'mainnet', leaderAddress, from, to, receivedAt, kind: 'fills' });
       parsed.set(fill.id, fill);
     }
-    const completedAt = this.now(), fresh = completedAt - observedAt <= LIVE_EVIDENCE_MAX_AGE_MS;
+    const completedAt = this.now(), fresh = completedAt - observedAt <= liveEvidenceMaxAgeMs('mainnet');
     const observations = [{ kind: 'fills' as const, from, to, depth: 0, observedAt, completedAt, count: kept.length,
       responseDigest: liveSourceDigest(kept), saturated: false, ...(sealed ? { sealed: true as const } : {}) }];
     const result = { network: 'mainnet' as const, leaderAddress, from, to, observedAt, completedAt, fresh, complete: fresh,
@@ -161,7 +162,7 @@ export class FastMainnetSource {
   private unreadable(leaderAddress: string, from: number, observedAt: number, rows: HlUserFill[], requests: number): LiveSourceReadResult {
     this.log?.(`ALERT fast source: ${leaderAddress} has ${rows.length}+ fills at ${new Date(from).toISOString()}, more than one read returns; ` +
       'that millisecond cannot be read whole, stream set to gap (incomplete_coverage)');
-    const completedAt = this.now(), fresh = completedAt - observedAt <= LIVE_EVIDENCE_MAX_AGE_MS;
+    const completedAt = this.now(), fresh = completedAt - observedAt <= liveEvidenceMaxAgeMs('mainnet');
     const observations = [{ kind: 'fills' as const, from, to: from, depth: 0, observedAt, completedAt, count: rows.length,
       responseDigest: liveSourceDigest(rows), saturated: rows.length >= FAST_SOURCE_WINDOW_ROWS }];
     const result = { network: 'mainnet' as const, leaderAddress, from, to: from, observedAt, completedAt, fresh, complete: false,

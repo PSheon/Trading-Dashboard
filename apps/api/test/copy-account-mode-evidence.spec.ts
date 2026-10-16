@@ -1,8 +1,9 @@
 import { Logger } from '@nestjs/common';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LiveBoundaryError } from '../src/copy/live/wallet-authorization.js';
 import { HyperliquidAccountModeAbsenceReader } from '../src/copy/copy-account-mode-evidence.js';
 import type { LiveAllDexsAccountEvidence } from '../src/copy/live/live-account-ws-source.js';
+import { registerLiveEvidenceWindow } from '../src/config/live-evidence-window.js';
 const user = `0x${'22'.repeat(20)}`, time = 1_800_000_000_000;
 function state() { return { marginSummary: { accountValue: '100', totalRawUsd: '100', totalNtlPos: '0', totalMarginUsed: '0' },
   crossMarginSummary: { accountValue: '100', totalRawUsd: '100', totalNtlPos: '0', totalMarginUsed: '0' }, crossMaintenanceMarginUsed: '0', withdrawable: '100', time, assetPositions: [] }; }
@@ -128,5 +129,31 @@ describe('all-venue mode-bootstrap absence proof', () => {
     const error = await s.reader.prove(user).catch((e: unknown) => e) as { detail: Record<string, unknown> };
     expect(error.detail).toMatchObject({ check, cause, wsReadMs, wsConnectRefused: false });
     vi.restoreAllMocks();
+  });
+});
+
+describe('the testnet evidence window (gate 11, 2026-10-16: ws_read 3109 ms, elapsed 5151 ms → account_mode_evidence_expired for 10 min)', () => {
+  afterEach(() => registerLiveEvidenceWindow('testnet', undefined));
+  /** The socket read ends `elapsedMs` after the clock started. */
+  const slow = (elapsedMs: number) => {
+    const s = setup(), read = s.readAccount.getMockImplementation()!;
+    s.readAccount.mockImplementation(async (address: string, requested: readonly string[]) => { const proof = await read(address, requested); s.setClock(time + elapsedMs); return proof; });
+    return s;
+  };
+  it('at 7000 the socket read gets the whole window and a proof 5151 ms (and 6000 ms) old stands; 7001 ms does not', async () => {
+    registerLiveEvidenceWindow('testnet', 7000);
+    const s = slow(5151);
+    await expect(s.reader.prove(user)).resolves.toMatchObject({ complete: true, empty: true, observedAt: time, completedAt: time + 5151 });
+    expect((s.readAccount.mock.calls[0] as unknown[])[2]).toBe(7000);
+    await expect(slow(6000).reader.prove(user)).resolves.toMatchObject({ complete: true });
+    await expect(slow(7001).reader.prove(user)).rejects.toThrow('account_mode_absence_unproven');
+  });
+  it('unset (and on a mainnet deployment) it stays at 5000', async () => {
+    const s = slow(5001);
+    await expect(s.reader.prove(user)).rejects.toThrow('account_mode_absence_unproven');
+    expect((s.readAccount.mock.calls[0] as unknown[])[2]).toBe(5000);
+    registerLiveEvidenceWindow('mainnet', undefined);
+    await expect(slow(5001).reader.prove(user)).rejects.toThrow('account_mode_absence_unproven');
+    await expect(slow(4999).reader.prove(user)).resolves.toMatchObject({ complete: true });
   });
 });

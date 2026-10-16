@@ -7,7 +7,7 @@ import type { DbTransaction } from '../db/unit-of-work.js';
 import type { LiveSourceReadResult } from './copy-live-source.client.js';
 import { decodeLiveSourceFill, InvalidLiveSourceEvidence, liveSourceDigest, reconcileLiveSourceFills, type LiveSourceNetwork } from './live/copy-live-source-evidence.js';
 import { address, LiveBoundaryError } from './live/wallet-authorization.js';
-import { LIVE_EVIDENCE_MAX_AGE_MS } from '../config/constants/timings.js';
+import { liveEvidenceMaxAgeMs } from '../config/live-evidence-window.js';
 type LiveSourceStream = typeof copyLiveSourceStreams.$inferSelect;
 /** Refuses a source result, naming the check and the values it compared. */
 function invalid(check: string, values?: Record<string, unknown>): never { throw new InvalidLiveSourceEvidence(check, values); }
@@ -91,7 +91,7 @@ export class CopyLiveSourceRepository {
     // Contradictory identity evidence must quarantine even a stale cursor writer.
     if (stream.revision !== expectedRevision) return { kind: 'stale', stream };
     for (const fill of decoded) if (!byId.has(fill.id)) await tx.insert(copyLiveSourceFills).values({ ...fill, normalized: { ...fill.normalized }, providerTime: new Date(fill.providerTime), receivedAt: new Date(fill.receivedAt) });
-    const fresh = result.fresh && now - result.observedAt <= LIVE_EVIDENCE_MAX_AGE_MS;
+    const fresh = result.fresh && now - result.observedAt <= liveEvidenceMaxAgeMs(result.network);
     if (!fresh || !result.complete) return this.change(tx, stream, 'gap', fresh ? 'incomplete_coverage' : 'source_unavailable', now);
     if (stream.coverageThrough && (result.from > stream.coverageThrough.getTime() + 1 || result.to < stream.coverageThrough.getTime())) return this.change(tx, stream, 'gap', 'cursor_regression', now);
     const [next] = await tx.update(copyLiveSourceStreams).set({ state: 'ready', revision: stream.revision + 1,

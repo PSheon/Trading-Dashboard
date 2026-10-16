@@ -10,7 +10,8 @@ import {quotaSubscription} from '../../hyperliquid/hyperliquid-global-quota.js';
 import type {HyperliquidSocketQuota,HyperliquidCommandPermit} from '../../hyperliquid/postgres-hyperliquid-quota.js';
 import {liveSpan,timedLiveSpan} from './live-execution-diagnostics.js';
 import { clockSkew, type ClockSkewMonitor } from './clock-skew.js';
-import { LIVE_EVIDENCE_MAX_AGE_MS } from '../../config/constants/timings.js';
+import { liveEvidenceMaxAgeMs } from '../../config/live-evidence-window.js';
+import { HYPERLIQUID_SEND_WINDOW_MS } from '../../config/constants/hyperliquid.js';
 
 export interface LiveAllDexsStateEvidence {
   readonly network: HyperliquidNetwork; readonly accountAddress: string; readonly observedAt: number; readonly data: unknown;
@@ -174,7 +175,7 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
         maxPayload: 8 * 1024 * 1024, handshakeTimeout: timeoutMs, followRedirects: false, autoPong: false,
       });
       const retain=(created:WebSocket)=>{this.socket=created;const clear=()=>{if(this.socket===created){this.socket=undefined;clearInterval(this.heartbeatTimer);this.heartbeatTimer=undefined;}};created.on('error',clear);created.on('close',clear);return created;};
-      if(this.global)return (async()=>{const reservation=await timedLiveSpan('ws_reserve',()=>this.global!.currentQuota().reserveSocket(deadline,this.network));let created:WebSocket|undefined;try{if(this.disposed)throw new LiveBoundaryError('live_account_aggregate_unavailable');created=reservation.connect.dispatch(create);const opening=liveSpan('ws_open');created.once('open',()=>opening());reservation.connection.attach(created);}catch(error){created?.on('error',()=>{});created?.terminate();await reservation.connection.cancelBeforeConnect().catch((error:unknown)=>{note('socket reservation not cancelled')(error);return reservation.connection.uncertain().catch(note('socket reservation not marked uncertain'));});throw error;}this.globalSocket=reservation.connection;this.socketContext=this.global!.contextIdentity();this.socketNew=true;retain(created);if(!this.global!.isOriginal())this.startHeartbeat(created,reservation.connection);return created;})();
+      if(this.global)return (async()=>{const reservation=await timedLiveSpan('ws_reserve',()=>this.global!.currentQuota().reserveSocket(this.sendBy(deadline),this.network));let created:WebSocket|undefined;try{if(this.disposed)throw new LiveBoundaryError('live_account_aggregate_unavailable');created=reservation.connect.dispatch(create);const opening=liveSpan('ws_open');created.once('open',()=>opening());reservation.connection.attach(created);}catch(error){created?.on('error',()=>{});created?.terminate();await reservation.connection.cancelBeforeConnect().catch((error:unknown)=>{note('socket reservation not cancelled')(error);return reservation.connection.uncertain().catch(note('socket reservation not marked uncertain'));});throw error;}this.globalSocket=reservation.connection;this.socketContext=this.global!.contextIdentity();this.socketNew=true;retain(created);if(!this.global!.isOriginal())this.startHeartbeat(created,reservation.connection);return created;})();
       return retain(create());
     }
     return this.socket!;
@@ -203,24 +204,27 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
     }finally{clearTimeout(timer);if(closed)socket.off('close',closed);}
   }
   private async failedSocket(socket:WebSocket,deadline:number):Promise<void>{
-    if(this.globalSocket&&deadline>this.now()){try{await this.globalSocket.close(deadline);}catch(error){note('socket close refused; terminating')(error);await this.terminateAndFlush(socket);}}
+    if(this.globalSocket&&deadline>this.now()){try{await this.globalSocket.close(this.sendBy(deadline));}catch(error){note('socket close refused; terminating')(error);await this.terminateAndFlush(socket);}}
     else await this.terminateAndFlush(socket);
     if(this.socket===socket)this.socket=undefined;
   }
-  private remaining(deadline:number):number{const left=deadline-this.now();if(left<=0||left>LIVE_EVIDENCE_MAX_AGE_MS)fail('live_account_orders_deadline_exceeded');return left;}
+  /** What the quota is asked for: a read's deadline, at most HYPERLIQUID_SEND_WINDOW_MS ahead (a testnet
+   * evidence window may be longer than the quota's send window; on mainnet both are 5 s and this is the deadline). */
+  private sendBy(deadline:number):number{return Math.min(deadline,this.now()+HYPERLIQUID_SEND_WINDOW_MS);}
+  private remaining(deadline:number):number{const left=deadline-this.now();if(left<=0||left>liveEvidenceMaxAgeMs(this.network))fail('live_account_orders_deadline_exceeded');return left;}
   /** Reads end with a close of their socket, not with unsubscribes. */
   private closesAfterRead():boolean{return this.global!==undefined&&(this.options.closeAfterRead===true||this.global.isOriginal());}
   private async commands(subscriptions:readonly Record<string,unknown>[],deadline:number,unsubscribe=true):Promise<HyperliquidCommandPermit|undefined>{
     if(!this.global)return;const quota=this.globalSocket;if(!quota)return fail('live_account_aggregate_unavailable');
-    await timedLiveSpan('ws_idle',()=>quota.whenIdle());if(!this.socketNew)await quota.renew(deadline);this.socketNew=false;
-    return timedLiveSpan('ws_subscribe_quota',()=>quota.subscribe(subscriptions.map(body=>quotaSubscription(this.network,body)),deadline,unsubscribe,this.closesAfterRead()));
+    await timedLiveSpan('ws_idle',()=>quota.whenIdle());if(!this.socketNew)await quota.renew(this.sendBy(deadline));this.socketNew=false;
+    return timedLiveSpan('ws_subscribe_quota',()=>quota.subscribe(subscriptions.map(body=>quotaSubscription(this.network,body)),this.sendBy(deadline),unsubscribe,this.closesAfterRead()));
   }
   private send(socket:WebSocket,command:Record<string,unknown>,permit?:HyperliquidCommandPermit):void{
     if(this.global){if(!permit)return fail('live_account_aggregate_unavailable');permit.dispatch(command,captured=>socket.send(JSON.stringify(captured)));}
     else socket.send(JSON.stringify(command));
   }
   private admit(timeoutMs: number): void {
-    if (this.disposed||this.busy || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > LIVE_EVIDENCE_MAX_AGE_MS) fail('live_account_aggregate_unavailable');
+    if (this.disposed||this.busy || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > liveEvidenceMaxAgeMs(this.network)) fail('live_account_aggregate_unavailable');
   }
 
   async read(accountAddress: string, timeoutMs: number): Promise<LiveAllDexsStateEvidence> {
@@ -268,7 +272,7 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
         timer = setTimeout(() => { deny(); socket?.terminate(); }, this.remaining(deadline));
         if (socket!.readyState === WebSocket.OPEN) open();
       });
-      if(this.globalSocket){const closing=liveSpan('ws_close');try{await this.globalSocket.whenIdle();if(this.closesAfterRead())await this.globalSocket.close(deadline);}finally{closing();}this.remaining(deadline);}succeeded = true; return result;
+      if(this.globalSocket){const closing=liveSpan('ws_close');try{await this.globalSocket.whenIdle();if(this.closesAfterRead())await this.globalSocket.close(this.sendBy(deadline));}finally{closing();}this.remaining(deadline);}succeeded = true; return result;
     } finally {
       clearTimeout(timer);
       if (socket) {
@@ -406,7 +410,7 @@ export class HyperliquidAllDexsAccountSource implements LiveAllDexsAccountSource
         timer = setTimeout(() => deny('live_account_orders_deadline_exceeded'), this.remaining(deadline));
         if (socket!.readyState === WebSocket.OPEN) open();
       });
-      if(this.globalSocket){const closing=liveSpan('ws_close');try{await this.globalSocket.whenIdle();if(this.closesAfterRead())await this.globalSocket.close(deadline);}finally{closing();}this.remaining(deadline);}succeeded = true; return result;
+      if(this.globalSocket){const closing=liveSpan('ws_close');try{await this.globalSocket.whenIdle();if(this.closesAfterRead())await this.globalSocket.close(this.sendBy(deadline));}finally{closing();}this.remaining(deadline);}succeeded = true; return result;
     } finally {
       clearTimeout(timer);
       if (socket) {

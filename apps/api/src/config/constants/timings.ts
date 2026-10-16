@@ -118,6 +118,19 @@ export const STOP_CANCEL_ATTEMPTS = 3;
  */
 export const LIVE_RISK_BUSY_RETRY_MS = 1_000;
 
+/** basis: measured — gate 11 lock sampler (2026-10-16, f3c2f9ba): the user lock's by-design holders, a settlement's scope (≤ 330 ms, p50 26) and an order's (≤ 267 ms, p50 19); 1 s covers the longest three times over
+ * How long a live-risk scope tries its exclusive locks (user, account) again
+ * before answering live_risk_busy: a scope held for a few hundred ms by
+ * another order or a settlement no longer fails the attempt (the order's
+ * next try was a second later and its signal had expired after three).
+ * Nothing is read or reserved while it waits; LIVE_RISK_LOCK_POLL_MS apart.
+ */
+export const LIVE_RISK_LOCK_WAIT_MS = 1_000;
+
+/** basis: derived — LIVE_RISK_LOCK_WAIT_MS / 10: ten tries, each one round trip (8 ms on Stage)
+ */
+export const LIVE_RISK_LOCK_POLL_MS = LIVE_RISK_LOCK_WAIT_MS / 10;
+
 /** basis: measured — local harness 2026-10-12: a burst of failed reads used up the 30 WebSocket connects a minute
  * Retry delay for a failed provider read (PROVIDER_READ_FAILURES, a meter
  * refusal): it opened a socket or spent weight.

@@ -298,5 +298,9 @@ export const TESTNET_SOURCE_RETRY_MS = 5_000;
 export const SETTLEMENT_PENDING_LOG_INTERVAL_MS = 30_000;
 
 /** basis: guessed — the api settlement loop runs every 3 s, so a settlement waits at most this long for its live-demand room and the next pass retries (review of fdbaa269: 65 s let one starved order hold up the rest of the pass); verify: gate 11 settlement claim waits
+ * A pass that gives up keeps its claim's place (claimLive keyed by the order): the next pass renews
+ * the same claim and its wait goes on, so a need that takes longer than this to free up (gate 11
+ * run 6: quoted 15–32 s with every charge living 60 s) is served once it has, never queued behind
+ * its own earlier passes.
  */
 export const SETTLEMENT_CLAIM_WAIT_MS = 15_000;

@@ -564,7 +564,9 @@ describe('unregistered concrete testnet execution runtime', () => {
     expect(record.outcome?.filledSize).not.toBe('0');
     const claimLive=vi.spyOn(global,'claimLive');
     // The scan's own charge (as its first list read), then stop: the meter is what this test reads.
-    const scan=vi.fn(async()=>{(await global.currentQuota().acquireRest(1,Date.now()+5000)).dispatch(()=>undefined);throw Error('scan reached');});
+    // The meter is read while the scan runs: once the pass is over its claim is released (keeps nothing free).
+    let during:{id:string}[]=[];
+    const scan=vi.fn(async()=>{(await global.currentQuota().acquireRest(1,Date.now()+5000)).dispatch(()=>undefined);during=(await db.select().from(schema.hyperliquidEgressQuota))[0]!.events as {id:string}[];throw Error('scan reached');});
     const settler=new CopyLiveSettler('testnet',pool,global,budget,{runFor:scan},()=>clock);
     await expect(settler.settle({userId:1,accountId:'account',accountAddress:record.authorization.accountAddress,sourceNetwork:'testnet',
       leaderAddress:seed.consent.leaderAddress,key:record.key})).rejects.toThrow('scan reached');
@@ -573,13 +575,15 @@ describe('unregistered concrete testnet execution runtime', () => {
     expect(claimLive.mock.calls[0]![0]).toBeGreaterThan(240);
     // It waits for that room at most SETTLEMENT_CLAIM_WAIT_MS (15 s), not a whole charge lifetime: one starved order never holds up the rest of the pass.
     expect(claimLive.mock.calls[0]![1]).toBe(clock+15_000);
-    const [quota]=await db.select().from(schema.hyperliquidEgressQuota);
-    const ids=(quota!.events as {id:string}[]).map(e=>e.id),demands=ids.map(id=>/^live-demand:(\d+):([0-9a-f]{16}):/.exec(id)).filter(m=>m!==null);
+    const ids=during.map(e=>e.id),demands=ids.map(id=>/^live-demand:(\d+):([0-9a-f]{16}):/.exec(id)).filter(m=>m!==null);
     // The order's own demand came first; the settlement's is the last.
     const demand=demands.at(-1);expect(demands).toHaveLength(2);
     expect(Number(demand![1])).toBe(claimLive.mock.calls[0]![0]);
     // The scan's charge is the live lane's and carries the demand's token.
     expect(ids.some(id=>id.startsWith(`live:${demand![2]}:`))).toBe(true);
+    // The pass is over: its demand is gone, the order's stays (its own).
+    const [quota]=await db.select().from(schema.hyperliquidEgressQuota);
+    expect((quota!.events as {id:string}[]).filter(e=>e.id.startsWith(`live-demand:`)&&e.id.includes(`:${demand![2]}:`))).toEqual([]);
   });
   it.each([
     ['past the order by the margin', 0, false],

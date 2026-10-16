@@ -109,10 +109,13 @@ export class CopyLiveSettler {
     let prepaid = (record.action.orders[0]!.a < 10_000 ? 20 : 40) + 2 + (record.errorCode === NEVER_PLACED ? 0 : observerRestWeight(request.accountAddress, liveReadCache(this.network)));
     // Settlement is live work (the next order waits for it): its whole need is
     // claimed on the shared meter (claimLive) and its reads run under that token.
-    const token = await this.claimLive((scan ? 2 * RESPONSE_WEIGHT : 0) + prepaid);
+    // The claim is keyed by the order: a pass that gives up waiting keeps its
+    // place, and the next pass renews that claim instead of queueing behind it.
+    const token = await this.claimLive((scan ? 2 * RESPONSE_WEIGHT : 0) + prepaid, request.key);
     if (claim) await claim.assertHeld();
     const lane = <T>(work: () => Promise<T>) => token === undefined ? work() : this.global.runLive(token, work);
-    return lane(async () => {
+    // The pass's reads are over (sent or refused): its claim keeps nothing free.
+    try { return await lane(async () => {
     // Book fills now (the scheduled scan is slow); it also advances the proven
     // horizon the next order's position projection needs.
     if (scan) {
@@ -154,15 +157,18 @@ export class CopyLiveSettler {
         return decision.kind === 'release' ? { kind: 'released' as const } : decision;
       } finally { await sockets.close(); }
     })); } finally { if (prepaid > 0) this.budget.adjust(-prepaid); }
-    });
+    }); } finally { if (token !== undefined) await this.global.releaseLive(request.key); }
   }
 
-  /** Claims settlement's need on the shared meter (claimLive): its token, or
-   * undefined if the claim fails unexpectedly; a capacity error is rethrown (the loop retries). */
-  private async claimLive(weight: number): Promise<string | undefined> {
-    try { return await this.global.claimLive(weight, this.now() + SETTLEMENT_CLAIM_WAIT_MS); }
+  /** Claims settlement's need on the shared meter (claimLive, keyed by the
+   * order `key`): its token, or undefined if the claim fails unexpectedly; a
+   * capacity error is rethrown (the loop retries; the claim keeps its place). */
+  private async claimLive(weight: number, key: string): Promise<string | undefined> {
+    try { return await this.global.claimLive(weight, this.now() + SETTLEMENT_CLAIM_WAIT_MS, key); }
     catch (error) {
-      if (sharedRestRetryAfterMs(error) !== undefined) throw error;
+      const quoted = sharedRestRetryAfterMs(error);
+      // Says why the pass stops (the loop's line only has the error code).
+      if (quoted !== undefined) { new Logger('CopyLiveSettler').log(`settlement ${key} waits for live room: need ${Math.ceil(weight)}, quoted ${quoted} ms (its claim keeps its place)`); throw error; }
       new Logger('CopyLiveSettler').warn(`settlement live demand not claimed: ${errorCode(error, 'unknown')}`);
       return undefined;
     }

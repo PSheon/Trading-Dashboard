@@ -117,4 +117,19 @@ describe('a demand marker is recorded on a full window: the claim is never starv
     // Charges past the window are still refused when the state is read back.
     expect(()=>plan({kind:'rest',id:id('page:'),weight:1,sendUntil:at+5000,lane:'page'},S([...state.events,{id:'over',kind:'rest',units:20,reservedAt:at,expiresAt:at+60_000}]),at)).toThrow('hyperliquid_quota_invalid');
   });
+  it('a live claim that is released keeps nothing free: the next claim is not quoted behind it, and other lanes stop leaving its need', () => {
+    // Gate 11 run 6 (2026-10-16): a settlement's claim gave up and its marker
+    // kept its need outstanding for HYPERLIQUID_LIVE_DEMAND_HOLD_MS; each
+    // later claim was quoted behind it.
+    const minute=()=>S(Array.from({length:60},(_,i)=>({id:i<42?`bg-${i}`:id('page:'),kind:'rest' as const,units:20,reservedAt:now-60_000+(i+1)*1000,expiresAt:now+(i+1)*1000})));
+    const at=now+10,OTHER='bbbbbbbbbbbbbbbb',claim=(token:string,s:HyperliquidQuotaState,need=500)=>plan({kind:'live_demand',id:`live-demand:${need}:${token}:${id()}`,weight:need,sendUntil:at+5000},s,at);
+    const abandoned=claim(ORDER,minute()).state;
+    const behind=claim(OTHER,abandoned).waitMs!,released=plan({kind:'live_release',token:ORDER},abandoned,at);
+    expect(released.state.events.some(e=>e.id.includes(`:${ORDER}:`))).toBe(false);
+    const alone=claim(OTHER,released.state).waitMs!;
+    // Alone, its 500 and its marker's unit free up in 26 expiries of 20 (one a second); behind the abandoned 500, later.
+    expect(alone).toBe(25_990);expect(behind).toBeGreaterThan(alone);
+    // Its own charges stay (they were sent); another token's release takes nothing.
+    expect(plan({kind:'live_release',token:OTHER},abandoned,at).state.events).toHaveLength(abandoned.events.length);
+  });
 });

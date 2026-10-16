@@ -256,11 +256,16 @@ try {
     if (a.kind === "stop") await follower.client.post(`/me/copy/live/mandates/${a.mandateId}/stop`, { idempotencyKey: `harness-cleanup-${randomUUID()}`, expectedMandateRevision: a.revision });
     if (a.kind === "return_all") {
       try {
-        const reserved = await follower.client.post(`/me/copy/live/execution-wallets/${a.accountId}/returns`, { idempotencyKey: `harness-cleanup-${randomUUID()}`, amount: "all" });
+        const reserved = await follower.client.post(`/me/copy/live/execution-wallets/${a.accountId}/returns`, { idempotencyKey: randomUUID(), amount: "all" });
         const op = reserved.operation ?? reserved;
         await follower.client.post(`/me/copy/live/returns/${op.id}/approve`);
         log("cleanup_return_all", { strategyId: a.strategyId, accountId: a.accountId, operationId: op.id });
-      } catch (e) { log("cleanup_return_failed", { strategyId: a.strategyId, accountId: a.accountId, error: e.message }); }
+      } catch (e) {
+        // Not waited on: a refused return never settles.
+        log("cleanup_return_failed", { strategyId: a.strategyId, accountId: a.accountId, error: e.message });
+        check("cleanup_previous_copies", false, `return of a failed start's funds (strategy ${a.strategyId}) refused: ${e.message}`);
+        await finish(EXIT.failed);
+      }
     }
     if (a.kind === "await_setup") log("cleanup_setup_in_progress", { setupId: a.setupId, note: "a confirmed setup can't be cancelled; it is stopped once it runs" });
   }

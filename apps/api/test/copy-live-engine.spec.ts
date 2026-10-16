@@ -290,7 +290,10 @@ describe('testnet copy execution engine', () => {
     const pending = () => log.mock.calls.map(([line]) => line).filter(line => line.startsWith('settlement '));
     for (const at of [2000, 3000, 31_000]) { clock = now + at; await run.tick(); }
     expect(pending()).toEqual([`settlement ${keyOf(first, 'open')} pending: live_settlement_terminal_unproven`]);
+    // A pending pass is a failed one: the next is due SETTLEMENT_RETRY_MS (6 s) after the last (31 s).
     clock = now + 32_000; await run.tick();
+    expect(pending()).toHaveLength(1);
+    clock = now + 37_000; await run.tick();
     expect(pending()).toHaveLength(2);
   });
   it('publishes an observation only after settlement, without reverting settled work when reporting fails', async () => {
@@ -304,10 +307,11 @@ describe('testnet copy execution engine', () => {
     clock = now + 2000; await run.tick();
     expect(published).not.toHaveBeenCalled();
     settleImpl = async () => ({ kind: 'released' });
-    clock = now + 3000; await run.tick();
+    // The pending pass's retry is due SETTLEMENT_RETRY_MS (6 s) later.
+    clock = now + 8000; await run.tick();
     expect(published).toHaveBeenCalledExactlyOnceWith(keyOf(first, 'open'));
     expect((await dispatches())[0]).toMatchObject({ state: 'settled', attempts: 1, reason: null });
-    clock = now + 4000; await run.tick();
+    clock = now + 9000; await run.tick();
     expect(runtimeCalls).toHaveLength(1);
     expect(published).toHaveBeenCalledTimes(1);
   });

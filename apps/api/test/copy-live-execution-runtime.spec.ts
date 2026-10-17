@@ -96,6 +96,8 @@ const runtime = (c = config, deployment = options) => new LiveExecutionRuntime('
 /** The worker dies between a signing failure and its unsent marker's write: the order
  * stays prepared with its hold, recovered only once both have expired. */
 const crashBeforeUnsentMarker = () => vi.spyOn(ScopedLiveExecutionJournal.prototype, 'save').mockRejectedValueOnce(Error('crashed before the unsent marker'));
+/** The exchange POSTs the fetch double saw (a fetch input's text, typed). */
+const exchangeCalls = () => raw.mock.calls.filter(([input]) => (typeof input === 'string' ? input : input instanceof URL ? input.href : input.url).endsWith('/exchange'));
 async function revokeHistoricalGrant() {
   const repository = new CopyWalletRepository(db);
   return db.transaction(async tx => {
@@ -1213,7 +1215,7 @@ describe('an order whose final check refused before its POST began (definite uns
     let caught: unknown;
     try { await runtime(config, { ...options, slippageBps: '0' }).execute(request()); } catch (error) { caught = error; }
     expect((caught as Error).name).toBe('AbstractWalletError'); expect(errorCode(caught)).toBe('live_risk_stale');
-    expect(raw.mock.calls.filter(([url]) => String(url).endsWith('/exchange'))).toHaveLength(0);
+    expect(exchangeCalls()).toHaveLength(0);
     const [first] = await db.select().from(schema.copyLiveExecutions);
     // Before: left `prepared` with its hold; every pass until both had expired threw
     // live_runtime_reservation_recovery_required, then the leg was refused unattempted_expired.
@@ -1228,7 +1230,7 @@ describe('an order whose final check refused before its POST began (definite uns
     raw.mockClear();
     const retried = await runtime(config, { ...options, slippageBps: '0' }).execute({ ...request(), attempt: 1 });
     expect(retried.state).toBe('filled'); expect(retried.key).not.toBe(first!.key);
-    expect(raw.mock.calls.filter(([url]) => String(url).endsWith('/exchange'))).toHaveLength(1);
+    expect(exchangeCalls()).toHaveLength(1);
     expect(clock).toBeLessThan((first!.record as { expiresAfter: number }).expiresAfter);
   }, 20_000);
   it('is placed on the next attempt under a new cloid and key, the released attempt kept rejected', async () => {

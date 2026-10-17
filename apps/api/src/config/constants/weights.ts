@@ -116,9 +116,13 @@ export const FAST_SOURCE_READ_WEIGHT = infoWeight({ type: 'userFillsByTime' }) +
 export const FAST_SOURCE_LEADER_WEIGHT = Math.ceil(MINUTE_MS / FAST_SOURCE_GRACE_MS) * FAST_SOURCE_READ_WEIGHT;
 
 /** basis: derived — the agent approval read (extraAgents 20) and the order POST
- * Paid before the SQL/evidence clocks start. An order's signer is always its
- * agent (postgres-wallet-authorizations.ts); a self-signing account's
- * approval (userRole 60) would pay its other 40 as it goes.
+ * Paid before the SQL/evidence clocks start, and fenced from the evidence's
+ * prepaid pool (live-execution-runtime.ts): evidence reads past their
+ * estimate reserve their own weight and never spend this cover, so the
+ * sign-stage read is served whatever the evidence spent (gate 13,
+ * 2026-10-17). An order's signer is always its agent
+ * (postgres-wallet-authorizations.ts); a self-signing account's approval
+ * (userRole 60) would pay its other 40 as it goes.
  */
 export const LIVE_ORDER_BOUNDARY_WEIGHT = infoWeight({ type: 'extraAgents' }) + 1;
 

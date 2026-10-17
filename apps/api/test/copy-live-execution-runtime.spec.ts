@@ -27,6 +27,8 @@ import { copyRiskLimitsSchema, copyStrategySettingsSchema } from '@trading-dashb
 import { HyperliquidLiveAccountObserver } from '../src/copy/live/live-account-observer.js';
 import { LiveProviderReadEpoch } from '../src/copy/live/live-provider-read-epoch.js';
 import { resetLiveReadCaches } from '../src/copy/live/live-read-cache.js';
+import { LiveSharedReads } from '../src/copy/live/live-shared-reads.js';
+import { HyperliquidAgentApprovalVerifier } from '../src/copy/live/hyperliquid-agent-approval.js';
 import { PostgresLiveReservations } from '../src/copy/live/postgres-live-reservations.js';
 import { PostgresLiveRiskScope } from '../src/copy/live/postgres-live-risk-scope.js';
 import { BoundaryPrivyOrderSigningClient } from '../src/copy/live/privy-order-client.js';
@@ -541,6 +543,38 @@ describe('unregistered concrete testnet execution runtime', () => {
     });
     expect((await runtime(config, { ...options, slippageBps: '0' }).execute(request())).state).toBe('filled');
   }, 15_000);
+  it('serves the sign-stage approval read from its own cover when the evidence spent the rest of the prepaid weight and the bucket is empty (gate 13, 2026-10-17)', async () => {
+    await actualClockFixture();
+    // The epoch reads one leverage its estimate did not cover (another open
+    // coin's, or a preview on a cache that moved): paid inside the epoch.
+    const wave = vi.spyOn(LiveSharedReads.prototype, 'wave').mockImplementationOnce(function (this: LiveSharedReads, bodies) {
+      const target = bodies.find(body => body.type === 'activeAssetData')?.user;
+      expect(target).toBeDefined();
+      wave.mockRestore();
+      return this.wave([...bodies, { type: 'activeAssetData', user: target, coin: 'ETH' }]);
+    });
+    // Background work drained the local bucket by the time the order signs: a
+    // reservation taken then would wait longer than the sign stage allows and
+    // is refused at once (reserveLive).
+    let signing = false;
+    const verify = vi.spyOn(HyperliquidAgentApprovalVerifier.prototype, 'verify').mockImplementation(function (this: HyperliquidAgentApprovalVerifier, grant) {
+      signing = true; verify.mockRestore(); return this.verify(grant);
+    });
+    const liveWaitMs = budget.liveWaitMs.bind(budget);
+    vi.spyOn(budget, 'liveWaitMs').mockImplementation((weight, rank) => signing ? 6_000 : liveWaitMs(weight, rank));
+    const acquire = vi.spyOn(budget, 'acquire'), adjust = vi.spyOn(budget, 'adjust');
+    const result = await runtime(config, { ...options, slippageBps: '0' }).execute(request());
+    expect(result.state).toBe('filled');
+    const info = raw.mock.calls.filter(([input]) => (typeof input === 'string' ? input : input instanceof URL ? input.href : input.url).endsWith('/info'))
+      .map(([, init]) => JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as { type: string; coin?: string });
+    expect(info.filter(b => b.type === 'extraAgents')).toHaveLength(1);
+    expect(info.filter(b => b.type === 'activeAssetData').map(b => String(b.coin)).sort((a, b) => a.localeCompare(b))).toEqual(['BTC', 'ETH']);
+    // The extra read was taken from the bucket while it still had room, never from the sign stage's cover: what was acquired, less what came back, is what was sent.
+    const sent = info.reduce((sum, body) => sum + (body.type === 'userRole' ? 60 : ['spotClearinghouseState', 'orderStatus'].includes(body.type) ? 2 : 20), 0) + exchangeCalls().length;
+    const acquired = acquire.mock.calls.reduce((sum, [weight]) => sum + weight, 0), refunded = adjust.mock.calls.reduce((sum, [delta]) => sum - Math.min(0, delta), 0);
+    expect(acquired - refunded).toBe(sent);
+    expect(acquire.mock.calls.map(([weight]) => weight)).toEqual([385, 20]);
+  });
   it('waits for settlement account evidence before taking the original SQL locks, without releasing unproven liabilities', async () => {
     await actualClockFixture();const record=await runtime(config,{...options,slippageBps:'0'}).execute(request());
     const previous=raw.getMockImplementation()!;

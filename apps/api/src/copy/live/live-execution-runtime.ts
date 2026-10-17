@@ -236,7 +236,14 @@ export class LiveExecutionRuntime {
       credit.weight += missing;
       liveToken = await this.claimLive(weight, request.signalDeadline);
     }
-    let prepaid = credit.weight;
+    // The prepaid weight in two pools: the boundary's cover (the approval read
+    // and the order POST, LIVE_ORDER_BOUNDARY_WEIGHT) is fenced from the
+    // evidence's. Evidence reads past their estimate (another open coin's
+    // leverage reads, a cache that moved) reserve their own weight and can
+    // never spend the sign stage's cover (gate 13, 2026-10-17: an attempt's
+    // evidence spent it, and its approval read was refused on the empty bucket
+    // as live_budget_wait after 23 s of the signal's life).
+    const pools = { boundary: Math.min(credit.weight, LIVE_ORDER_BOUNDARY_WEIGHT), evidence: Math.max(0, credit.weight - LIVE_ORDER_BOUNDARY_WEIGHT) };
     credit.weight = 0;
     const scope = new PostgresLiveRiskScope(this.pool, this.now, undefined, { kind: 'order', id: key });
     let metadataClient: BoundaryPrivyOrderSigningClient | undefined;
@@ -260,12 +267,18 @@ export class LiveExecutionRuntime {
       // prepaid before the SQL locks, bounded by the signal deadline. Extra
       // reads inside this original scope still wait at most five seconds.
       const reserve = liveBudget(this.budget, { maxWaitMs: 5000 });
-      const acquire = async (weight: number) => {
-        const credit = Math.min(prepaid, weight);
-        prepaid -= credit;
-        try { if (weight > credit) await timedLiveSpan('local_budget', () => reserve(weight - credit)); }
-        catch (error) { prepaid += credit; throw error; }
+      // Weight from the named pools in order, the rest from the bucket; a
+      // refused reservation puts back what the pools gave.
+      const paidFrom = (order: readonly (keyof typeof pools)[]) => async (weight: number) => {
+        const taken = order.map(pool => { const take = Math.min(pools[pool], weight); pools[pool] -= take; weight -= take; return [pool, take] as const; });
+        try { if (weight > 0) await timedLiveSpan('local_budget', () => reserve(weight)); }
+        catch (error) { for (const [pool, take] of taken) pools[pool] += take; throw error; }
       };
+      // The evidence readers never touch the boundary's cover.
+      const acquire = paidFrom(['evidence']);
+      // The sign stage (approval read) and the order POST: their own cover
+      // first, then whatever the evidence left unspent.
+      const acquireBoundary = paidFrom(['boundary', 'evidence']);
       const prepay = acquire;
       const signingClient = new BoundaryPrivyOrderSigningClient(this.network, { appId: app.auth.appId, appSecret: app.auth.appSecret }, fetch, this.now);
       metadataClient = signingClient;
@@ -318,7 +331,7 @@ export class LiveExecutionRuntime {
         const binding = source.bind(session, { accountId: request.accountId, key });
         const authorizations = new WalletAuthorizationService(new ScopedWalletAuthorizationSource(session,
           existing?.record.authorization.id ?? routing.mandate.authorizationId),
-          orderApproval(new HyperliquidAgentApprovalVerifier(this.network, acquire, this.global.fetchInfo, this.now), this.now), this.now);
+          orderApproval(new HyperliquidAgentApprovalVerifier(this.network, acquireBoundary, this.global.fetchInfo, this.now), this.now), this.now);
         const gate = new AccountRiskExecutionGate(binding.proofSource, this.now);
         const signingAuthorization = async () => {
           session.scope.assertFresh();
@@ -332,7 +345,7 @@ export class LiveExecutionRuntime {
           event: 'live_execution_boundary_failure', ...event,
         });
         const transport = new HyperliquidLiveTransport(this.network, signer, gate, this.timedFetch(exchange), 5000, this.now,
-          { marketResolver: epochMarkets(resolver, () => epoch!.sharedReads(session)), acquire, globalTransport: this.global, onDiagnostic });
+          { marketResolver: epochMarkets(resolver, () => epoch!.sharedReads(session)), acquire: acquireBoundary, globalTransport: this.global, onDiagnostic });
         const executor = new LiveOrderExecutor(authorizations, new ScopedLiveExecutionJournal(session, key), transport, gate, this.now, onDiagnostic, onTiming);
         if (existing && existing.record.state !== 'prepared') {
           // No prepare/hold/current grant admission/sign on historical recovery.
@@ -404,13 +417,13 @@ export class LiveExecutionRuntime {
         // A leverage-only preview may end the epoch before its other reads.
         // Return only prepaid weight which that private epoch never sent.
         const shared = epoch?.sharedReads(session);
-        if (shared && shared.paidWeight > shared.sentWeight) prepaid += shared.paidWeight - shared.sentWeight;
+        if (shared && shared.paidWeight > shared.sentWeight) pools.evidence += shared.paidWeight - shared.sentWeight;
         // Await actual private transport cleanup while the original session is
         // live. This source is never reused by a successor execution scope.
         provider?.close(); await sockets?.close();
       }
     })))); } finally {
-      credit.weight += prepaid;
+      credit.weight += pools.evidence + pools.boundary;
       // The original scope has closed before any unused read drains. A slow
       // provider cancellation cannot keep financial SQL locks or sign later.
       await metadataClient?.disposeWalletPrefetch();

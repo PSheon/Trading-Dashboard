@@ -232,6 +232,8 @@ test("stuckRowsSql: rows with an issue over 2 min past their retry, in non-final
   assert.match(sql, /from copy_live_stop_operations where issue is not null and state <> 'stopped' and updated_at < now\(\) - interval '120 seconds'/);
   assert.match(sql, /from copy_funding_operations where status not in \('credited', 'rejected', 'cancelled'\) and updated_at </);
   assert.match(sql, /from copy_account_mode_operations where issue is not null and target_state not in \('supported', 'unsupported'\)/);
+  // An unattempted operation left behind by a setup that ended is not stuck (gate 13: f0dbea7b under a cancelled setup).
+  assert.match(sql, /and not \(attempted_at is null and exists \(select 1 from copy_live_setups s where s.id = copy_account_mode_operations.live_setup_id and s.stage in \('cancelled', 'failed', 'expired'\)\)\)/);
   assert.equal(sql.split(" union all ").length, 4);
   assert.match(stuckRowsSql({ userId: 7, since: "2026-10-12T04:00:00Z" }), /and user_id = 7 and created_at >= '2026-10-12T04:00:00.000Z'/);
   assert.throws(() => stuckRowsSql({ userId: "1; drop table x" }), /userId/);

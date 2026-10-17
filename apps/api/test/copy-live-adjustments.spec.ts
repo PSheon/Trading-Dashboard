@@ -95,6 +95,45 @@ describe('same-coin leader legs become one follower adjustment', () => {
     expect(calls).toHaveLength(1); expect((await dispatches()).find(r => r.id === lead.id)).toMatchObject({ state: 'settled' });
   });
 
+  it('a merged order released as never sent is planned again as the next attempt, carrying the same members', async () => {
+    // Gate 13 (2026-10-17): the leader's open filled in two pieces; their one order failed inside
+    // signing (budget), was released as never sent, and the lead was refused instead of retried.
+    const keyAt = (fill: string, attempt: number) => `testnet:${seed.f.identity.accountAddress}:${liveSourceExecutionCloid('mandate', fill, 'open', attempt)}`;
+    const pieces = [await leaderFill(50, now + 100, 'B', '1', '0'), await leaderFill(51, now + 100, 'B', '1', '1')];
+    const lead = pieces[1]!;
+    runtimeImpl = async (request, hooks) => {
+      calls.push(request);
+      const attempt = request.attempt ?? 0, key = keyAt(request.sourceFillId, attempt);
+      if (attempt === 0) {
+        const record = { key, state: 'rejected', errorCode: 'exchange_order_never_placed', unsent: 'request_never_began' };
+        await db.insert(schema.copyLiveExecutions).values({ key, network: 'testnet', accountAddress: seed.f.identity.accountAddress, signerAddress: `0x${'33'.repeat(20)}`,
+          cloid: key.split(':').at(-1)!, nonce: clock + calls.length, userId: 1, strategyId: 9, state: 'rejected', record, updatedAt: new Date(clock) });
+        return record as LiveExecutionRecord;
+      }
+      hooks.onExchange?.({ phase: 'request', at: clock + 10 }); hooks.onExchange?.({ phase: 'response', at: clock + 40 });
+      await db.insert(schema.copyLiveExecutions).values({ key, network: 'testnet', accountAddress: seed.f.identity.accountAddress, signerAddress: `0x${'33'.repeat(20)}`,
+        cloid: key.split(':').at(-1)!, nonce: clock + calls.length, userId: 1, strategyId: 9, state: 'filled', record: { key }, updatedAt: new Date(clock) });
+      return { key, state: 'filled' } as LiveExecutionRecord;
+    };
+    const settled: string[] = [];
+    const run = () => engine({ settler: { settle: async request => { settled.push(request.key); return request.key === keyAt(lead, 0) ? { kind: 'unplaced', unsent: true } : { kind: 'released' }; } } });
+    await coverage(now - 10_000, now + 200); clock = now + 1000; await run().tick();
+    const head = () => dispatches().then(rows => rows.find(r => r.sourceFillId === lead)!);
+    expect(calls.map(c => [c.sourceFillId, c.attempt, c.members])).toEqual([[lead, undefined, [pieces[0]]]]);
+    expect(await head()).toMatchObject({ state: 'submitted', adjustmentId: `mandate|${lead}|open`, executionKey: keyAt(lead, 0) });
+    // Settlement releases attempt 0 as never sent: the lead is planned again, not refused.
+    clock = now + 1500; await run().tick();
+    expect(await head()).toMatchObject({ state: 'pending', reason: 'unsent_retry', executionKey: keyAt(lead, 0) });
+    clock = now + 2000; await run().tick();
+    expect(calls.map(c => [c.sourceFillId, c.attempt, c.members]).slice(1)).toEqual([[lead, 1, [pieces[0]]]]);
+    expect(await head()).toMatchObject({ state: 'submitted', executionKey: keyAt(lead, 1), reason: null });
+    clock = now + 2500; await run().tick();
+    expect(await head()).toMatchObject({ state: 'settled', executionKey: keyAt(lead, 1) });
+    expect(settled).toEqual([keyAt(lead, 0), keyAt(lead, 1)]);
+    // The member stays carried, never sent on its own.
+    expect((await dispatches()).find(r => r.sourceFillId === pieces[0])).toMatchObject({ state: 'refused', reason: 'merged_into_adjustment', adjustmentId: `mandate|${lead}|open` });
+  });
+
   it('a flip becomes its close, then its open, then the adds after it as one order', async () => {
     const open = await leaderFill(20, now + 100, 'B', '2', '0'); // long 2
     await coverage(now - 10_000, now + 200); clock = now + 300; await engine().tick();

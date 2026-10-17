@@ -424,7 +424,10 @@ export function stuckRowsSql({ userId = null, since = null, stuckAfterMs = STUCK
     `select 'copy_live_setups', id, issue, stage, next_attempt_at from copy_live_setups where issue is not null and stage not in ('running', 'cancelled', 'failed', 'expired') and next_attempt_at < ${cutoff}${scope}`,
     `select 'copy_live_stop_operations', id, issue, state, updated_at from copy_live_stop_operations where issue is not null and state <> 'stopped' and updated_at < ${cutoff}${scope}`,
     `select 'copy_funding_operations', id, null, status, updated_at from copy_funding_operations where status not in ('credited', 'rejected', 'cancelled') and updated_at < ${cutoff}${scope}`,
-    `select 'copy_account_mode_operations', id, issue, submission_state || '/' || target_state, updated_at from copy_account_mode_operations where issue is not null and target_state not in ('supported', 'unsupported') and updated_at < ${cutoff}${scope}`,
+    // An unattempted operation whose setup ended (cancelled, failed, expired) is that setup's leftover, not a stuck
+    // operation: nothing retries it and no consent will come (gate 13: f0dbea7b, prepared/account_mode_not_submitted
+    // under a cancelled setup, flagged on every run since gate 11).
+    `select 'copy_account_mode_operations', id, issue, submission_state || '/' || target_state, updated_at from copy_account_mode_operations where issue is not null and target_state not in ('supported', 'unsupported') and not (attempted_at is null and exists (select 1 from copy_live_setups s where s.id = copy_account_mode_operations.live_setup_id and s.stage in ('cancelled', 'failed', 'expired'))) and updated_at < ${cutoff}${scope}`,
   ].join(" union all ") + " order by 1, 2";
 }
 /** psql -At output of stuckRowsSql → rows. */

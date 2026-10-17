@@ -22,7 +22,7 @@ import { findCurrentWalletAuthorization } from '../live/postgres-wallet-authoriz
 import { PrivyTrackedCancellationSigner } from '../live/privy-cancellation-signer.js';
 import { BoundaryPrivyOrderSigningClient } from '../live/privy-order-client.js';
 import { address, LiveBoundaryError } from '../live/wallet-authorization.js';
-import { classify, liveRetryDelayMs } from '../live/error-class.js';
+import { classify, LIVE_CHARGE_UNOWNED, liveRetryDelayMs, unownedLiveChargeAlert } from '../live/error-class.js';
 import { DEFAULT_LIVE_STOP_TIMINGS, type LiveStopTimings } from '../../config/live-timings.js';
 import type { CopyLiveStopWorkerRepository, StopRow } from './copy-live-stop-worker.repository.js';
 import { CLOSE_NEVER_SENT, closeCloid, closeRetryDelayMs, type CloseAccount, type ReduceOnlyCloser } from './reduce-only-closer.js';
@@ -120,6 +120,7 @@ export class CopyLiveStopper {
       catch (error) {
         this.retryAt.set(stop.id, this.now() + liveRetryDelayMs(error));
         this.deps.log?.(`stop ${stop.id} kept for the next pass: ${why(error)}`); await this.deps.repository.issue(stop, reason(error));
+        if (reason(error) === LIVE_CHARGE_UNOWNED) this.deps.log?.(unownedLiveChargeAlert('stop', { stopId: stop.id, stage: stop.state }));
       }
     }
   }
@@ -327,6 +328,7 @@ export class CopyLiveManualCloser {
       catch (error) {
         this.retryAt.set(row.id, this.now() + liveRetryDelayMs(error));
         this.log?.(`close ${row.id} kept for the next pass: ${why(error)}`);
+        if (reason(error) === LIVE_CHARGE_UNOWNED) this.log?.(unownedLiveChargeAlert('manual_close', { closeId: row.id, stage: 'close' }));
       }
     }
   }

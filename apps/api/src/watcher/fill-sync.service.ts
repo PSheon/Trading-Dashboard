@@ -181,6 +181,7 @@ export class FillSyncService {
    * as the fast source's kicks): they serve copying, not an order, so they
    * yield to orders and never fill the live lane (H-R11: Stage's live lane
    * held 313 p50 units of these reads, 21 a list, with no order in flight).
+   * One copied leader costs that lane COPIED_LEADER_WATCH_WEIGHT a minute.
    */
   private async lane(address: string, reason: SyncReason, rank?: number): Promise<SyncLane> {
     const source = <T>(work: () => Promise<T>) => runInLeaderSourceLane(address, work);

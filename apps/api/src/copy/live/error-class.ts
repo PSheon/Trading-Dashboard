@@ -81,6 +81,15 @@ const PERMANENT_CODES: ReadonlySet<string> = new Set([
   // no retry makes it match (copy-live-setup-abort.service.ts).
   'setup_abort_binding_unknown', 'setup_abort_generation_conflict', 'setup_abort_wallet_conflict', 'setup_abort_refund_not_completed',
 ]);
+/** The shared meter refused a live charge nobody owns (H-R11): a live entry
+ * point that lost its runOwned / fetchInfoOwned. `needs_owner`, never retried. */
+export const LIVE_CHARGE_UNOWNED = 'hyperliquid_quota_live_unowned';
+/** The ALERT line for one (logged at error level where the caller has one):
+ * `site` names where the charge was made (a copy leg, a settlement, a stop),
+ * `detail` its safe fields (ids, the diagnostic stage); never the error. */
+export function unownedLiveChargeAlert(site: string, detail: Readonly<Record<string, unknown>>): string {
+  return `ALERT live_charge_unowned ${JSON.stringify({ site, ...detail })}`;
+}
 /** Only the owner can move these on. */
 const NEEDS_OWNER_CODES: ReadonlySet<string> = new Set([
   'consent_expired', 'agent_consent_expired', 'worker_signer_missing', 'exchange_agent_expired',
@@ -94,6 +103,11 @@ const NEEDS_OWNER_CODES: ReadonlySet<string> = new Set([
   'setup_abort_not_flat_persistent',
   // A Privy identity proof that kept expiring (PRIVY_IDENTITY_EVIDENCE_CODES).
   'privy_identity_unverified',
+  // A live charge of the shared meter with no owner (postgres-hyperliquid-quota.ts):
+  // a live entry point nobody named (runOwned / fetchInfoOwned). A code defect,
+  // never transient: no retry can own it; the site is named in an ALERT
+  // (unownedLiveChargeAlert) and the work goes to its owner.
+  LIVE_CHARGE_UNOWNED,
 ]);
 /** Waits, not failures: a read that was stale or could not be had, or the
  * worker's signer not up yet. Unlisted codes are `transient` already; these
@@ -164,6 +178,8 @@ export function classify(error: unknown, depth = 0): ErrorClassification {
   if (code !== null && WRAPPING_CODES.has(code) && depth < 3 && error instanceof Error && error.cause !== undefined) {
     const inner = classify(error.cause, depth + 1);
     if (inner.class === 'budget') return { class: 'budget', code, source, ...(inner.retryAfterMs !== undefined ? { retryAfterMs: inner.retryAfterMs } : {}) };
+    // An unowned live charge under a reader's wrapper is still the defect it is (named by its own code), never the wrapper's transient.
+    if (inner.code === LIVE_CHARGE_UNOWNED) return inner;
   }
   if (error instanceof StepWait) return { class: 'budget', code, source, retryAfterMs: error.retryMs };
   if (error instanceof StepFail) return { class: 'permanent', code, source };

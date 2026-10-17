@@ -5,6 +5,7 @@
 
 import { infoListSurcharge, infoPrepaidWeights, infoWeight } from '../../hyperliquid/info-weights.js';
 import { FAST_SOURCE_GRACE_MS } from './timings.js';
+import { CONFIRM_MIN_INTERVAL_MS, COPIED_CATCH_UP_MS } from './background.js';
 import { MINUTE_MS } from './time.js';
 
 /** basis: derived — the four mode reads' weights (userRole 60, userAbstraction 20, userDexAbstraction 20, spotClearinghouseState 2)
@@ -114,6 +115,19 @@ export const FAST_SOURCE_READ_WEIGHT = infoWeight({ type: 'userFillsByTime' }) +
  * one active leader hold 341 p50 / 580 p95 / 662 max before the cap.
  */
 export const FAST_SOURCE_LEADER_WEIGHT = Math.ceil(MINUTE_MS / FAST_SOURCE_GRACE_MS) * FAST_SOURCE_READ_WEIGHT;
+
+/** basis: derived — the watcher's reads of one copied leader a minute, each a settled list read (FAST_SOURCE_READ_WEIGHT, 21): confirms at most MINUTE_MS / CONFIRM_MIN_INTERVAL_MS (4), its catch-up's two endpoints every COPIED_CATCH_UP_MS (1) and a snapshot reconcile or continuity re-read (1): 6 × 21 = 126; verify: the 24 h re-cut's `source:` composition per leader
+ * What a copied leader's fill confirmation costs the `source:` lane a minute
+ * (H-R11: FillSyncService.lane runs them there, beside the fast source's
+ * kicks). The lane holds HYPERLIQUID_SOURCE_REST_CAP (720) together: the
+ * watcher's reads alone fill it at floor(720 / 126) = 5 copied leaders
+ * trading without pause (Stage, 2026-10-17: 3 leaders held 313 p50 of
+ * these reads); beside their kicks (FAST_SOURCE_LEADER_WEIGHT each, worst
+ * case) fewer. Past that the lane yields: confirms wait for room
+ * (SOURCE_CAPACITY_WAIT_MS) and fill confirmation queues rather than fails;
+ * orders and pages keep theirs whatever the leader count.
+ */
+export const COPIED_LEADER_WATCH_WEIGHT = (Math.ceil(MINUTE_MS / CONFIRM_MIN_INTERVAL_MS) + Math.ceil(2 * MINUTE_MS / COPIED_CATCH_UP_MS) + 1) * FAST_SOURCE_READ_WEIGHT;
 
 /** basis: derived — the agent approval read (extraAgents 20) and the order POST
  * Paid before the SQL/evidence clocks start, and fenced from the evidence's

@@ -1,3 +1,6 @@
+import {readdirSync,readFileSync} from 'node:fs';
+import {dirname,join,relative} from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {describe,expect,it,vi} from 'vitest';
 import {HyperliquidGlobalTransport} from '../src/hyperliquid/hyperliquid-global-transport.js';
 import {PostgresHyperliquidQuota,runInBackgroundLane,runInLeaderSourceLane,sourceLaneOwner} from '../src/hyperliquid/postgres-hyperliquid-quota.js';
@@ -64,6 +67,34 @@ const entries:ReadonlyArray<[string,Entry]>=[
   ['fetchInfoBatch',f=>f.transport.fetchInfoBatch(info,[{type:'meta'}],{maxWaitMs:0})],
   ['acquireExchange',f=>f.transport.acquireExchange(now+5000)],
 ];
+
+/** Production files whose bare `fetchInfo` / `acquireExchange` / `fetchInfoBatch` run inside an owner's work (runOwned at their entry). */
+const OWNED_WORK_FILES=new Set(['copy/live-worker/copy-live-stopper.ts','copy/live-worker/reduce-only-closer.ts','copy/live-worker/copy-live-settler.ts','copy/live/live-execution-runtime.ts','copy/live/hyperliquid-live-transport.ts','copy/live/hyperliquid-cancellation-transport.ts','copy/live/live-leverage-update.ts']);
+const OWNER_ON_LINE=/runDefaultOwner|runAsDefaultRestOwner|runOwned|runAsRestOwner|fetchInfoOwned/;
+const sources=(dir:string):string[]=>readdirSync(dir,{withFileTypes:true}).flatMap(e=>e.isDirectory()?sources(join(dir,e.name)):e.name.endsWith('.ts')&&!e.name.endsWith('.spec.ts')?[join(dir,e.name)]:[]);
+describe('every production user of a live entry point names its owner (api and worker wiring alike)',()=>{
+  const root=join(dirname(fileURLToPath(import.meta.url)),'../src');
+  const hits=sources(root).filter(f=>!/hyperliquid\/(hyperliquid-global-transport|hyperliquid-info\.client)\.ts$/.test(f)).flatMap(file=>readFileSync(file,'utf8').split('\n').flatMap((line,i)=>
+    /\.(fetchInfo(?!Owned|Batch)|acquireExchange\(|fetchInfoBatch\()/.test(line)&&!/^\s*(\/\/|\*)/.test(line)?[{file:relative(root,file),line:i+1,text:line}]:[]));
+  it('a `fetchInfo`, `acquireExchange` or `fetchInfoBatch` outside an owner\'s work is wrapped on its own line (runDefaultOwner / fetchInfoOwned), or lives in a file whose entry points run under runOwned',()=>{
+    const unowned=hits.filter(h=>!OWNED_WORK_FILES.has(h.file)&&!OWNER_ON_LINE.test(h.text));
+    expect(unowned.map(h=>`${h.file}:${h.line}`)).toEqual([]);
+    // The api's wiring in particular: the authorization verifier, the setup's absence reader and abort observer, the api settlement scan, the engine's receipt reader and testnet source.
+    const wired=(file:string)=>[...hits.filter(h=>h.file===file).map(()=>'bare'),...readFileSync(join(root,file),'utf8').matchAll(/fetchInfoOwned\(([^)]*)\)/g)].map(m=>typeof m==='string'?m:m[1]!);
+    expect(wired('copy/copy.module.ts')).toEqual(["'auth'",'SETUP_OWNER','SETUP_OWNER']);
+    expect(wired('copy/live-worker/copy-live-api-settlement.provider.ts')).toEqual(["'settle'"]);
+    expect(wired('copy/live-worker/copy-live-engine.provider.ts')).toEqual(['RECEIPT_OWNER',"'testnet-source'"]);
+    expect(hits.some(h=>h.file==='copy/copy-funding-exchange.client.ts')).toBe(true);
+    expect(hits.some(h=>h.file==='wallet/withdrawal-exchange.client.ts')).toBe(true);
+  });
+  it('the files whose bare entry points are owned by their work still exist and still own them (no stale allow-list entry)',()=>{
+    for(const file of OWNED_WORK_FILES){
+      const text=readFileSync(join(root,file),'utf8');
+      expect(hits.some(h=>h.file===file)).toBe(true);
+      expect(/runOwned|runAsDefaultRestOwner|runAsRestOwner|acquireExchange|infoFetcher/.test(text)).toBe(true);
+    }
+  });
+});
 
 describe('every live-lane entry point of the transport names an owner',()=>{
   it.each(entries)('%s with no owner, token or lane store is a background charge (`bg:`), never a live one: the live lane is no default',async(_name,entry)=>{

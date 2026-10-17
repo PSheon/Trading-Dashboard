@@ -13,6 +13,17 @@ import { LIVE_ENGINE } from './copy-live-engine.provider.js';
  * Fast source: a feed trade schedules a kick for when its fill can be certified
  * (G after the trade); kicks never overlap a pass. A watcher verification
  * queues an audit of the leader's stream.
+ *
+ * One read per leader per G window: a trade witnessed while a kick is
+ * scheduled joins it (the earlier due time stands), one witnessed while the
+ * leader's read is in flight is left to that read's follow-up (the read
+ * returns every trade before its `to`; what it could not certify yet is
+ * read next, G later at the earliest), and a kick due within G of the last
+ * read is moved to G after it (engine.nextReadAt). Before 2026-10-17 a trade
+ * that arrived during a read brought one more read right after it, and a
+ * kick due within G of a read was read then: one read per witnessed trade
+ * at a high trade rate (Stage: one leader held 341 p50 / 580 p95 of the
+ * shared window).
  */
 @Injectable()
 export class CopyLiveWorkerService implements OnApplicationBootstrap, OnModuleDestroy {
@@ -32,7 +43,6 @@ export class CopyLiveWorkerService implements OnApplicationBootstrap, OnModuleDe
   private readonly signalling = new Set<string>();
   /** The earliest feed trade each scheduled read is for (timing logs). */
   private readonly trades = new Map<string, { tid: number; time: number; seenAt: number }>();
-  private readonly resignal = new Set<string>();
   constructor(private readonly config: AppConfig, private readonly jobs: BackgroundJobs, @Inject(LIVE_ENGINE) private readonly engine: CopyLiveEngine | null) {}
   onApplicationBootstrap(): void {
     const live = this.config.value.copy.live;
@@ -85,7 +95,11 @@ export class CopyLiveWorkerService implements OnApplicationBootstrap, OnModuleDe
   /** Signal half runs at once (one per leader); the order half joins the queue. */
   private async signal(leader: string): Promise<void> {
     if (!this.engine || this.jobs.stopping) return;
-    if (this.signalling.has(leader)) { this.resignal.add(leader); return; }
+    // A read in flight: its follow-up reads what it could not certify (no read of this kick's own).
+    if (this.signalling.has(leader)) return;
+    // Due within G of the leader's last read: moved to G after it.
+    const notBefore = this.engine.nextReadAt(leader);
+    if (notBefore > Date.now()) { this.schedule(leader, notBefore); return; }
     this.signalling.add(leader);
     const engine = this.engine;
     const trade = this.trades.get(leader), scheduledAt = Date.now();
@@ -107,7 +121,6 @@ export class CopyLiveWorkerService implements OnApplicationBootstrap, OnModuleDe
       this.signalling.delete(leader);
       const next = engine.followUp(leader);
       if (next !== null) this.schedule(leader, next);
-      if (this.resignal.delete(leader)) void this.signal(leader);
     }
   }
 

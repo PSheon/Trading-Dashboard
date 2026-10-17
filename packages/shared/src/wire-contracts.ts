@@ -62,6 +62,7 @@ export const wireHeartbeatSchema = s.heartbeatResponseSchema.extend({
   lastSnapshotAttemptAt: iso.nullable().optional(), lastSnapshotFailureAt: iso.nullable().optional(), lastSweepAt: iso.nullable(), now: iso,
   explorerFailingSince: iso.nullable().optional(),
   setupDemand: wireMeterLaneDemandSchema.optional(), liveDemand: wireMeterLaneDemandSchema.optional(), pageLane: wireMeterLaneDemandSchema.optional(),
+  sourceLane: wireMeterLaneDemandSchema.optional(),
   fillsUnavailable: z.array(z.object({ address: z.string(), missedTrades: z.number().int(), since: iso })),
   archive: s.heartbeatResponseSchema.shape.archive.unwrap().extend({ liveNextHour: iso.nullable(), backfillCursorHour: iso.nullable(), lastRunAt: iso.nullable(),
     backfillFloor: iso.optional(), backfillPassStartedAt: iso.nullable().optional(), backfillNextPassAt: iso.nullable().optional() }).optional(),
@@ -150,6 +151,9 @@ export const adminSystemSchema = z.object({
      * lane's charges hold, when the last demand ends; the page lane (no
      * demand): its reads alive, what they hold, when the last ends. Additive. */
     setupDemand: wireMeterLaneDemandSchema.optional(), liveDemand: wireMeterLaneDemandSchema.optional(), pageLane: wireMeterLaneDemandSchema.optional(),
+    /** The fast leader source's lane on the same egress (a kick's reads per
+     * watched mainnet leader; it announces no demand). Additive. */
+    sourceLane: wireMeterLaneDemandSchema.optional(),
     /** This api process's public egress identity (HL_EGRESS_IDENTITY;
      * absent while off). Additive. */
     egressIdentity: s.egressIdentitySchema.optional(),

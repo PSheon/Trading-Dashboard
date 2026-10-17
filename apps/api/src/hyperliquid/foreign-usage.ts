@@ -12,7 +12,7 @@ import { FOREIGN_USAGE_SHARE, HYPERLIQUID_REST_CAP, HYPERLIQUID_WS_MESSAGE_CAP }
  * holds, which nothing sent, are left out. */
 export function restWindowUse(snapshot: Pick<HyperliquidMeterSnapshot, 'rest'>): number {
   const rest = snapshot.rest, setup = Object.values(rest.setup).reduce((sum, units) => sum + units, 0);
-  return (rest.background + rest.other + rest.live + rest.page + setup) / HYPERLIQUID_REST_CAP;
+  return (rest.background + rest.other + rest.live + rest.page + rest.source + setup) / HYPERLIQUID_REST_CAP;
 }
 /** What our own messages hold of an egress key's WebSocket message window (0..1). */
 export const wsWindowUse = (snapshot: Pick<HyperliquidMeterSnapshot, 'wsMessages'>) => snapshot.wsMessages / HYPERLIQUID_WS_MESSAGE_CAP;

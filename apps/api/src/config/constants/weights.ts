@@ -3,7 +3,9 @@
  * Basis lines: see AGENTS.md (checked by test/tuning-constants.spec.ts).
  */
 
-import { infoPrepaidWeights, infoWeight } from '../../hyperliquid/info-weights.js';
+import { infoListSurcharge, infoPrepaidWeights, infoWeight } from '../../hyperliquid/info-weights.js';
+import { FAST_SOURCE_GRACE_MS } from './timings.js';
+import { MINUTE_MS } from './time.js';
 
 /** basis: derived — the four mode reads' weights (userRole 60, userAbstraction 20, userDexAbstraction 20, spotClearinghouseState 2)
  */
@@ -92,6 +94,26 @@ export const BUILDER_STEP_WEIGHT = infoWeight({ type: 'maxBuilderFee' }) + 1;
  * Acquired up front; the answer's real weight is 20 + 1 per 20 rows.
  */
 export const SOURCE_READ_WORST_WEIGHT = 120;
+
+/** basis: derived — the provider's list base (userFillsByTime 20) plus 1 per 20 rows, for one kick's answer of at most 20 rows (Stage sample 2026-10-17: every kick read settled to 21)
+ * What one fast-source read (`userFillsByTime` from the stream's coverage
+ * to now) holds of the shared window for its minute once settled: the
+ * shared meter prepays a list's 120 (2,000 rows' surcharge; the local
+ * bucket 30, for 200 rows) and settles it down to this with the process's
+ * next request.
+ */
+export const FAST_SOURCE_READ_WEIGHT = infoWeight({ type: 'userFillsByTime' }) + infoListSurcharge('userFills', 20);
+
+/** basis: derived — one read per G (kick coalescing: FAST_SOURCE_GRACE_MS), each held for the window's minute: 30 × 21 = 630 at the default G
+ * The most one fast-source leader costs the shared window a minute,
+ * whatever its trade rate: a trade witnessed while a read is scheduled or
+ * in flight for its leader needs no read of its own (one `userFillsSince`
+ * from the stream's coverage catches them all), and two reads of one
+ * leader are never closer than G. A leader that trades without pause
+ * holds this much; the Stage sample (2026-10-17, read-only, 10 min) saw
+ * one active leader hold 341 p50 / 580 p95 / 662 max before the cap.
+ */
+export const FAST_SOURCE_LEADER_WEIGHT = Math.ceil(MINUTE_MS / FAST_SOURCE_GRACE_MS) * FAST_SOURCE_READ_WEIGHT;
 
 /** basis: derived — the agent approval read (extraAgents 20) and the order POST
  * Paid before the SQL/evidence clocks start. An order's signer is always its

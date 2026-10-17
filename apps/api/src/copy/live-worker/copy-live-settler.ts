@@ -115,7 +115,8 @@ export class CopyLiveSettler {
     // place, and the next pass renews that claim instead of queueing behind it.
     const token = await this.claimLive((scan ? 2 * RESPONSE_WEIGHT : 0) + prepaid, request.key);
     if (claim) await claim.assertHeld();
-    const lane = <T>(work: () => Promise<T>) => token === undefined ? work() : this.global.runLive(token, work);
+    // Its charges are the live lane's under that token, named the settlement's (`live:<token>:settle:`).
+    const lane = <T>(work: () => Promise<T>) => this.global.runOwned('settle', () => token === undefined ? work() : this.global.runLive(token, work));
     // The pass's reads are over (sent or refused): its claim keeps nothing free.
     try { return await lane(async () => {
     // Book fills now (the scheduled scan is slow); it also advances the proven

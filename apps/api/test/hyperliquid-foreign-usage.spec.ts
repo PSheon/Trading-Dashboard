@@ -21,7 +21,7 @@ const info = 'https://api.hyperliquid-testnet.xyz/info';
 const post = (body: unknown): RequestInit => ({ method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } });
 const composition = (sent: { background?: number; live?: number; page?: number; other?: number; setup?: Record<string, number> }, markers = 0): HyperliquidMeterComposition => ({
   total: 0, background: sent.background ?? 0, other: sent.other ?? 0, live: sent.live ?? 0, page: sent.page ?? 0, setup: sent.setup ?? {},
-  markers: { setup: 0, live: markers }, pending: [], granted: [], liveNeed: 0,
+  markers: { setup: 0, live: markers, source: 0 }, pending: [], granted: [], liveNeed: 0, source: 0, liveKinds: {}, sources: {},
 });
 const snapshot = (rest: HyperliquidMeterComposition, wsMessages = 0): HyperliquidMeterSnapshot => ({ rest, wsConnect: 0, wsMessages, leases: 0 });
 

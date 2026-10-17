@@ -465,6 +465,10 @@ export const heartbeatResponseSchema = z.object({
    * demand): its reads alive in the window, what they hold, when the last
    * ends. Additive. */
   pageLane: meterLaneDemandSchema.optional(),
+  /** The shared meter's source lane on the same egress: the fast leader
+   * source's reads alive (a kick's `userFillsByTime` per watched mainnet
+   * leader), what they hold, when the last ends. Additive. */
+  sourceLane: meterLaneDemandSchema.optional(),
   /** Age of the discovery pool's stored performance figures: the rows the
    * boards and home rows show (`visible`) and the whole pool. Additive. */
   discovery: z.object({

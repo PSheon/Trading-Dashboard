@@ -15,11 +15,14 @@ import { RequestBudgeterService } from '../src/hyperliquid/request-budgeter.serv
 import { WorkerHeartbeatService } from '../src/worker/worker-heartbeat.service.js';
 import { testConfig } from './config-test-utils.js';
 import { closeTestDb, getTestDb } from './db-test-utils.js';
+import { HYPERLIQUID_SOURCE_REST_RESERVE } from '../src/config/constants/hyperliquid.js';
+import { sourceLaneOwner } from '../src/hyperliquid/postgres-hyperliquid-quota.js';
 
 // The worker's heartbeat and the admin system overview show the shared
 // meter's setup and live lanes: a setup waiting for room, a live order's
 // need kept ahead of setups and background (count, what the lane holds,
-// until when).
+// until when); and the page and source lanes (what their reads hold).
+const LEADER = `0x${'44'.repeat(20)}`;
 let db: ReturnType<typeof getTestDb>, pool: Pool;
 beforeAll(() => { db = getTestDb(); pool = new Pool({ connectionString: process.env.TEST_DATABASE_URL, max: 4 }); });
 afterAll(async () => { await pool.end(); await closeTestDb(); });
@@ -35,7 +38,11 @@ async function meter() {
   // An owner's page reads: two, 2 and 20 (the page lane announces nothing; what its reads hold shows).
   for (const weight of [2, 20]) (await transport.currentQuota().acquireRest(weight, Date.now() + 5000, 'page', { heldMs: 0 })).dispatch(() => undefined);
   const token = await transport.claimLive(589, Date.now() + 5000);
-  await transport.runLive(token!, async () => { (await transport.currentQuota().acquireRest(300, Date.now() + 5000)).dispatch(() => undefined); });
+  // The order's charges name it (`live:<token>:order:`), as LiveExecutionRuntime runs them.
+  await transport.runOwned('order', () => transport.runLive(token!, async () => { (await transport.currentQuota().acquireRest(300, Date.now() + 5000)).dispatch(() => undefined); }));
+  // A fast-source kick of one leader (the source lane, under the leader's hash) and the worker's source standby.
+  await transport.runSource(LEADER, async () => { (await transport.currentQuota().acquireRest(30, Date.now() + 5000)).dispatch(() => undefined); });
+  await transport.standbySource(HYPERLIQUID_SOURCE_REST_RESERVE);
   return { egressKey, transport, claimedAt, cleanup: () => db.delete(schema.hyperliquidEgressQuota).where(eq(schema.hyperliquidEgressQuota.egressKey, egressKey)) };
 }
 
@@ -57,13 +64,19 @@ it('the worker heartbeat carries setupDemand and liveDemand from the shared mete
     expect(beat.pageLane).toMatchObject({ count: 2, held: 22 });
     expect(beat.pageLane!.until!.getTime()).toBeGreaterThan(claimedAt + 60_000);
     expect(wireHeartbeatSchema.parse(JSON.parse(JSON.stringify(beat))).pageLane).toMatchObject({ count: 2, held: 22, until: beat.pageLane!.until!.toISOString() });
+    // The source lane (H-R6): the kick's read alive, what it holds, when it ends; never the leader's address.
+    expect(beat.sourceLane).toMatchObject({ count: 1, held: 30 });
+    expect(beat.sourceLane!.until!.getTime()).toBeGreaterThan(claimedAt + 60_000);
+    expect(wireHeartbeatSchema.parse(JSON.parse(JSON.stringify(beat))).sourceLane).toMatchObject({ count: 1, held: 30 });
+    expect(JSON.stringify(beat)).not.toContain(LEADER);
     // Both contracts accept them (optional: an older worker sends neither).
     expect(heartbeatResponseSchema.parse(beat).liveDemand?.held).toBe(300);
     const wire = wireHeartbeatSchema.parse(JSON.parse(JSON.stringify(beat)));
     expect(wire.setupDemand).toMatchObject({ count: 1, held: 102, until: beat.setupDemand!.until!.toISOString() });
-    const { setupDemand: _s, liveDemand: _l, pageLane: _p, ...older } = JSON.parse(JSON.stringify(beat));
+    const { setupDemand: _s, liveDemand: _l, pageLane: _p, sourceLane: _o, ...older } = JSON.parse(JSON.stringify(beat));
     expect(wireHeartbeatSchema.parse(older).setupDemand).toBeUndefined();
     expect(wireHeartbeatSchema.parse(older).pageLane).toBeUndefined();
+    expect(wireHeartbeatSchema.parse(older).sourceLane).toBeUndefined();
   } finally { await cleanup(); }
 });
 
@@ -79,6 +92,7 @@ it('the admin system overview shows the api process\'s view of both lanes; none 
     expect(api.setupDemand).toMatchObject({ count: 1, held: 102 });
     expect(api.liveDemand).toMatchObject({ count: 1, held: 300 });
     expect(api.pageLane).toMatchObject({ count: 2, held: 22 });
+    expect(api.sourceLane).toMatchObject({ count: 1, held: 30 });
     expect(Date.parse(api.liveDemand!.until!)).toBeGreaterThan(Date.now());
     // An empty meter: nothing alive, nothing held.
     const empty = new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(new UnitOfWork(drizzle(pool, { schema }))), { egressKey: `lanes-${randomUUID()}`, ownerId: 'api' });
@@ -93,7 +107,15 @@ it('the meter snapshot (an absence proof\'s failure log) shows the REST composit
   try {
     const reserved = await transport.currentQuota().reserveSocket(Date.now() + 5000, 'testnet');
     const snapshot = await transport.meterSnapshot();
-    expect(snapshot).toMatchObject({ wsConnect: 1, wsMessages: 0, leases: 1, rest: { live: 300, markers: { setup: 1, live: 1 } } });
+    // The source lane by leader hash, the live lane by owner (the order's charge named `order`), the source standby's marker.
+    expect(snapshot).toMatchObject({ wsConnect: 1, wsMessages: 0, leases: 1, rest: { live: 300, source: 30, sources: { [sourceLaneOwner(LEADER)]: 30 }, liveKinds: { order: 300 }, markers: { setup: 1, live: 1, source: 1 } } });
+    // The stored tickets: the kick's outside `live:`, under the leader's hash; the order's under its token and owner.
+    const [row] = await db.select().from(schema.hyperliquidEgressQuota).where(eq(schema.hyperliquidEgressQuota.egressKey, egressKey));
+    const ids = (row!.events as { id: string }[]).map(e => e.id);
+    expect(ids.filter(id => id.startsWith('source:'))).toEqual([expect.stringMatching(new RegExp(`^source:${sourceLaneOwner(LEADER)}:[0-9a-f-]{36}$`))]);
+    expect(ids.filter(id => /^live:[0-9a-f]{16}:order:[0-9a-f-]{36}$/.test(id))).toHaveLength(1);
+    expect(ids.some(id => id.startsWith(`source-standby:${HYPERLIQUID_SOURCE_REST_RESERVE}:`))).toBe(true);
+    expect(ids.join(' ')).not.toContain(LEADER);
     expect(Object.values(snapshot!.rest.setup)).toEqual([102]);
     await reserved.connection.cancelBeforeConnect();
     expect((await transport.meterSnapshot())!.leases).toBe(0);

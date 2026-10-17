@@ -200,7 +200,13 @@ export const REVOKE_DEADLINE_MS = 30 * MINUTE_MS;
  */
 export const WITNESS_EXPIRY_MS = 60_000;
 
-/** basis: guessed — follow-up reads of one leader start a second apart; verify: fast-source follow-up histogram
+/** basis: measured — the mainnet fill index trails the exchange by up to this (p99.9, the fast source's design measurement); the default of COPY_LIVE_FAST_SOURCE_GRACE_MS
+ * G: a fast-source read certifies fills only up to this long before it was
+ * sent, and a leader's reads come no closer than this (FAST_SOURCE_LEADER_WEIGHT).
+ */
+export const FAST_SOURCE_GRACE_MS = 2000;
+
+/** basis: guessed — follow-up reads of one leader start a second apart (never closer than G: FAST_SOURCE_GRACE_MS); verify: fast-source follow-up histogram
  * Doubles while a witnessed trade stays missing.
  */
 export const FOLLOW_UP_MIN_MS = 1000;

@@ -100,7 +100,7 @@ export function observeLiveExecutionFailure(hook: LiveExecutionDiagnosticHook | 
  * transaction), each socket step, REST wave and local budget wait. Names and
  * durations only: never a value, address or body. */
 type LiveSpanName =
-  `quota_${'rest' | 'connect' | 'subscribe' | 'unsubscribe' | 'ping' | 'close' | 'opened' | 'uncertain' | 'closing' | 'closed' | 'renew' | 'ack_unsubscribe' | 'setup_demand' | 'setup_release' | 'live_demand' | 'live_release' | 'live_standby'}_${'queue' | 'lock' | 'tx'}` |
+  `quota_${'rest' | 'connect' | 'subscribe' | 'unsubscribe' | 'ping' | 'close' | 'opened' | 'uncertain' | 'closing' | 'closed' | 'renew' | 'ack_unsubscribe' | 'setup_demand' | 'setup_release' | 'live_demand' | 'live_release' | 'live_standby' | 'source_standby'}_${'queue' | 'lock' | 'tx'}` |
   'ws_heartbeat_wait' | 'ws_reserve' | 'ws_open' | 'ws_idle' | 'ws_subscribe_quota' | 'ws_first_message' | 'ws_messages' | 'ws_close' |
   'rest_wave_quota' | 'rest_wave_http' | 'local_budget' | 'observer_rest' | 'observer_ws';
 type LiveSpanRole = 'follower' | 'other_account' | 'leader' | 'target';

@@ -76,6 +76,7 @@ export class WorkerHeartbeatService {
       setupDemand: lanes ? lane(lanes.setupDemand) : undefined,
       liveDemand: lanes ? lane(lanes.liveDemand) : undefined,
       pageLane: lanes ? lane(lanes.pageLane) : undefined,
+      sourceLane: lanes ? lane(lanes.sourceLane) : undefined,
       // Age of the boards' and home rows' figures; a failed read must not fail the heartbeat.
       discovery: await this.pool?.freshness().then((f) => ({
         visibleRows: f.visible.rows, medianVisibleAgeSeconds: f.visible.medianAgeSeconds, oldestVisibleAgeSeconds: f.visible.oldestAgeSeconds,

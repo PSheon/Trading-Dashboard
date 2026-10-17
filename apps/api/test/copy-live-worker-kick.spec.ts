@@ -11,7 +11,7 @@ function setup(network?: 'testnet' | 'mainnet') {
   const log: string[] = [];
   let releasePass: (() => void) | undefined, followUp: number | null = null;
   const engine = {
-    witness: vi.fn((_leader: string, _tid: number, time: number) => time + G + 100),
+    witness: vi.fn((_leader: string, _tid: number, time: number) => time + G + 100), nextReadAt: vi.fn(() => 0),
     followUp: vi.fn(() => { const next = followUp; followUp = null; return next; }),
     signal: vi.fn(async (who: string) => { log.push(`signal ${who} @${Date.now() - T0}`); return true; }),
     workLeader: vi.fn(async (who: string) => { log.push(`kick ${who} @${Date.now() - T0}`); }),
@@ -117,7 +117,7 @@ describe('copy live worker: realtime kicks', () => {
     vi.useFakeTimers({ now: T0 });
     let passes = 0;
     const engine = {
-      witness: vi.fn(() => Date.now()), followUp: vi.fn(() => Date.now() + 100),
+      witness: vi.fn(() => Date.now()), followUp: vi.fn(() => Date.now() + 100), nextReadAt: vi.fn(() => 0),
       signal: vi.fn(async () => ({ started: Date.now(), read: null, ingest: null, ingestedAt: Date.now(), enqueuedAt: Date.now() })),
       workLeader: vi.fn(() => new Promise<void>(resolve => setTimeout(resolve, 150))),
       audit: vi.fn(async () => []), tick: vi.fn(async () => { passes++; await new Promise(resolve => setTimeout(resolve, 100)); }),

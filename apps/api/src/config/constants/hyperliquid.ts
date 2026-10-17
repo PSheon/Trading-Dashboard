@@ -4,6 +4,7 @@
  */
 
 import { MINUTE_MS } from './time.js';
+import { FAST_SOURCE_LEADER_WEIGHT } from './weights.js';
 
 /** basis: measured — Hyperliquid docs: 1,200 REST weight per IP per minute
  */
@@ -36,6 +37,29 @@ export const HYPERLIQUID_SETUP_REST_CAP = 720;
  * them delays the setup by at most this much (one cold trader page's reads).
  */
 export const HYPERLIQUID_PAGE_FLOOR = 240;
+
+/** basis: derived — 1,200 − the live reserve − the page floor: whatever the leaders do, live orders and pages keep theirs
+ * What the fast leader source's reads (`source:` lane: a kick's
+ * `userFillsByTime` and TWAP slices per watched mainnet leader) may hold of
+ * the window together. One leader at its coalescing cap holds
+ * FAST_SOURCE_LEADER_WEIGHT (630); a second leader's reads past this wait
+ * for the first's to expire. Before 2026-10-17 these reads were the live
+ * lane's, with equal standing to the follower's own orders and settlements
+ * (Stage sample: 341 p50 / 580 p95 / 662 max units alive with no order in
+ * flight, one active leader; two leaders broke the two-coin requirement).
+ */
+export const HYPERLIQUID_SOURCE_REST_CAP = HYPERLIQUID_REST_CAP - HYPERLIQUID_LIVE_REST_RESERVE - HYPERLIQUID_PAGE_FLOOR;
+
+/** basis: derived — half of FAST_SOURCE_LEADER_WEIGHT (315: a leader trading half of every minute; the Stage sample's one active leader held 341 p50); verify: the heartbeat's sourceLane held p50/p95 against source refusals at the next gate
+ * What a worker with fast-source copies running keeps free of background
+ * for the source lane (`source_standby`, renewed with the live standby),
+ * less what the lane already holds: a kick's read is never starved by
+ * background loops that fill the window to their cap, and background has
+ * it all back once the lane holds this much. The source lane yields to
+ * live demand itself (as a page does), so this never comes out of an
+ * order's need, and a deployment without a fast source records none.
+ */
+export const HYPERLIQUID_SOURCE_REST_RESERVE = Math.ceil(FAST_SOURCE_LEADER_WEIGHT / 2);
 
 /** basis: measured — gate 5 (2026-10-13): an account-mode step took up to ~40 s from grant to its last charge
  * How long a granted setup claim holds its step's weight: the weight is an
@@ -207,6 +231,14 @@ export const LOCAL_HOLD_RETRY_MS = 15_000;
  * often, well inside its HYPERLIQUID_LIVE_DEMAND_HOLD_MS.
  */
 export const LIVE_DEMAND_RENEW_MS = HYPERLIQUID_LIVE_DEMAND_HOLD_MS-5_000;
+
+/** basis: derived — HYPERLIQUID_LIVE_DEMAND_HOLD_MS: the live order a source read yields to is over by then, and the room it held is back
+ * Longest a fast-source read waits for shared room: it yields to a live
+ * order's need (a refusal quotes when that claim ends) rather than failing
+ * at once and leaving the kick to the watched source; the read certifies
+ * from when it left (`sentAt`), so a wait never makes its evidence stale.
+ */
+export const SOURCE_CAPACITY_WAIT_MS = HYPERLIQUID_LIVE_DEMAND_HOLD_MS;
 
 /** basis: derived — half of a trader page's 12 s deadline, leaving room for the call
  * Longest an unlabelled request waits in all for shared REST capacity: within

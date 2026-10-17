@@ -520,12 +520,21 @@ export class CopyLiveEngine {
   /**
    * Order released as never sent: re-plan the leg as its next attempt (new
    * cloid, key, nonce; every submit gate again) if its signal is fresh (a close
-   * never ages), it is not merged, and attempts < MAX_LIVE_LEG_ATTEMPTS; else refuse.
+   * never ages), it is not merged into another leg's order, and attempts <
+   * MAX_LIVE_LEG_ATTEMPTS; else refuse. The lead of a merge (adjustmentId its
+   * own id) is the order for itself and its members, so it is planned again
+   * carrying them (execute reloads them); a member (refused
+   * merged_into_adjustment) never gets here. Gate 13 (2026-10-17): a leader
+   * open filled in two pieces merged into one order whose signing failed on
+   * an empty budget; the lead was refused exchange_order_never_placed with
+   * 55 s of signal left, and the follower never held the position the flip
+   * then closed.
    */
   private async afterUnsent(row: DispatchRow, m: LiveMandateWork, signalAgeMs: number): Promise<void> {
     const previous = row.executionKey ? this.attemptOf(row, m, row.executionKey) : null;
     const fresh = row.leg !== 'open' || this.now() - row.leaderTime.getTime() <= signalAgeMs;
-    if (previous !== null && previous + 1 < MAX_LIVE_LEG_ATTEMPTS && row.adjustmentId === null && fresh) {
+    const ownOrder = row.adjustmentId === null || row.adjustmentId === row.id;
+    if (previous !== null && previous + 1 < MAX_LIVE_LEG_ATTEMPTS && ownOrder && fresh) {
       this.legRetryAt.delete(row.id);
       if (await this.deps.repository.update(row, { state: 'pending', reason: UNSENT_RETRY }))
         this.deps.log?.(`leg ${row.id}: attempt ${previous + 1} released as never sent; planning attempt ${previous + 2} of ${MAX_LIVE_LEG_ATTEMPTS}`);

@@ -27,7 +27,7 @@ describe('paper writes reject an actual parent even without the public service',
     await expect(db.transaction(tx => repository.insertReservation(tx, { orderId, strategyId: 9, userId, coin: 'BTC', notional: '100', margin: '10' }))).rejects.toThrow('paper_strategy_required');
     await expect(db.transaction(tx => repository.insertPaperFill(tx, { orderId, strategyId: 9, coin: 'BTC', side: 'B', size: '1', px: '100', basePx: '100', priceSource: 'mid', slippageBps: '0', fee: '0', builderFee: '0', realizedPnl: '0' }))).rejects.toThrow('paper_strategy_required');
     await expect(db.transaction(tx => repository.insertLedger(tx, [{ strategyId: 9, userId, kind: 'allocate', amount: '100' }]))).rejects.toThrow('paper_strategy_required');
-    await expect(db.transaction(tx => repository.claimLeg(tx, { strategyId: 9, tid: 1n, leg: 'open', strategyVersion: 1, coin: 'BTC', fillTime: new Date() }))).rejects.toThrow('paper_strategy_required');
+    await expect(db.transaction(tx => repository.claimLegs(tx, 9, 1, [{ tid: 1n, leg: 'open', coin: 'BTC', fillTime: new Date() }]))).rejects.toThrow('paper_strategy_required');
     expect(await db.select().from(copyReservations)).toHaveLength(0); expect(await db.select().from(copyPaperFills)).toHaveLength(0);
     expect(await db.select().from(copyLedger)).toHaveLength(0); expect(await db.select().from(copySignalLegs)).toHaveLength(0);
   });

@@ -55,6 +55,15 @@ const signedOpen = (r: { side: "B" | "A"; size: string; filled: string }): Dec =
  * stray paper child must never turn an actual account into paper exposure. */
 const paperStrategy = (id: SQLWrapper | number) => sql`exists (select 1 from ${copyStrategies} where ${copyStrategies.id} = ${id} and ${copyStrategies.mode} = 'paper')`;
 
+/** A leg's identity within its strategy, for set membership. */
+export const legKey = (l: { tid: bigint; leg: CopyLeg }): string => `${l.tid}:${l.leg}`;
+
+function byLegKind(legs: { tid: bigint; leg: CopyLeg }[]): Map<CopyLeg, bigint[]> {
+  const out = new Map<CopyLeg, bigint[]>();
+  for (const l of legs) out.set(l.leg, [...(out.get(l.leg) ?? []), l.tid]);
+  return out;
+}
+
 /**
  * Paper persistence plus shared controls/policy and the global strategy quota. No method opens
  * a transaction: services own UnitOfWork boundaries; `lock*` must run inside the caller's tx.
@@ -699,26 +708,40 @@ export class CopyRepository {
     return rows.map((r) => r.raw as unknown as HlUserFill);
   }
 
-  /** Records a leg once; false when this (strategy, tid, leg) was already seen. */
-  async claimLeg(tx: DbTransaction, v: { strategyId: number; tid: bigint; leg: CopyLeg; strategyVersion: number; coin: string; fillTime: Date }): Promise<boolean> {
-    const input = structuredClone(v);
-    await this.requirePaperStrategy(tx, input.strategyId);
-    const rows = await tx.insert(copySignalLegs).values({ ...input, dedupeKey: `${input.strategyId}:${input.tid}:${input.leg}:v${input.strategyVersion}`, outcome: "pending" })
-      .onConflictDoNothing().returning({ tid: copySignalLegs.tid });
-    return rows.length > 0;
+  /** The legs of `tids` this strategy has already recorded (an unlocked read for planning a
+   * pass; the locked {@link claimLegs} is the authority). */
+  async seenLegs(ex: DbExecutor, strategyId: number, tids: bigint[]): Promise<Set<string>> {
+    if (tids.length === 0) return new Set();
+    const rows = await ex.select({ tid: copySignalLegs.tid, leg: copySignalLegs.leg }).from(copySignalLegs)
+      .where(and(eq(copySignalLegs.strategyId, strategyId), inArray(copySignalLegs.tid, tids)));
+    return new Set(rows.map((r) => legKey(r)));
   }
 
+  /** Records each leg once, in one statement (the caller holds the owner's lock: every
+   * statement here is time under it). Returns the keys of the legs this call recorded; a
+   * (strategy, tid, leg) already seen is left out. */
+  async claimLegs(tx: DbTransaction, strategyId: number, strategyVersion: number, legs: { tid: bigint; leg: CopyLeg; coin: string; fillTime: Date }[]): Promise<Set<string>> {
+    if (legs.length === 0) return new Set();
+    await this.requirePaperStrategy(tx, strategyId);
+    const rows = await tx.insert(copySignalLegs).values(legs.map((l) => ({
+      strategyId, tid: l.tid, leg: l.leg, strategyVersion, coin: l.coin, fillTime: new Date(l.fillTime),
+      dedupeKey: `${strategyId}:${l.tid}:${l.leg}:v${strategyVersion}`, outcome: "pending",
+    }))).onConflictDoNothing().returning({ tid: copySignalLegs.tid, leg: copySignalLegs.leg });
+    return new Set(rows.map((r) => legKey(r)));
+  }
+
+  /** One statement per leg kind among `legs` (a group's legs share one). */
   async resolveLegs(tx: DbTransaction, strategyId: number, legs: { tid: bigint; leg: CopyLeg }[], outcome: string, orderId: bigint | null): Promise<void> {
-    for (const l of legs) {
-      await tx.update(copySignalLegs).set({ outcome, orderId }).where(and(paperStrategy(copySignalLegs.strategyId), eq(copySignalLegs.strategyId, strategyId), eq(copySignalLegs.tid, l.tid), eq(copySignalLegs.leg, l.leg)));
+    for (const [leg, tids] of byLegKind(legs)) {
+      await tx.update(copySignalLegs).set({ outcome, orderId }).where(and(paperStrategy(copySignalLegs.strategyId), eq(copySignalLegs.strategyId, strategyId), inArray(copySignalLegs.tid, tids), eq(copySignalLegs.leg, leg)));
     }
   }
 
   /** Un-claims undecided legs (market data missing) so the retry claims them again; only for
    * legs claimed in the same transaction. */
   async releaseLegs(tx: DbTransaction, strategyId: number, legs: { tid: bigint; leg: CopyLeg }[]): Promise<void> {
-    for (const l of legs) {
-      await tx.delete(copySignalLegs).where(and(paperStrategy(copySignalLegs.strategyId), eq(copySignalLegs.strategyId, strategyId), eq(copySignalLegs.tid, l.tid), eq(copySignalLegs.leg, l.leg), eq(copySignalLegs.outcome, "pending")));
+    for (const [leg, tids] of byLegKind(legs)) {
+      await tx.delete(copySignalLegs).where(and(paperStrategy(copySignalLegs.strategyId), eq(copySignalLegs.strategyId, strategyId), inArray(copySignalLegs.tid, tids), eq(copySignalLegs.leg, leg), eq(copySignalLegs.outcome, "pending")));
     }
   }
 

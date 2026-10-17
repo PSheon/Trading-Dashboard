@@ -209,7 +209,7 @@ export class WatcherService implements OnModuleDestroy {
     this.lastServedAt.set(address, Date.now());
     const trades = [...burst.values()];
     try {
-      await this.feedActions.process(address, trades, rank);
+      await this.feedActions.process(address, trades, rank, this.copied.has(address));
     } catch (error) {
       // The confirm below still stores the fills and makes their actions.
       this.logger.warn(`Fast path failed for ${address}: ${safeErrorText(error)}`);

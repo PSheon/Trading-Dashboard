@@ -6,7 +6,11 @@ import { Dec } from '../../common/decimal/dec.js';
 import type { DrizzleDb } from '../../db/drizzle.provider.js';
 import type { UnitOfWork } from '../../db/unit-of-work.js';
 import { HyperliquidGlobalTransport } from '../../hyperliquid/hyperliquid-global-transport.js';
+import { runAsDefaultRestOwner } from '../../hyperliquid/postgres-hyperliquid-quota.js';
 import { RequestBudgeterService } from '../../hyperliquid/request-budgeter.service.js';
+
+/** The owner of a close's charges outside a stop (a manual close, a reconcile): `live:close:`. */
+const CLOSE_OWNER = 'close';
 import { reserveLive } from '../../hyperliquid/hyperliquid-budget-wait.js';
 import { readInfoJson } from '../../hyperliquid/response-validation.js';
 import { roundPx, slippedPx } from '../copy-math.js';
@@ -91,7 +95,7 @@ export class ReduceOnlyCloser {
 
   /** A fresh all-venue observation of the account (positions and orders). */
   async observe(accountAddress: string): Promise<LiveAccountSnapshot> {
-    return this.prepaid(observerRestWeight(accountAddress, liveReadCache(this.network)), acquire => this.readObservation(accountAddress, acquire));
+    return runAsDefaultRestOwner(CLOSE_OWNER, () => this.prepaid(observerRestWeight(accountAddress, liveReadCache(this.network)), acquire => this.readObservation(accountAddress, acquire)));
   }
 
   private async readObservation(accountAddress: string, acquire: (weight: number) => Promise<void>): Promise<LiveAccountSnapshot> {
@@ -137,19 +141,27 @@ export class ReduceOnlyCloser {
 
   /** Reconciles an order of this account from the exchange (read only). */
   async reconcile(account: CloseAccount, key: string): Promise<LiveExecutionRecord> {
-    return this.executor(account, async () => false).executor.reconcile(key);
+    return runAsDefaultRestOwner(CLOSE_OWNER, () => this.executor(account, async () => false).executor.reconcile(key));
   }
 
   /** Finishes a close a stop took over: prepared ends unsent, in flight is reconciled (read only). */
   async settle(account: CloseAccount, key: string): Promise<LiveExecutionRecord | null> {
-    const { executor, journal } = this.executor(account, async () => false, 'stop');
-    const record = await journal.get(key);
-    if (record?.state === 'prepared') return this.neverSent(journal, key);
-    return record && ['submitting', 'unknown', 'resting'].includes(record.state) ? executor.reconcile(key) : record;
+    return runAsDefaultRestOwner('stop', async () => {
+      const { executor, journal } = this.executor(account, async () => false, 'stop');
+      const record = await journal.get(key);
+      if (record?.state === 'prepared') return this.neverSent(journal, key);
+      return record && ['submitting', 'unknown', 'resting'].includes(record.state) ? executor.reconcile(key) : record;
+    });
   }
 
-  /** Places (or reconciles) the reduce-only IOC for `request.coin`; null when there is no position. */
+  /** Places (or reconciles) the reduce-only IOC for `request.coin`; null when there is no position.
+   * Its charges on the shared meter are the stop's (`live:stop:`) or the close's (`live:close:`),
+   * unless the work it runs in (a stop's pass) has an owner already. */
   async close(request: CloseRequest): Promise<LiveExecutionRecord | null> {
+    return runAsDefaultRestOwner(request.seed.startsWith('stop:') ? 'stop' : CLOSE_OWNER, () => this.place(request));
+  }
+
+  private async place(request: CloseRequest): Promise<LiveExecutionRecord | null> {
     const { account } = request, cloid = closeCloid(request.seed), key = `${this.network}:${address(account.accountAddress)}:${cloid}`;
     // Only a stop's close may use a grant whose revocation was requested.
     const purpose = request.seed.startsWith('stop:') ? 'stop' : undefined;

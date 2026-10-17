@@ -56,7 +56,7 @@ describe('copy setups and a cold live order at the same time, beside a full back
       const send = async () => {
         const bound = transport.currentQuota();
         for (const weight of ORDER) {
-          try { (await bound.acquireRest(weight, Date.now() + 5000)).dispatch(() => undefined); } catch (error) { order.refused.push(error); }
+          try { (await bound.acquireRest(weight, Date.now() + 5000, undefined, { owner: 'order' })).dispatch(() => undefined); } catch (error) { order.refused.push(error); }
           await sleep(1_000);
         }
       };

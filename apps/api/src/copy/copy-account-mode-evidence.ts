@@ -11,6 +11,7 @@ import { address, LiveBoundaryError } from './live/wallet-authorization.js';
 import { accountModeDigest } from './copy-account-mode.repository.js';
 import type { AccountModeAbsenceOptions, AccountModeAbsenceProof, AccountModeAbsenceReader, AccountModeAbsenceTurn } from './copy-account-mode.service.js';
 import type { HyperliquidGlobalTransport } from '../hyperliquid/hyperliquid-global-transport.js';
+import { SETUP_OWNER } from '../hyperliquid/hyperliquid-global-quota.js';
 import { HyperliquidBudgetWait, sharedCapacityWait, type LiveBudget, type LiveReserveOptions } from '../hyperliquid/hyperliquid-budget-wait.js';
 import { LIVE_RESERVE_WAIT_MS } from '../config/constants/hyperliquid.js';
 import { SOURCE_SPACING_MS } from '../config/constants/timings.js';
@@ -108,7 +109,7 @@ export class HyperliquidAccountModeAbsenceReader implements AccountModeAbsenceRe
         return value;
       };
       const send = (bodies: readonly Record<string, unknown>[], meterWaitMs: number, bound: () => AbortSignal) => this.global
-        ? this.global.fetchInfoBatch(WALLET_NETWORKS[this.network].infoUrl, bodies, { maxWaitMs: meterWaitMs, signal, onDispatch: bound })
+        ? this.global.runDefaultOwner(SETUP_OWNER, () => this.global!.fetchInfoBatch(WALLET_NETWORKS[this.network].infoUrl, bodies, { maxWaitMs: meterWaitMs, signal, onDispatch: bound }))
         : (() => { signal?.throwIfAborted(); const timeout = bound(); return Promise.all(bodies.map(body => this.fetcher(WALLET_NETWORKS[this.network].infoUrl, { method: 'POST',
           headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), redirect: 'error', signal: signal ? AbortSignal.any([signal, timeout]) : timeout }))); })();
       const answers = async (responses: Response[]) => Promise.all(responses.map(async response => {

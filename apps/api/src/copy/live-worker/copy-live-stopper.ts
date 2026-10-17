@@ -5,6 +5,7 @@ import { Dec } from '../../common/decimal/dec.js';
 import { AppConfig } from '../../config/app-config.js';
 import type { DrizzleDb } from '../../db/drizzle.provider.js';
 import { HyperliquidGlobalTransport } from '../../hyperliquid/hyperliquid-global-transport.js';
+import { runAsRestOwner } from '../../hyperliquid/postgres-hyperliquid-quota.js';
 import { RequestBudgeterService } from '../../hyperliquid/request-budgeter.service.js';
 import { reserveLive } from '../../hyperliquid/hyperliquid-budget-wait.js';
 import { errorLogFields } from '../../runtime/safe-error-text.js';
@@ -21,7 +22,7 @@ import { findCurrentWalletAuthorization } from '../live/postgres-wallet-authoriz
 import { PrivyTrackedCancellationSigner } from '../live/privy-cancellation-signer.js';
 import { BoundaryPrivyOrderSigningClient } from '../live/privy-order-client.js';
 import { address, LiveBoundaryError } from '../live/wallet-authorization.js';
-import { classify, liveRetryDelayMs } from '../live/error-class.js';
+import { classify, LIVE_CHARGE_UNOWNED, liveRetryDelayMs, unownedLiveChargeAlert } from '../live/error-class.js';
 import { DEFAULT_LIVE_STOP_TIMINGS, type LiveStopTimings } from '../../config/live-timings.js';
 import type { CopyLiveStopWorkerRepository, StopRow } from './copy-live-stop-worker.repository.js';
 import { CLOSE_NEVER_SENT, closeCloid, closeRetryDelayMs, type CloseAccount, type ReduceOnlyCloser } from './reduce-only-closer.js';
@@ -82,7 +83,10 @@ export class CopyLiveStopper {
   private readonly retryAt = new Map<string, number>();
   constructor(private readonly deps: StopperDependencies, private readonly now: () => number = Date.now) {}
 
-  async tick(): Promise<void> {
+  /** A pass's charges on the shared meter are the stop's (`live:stop:`). */
+  tick(): Promise<void> { return runAsRestOwner('stop', () => this.pass()); }
+
+  private async pass(): Promise<void> {
     // System stops (every systemCheckMs): finish unstarted admin close-alls, and
     // stop copies whose agent expires within the margin while it can still sign.
     const system = this.deps.systemStops;
@@ -116,6 +120,7 @@ export class CopyLiveStopper {
       catch (error) {
         this.retryAt.set(stop.id, this.now() + liveRetryDelayMs(error));
         this.deps.log?.(`stop ${stop.id} kept for the next pass: ${why(error)}`); await this.deps.repository.issue(stop, reason(error));
+        if (reason(error) === LIVE_CHARGE_UNOWNED) this.deps.log?.(unownedLiveChargeAlert('stop', { stopId: stop.id, stage: stop.state }));
       }
     }
   }
@@ -310,7 +315,10 @@ export class CopyLiveManualCloser {
   private readonly carryRetryAt = new Map<string, number>();
   /** A failed close is not stepped again before this time (liveRetryDelayMs). */
   private readonly retryAt = new Map<string, number>();
-  async tick(): Promise<void> {
+  /** A pass's charges on the shared meter are the close's (`live:close:`). */
+  tick(): Promise<void> { return runAsRestOwner('close', () => this.pass()); }
+
+  private async pass(): Promise<void> {
     const rows = await this.repository.manualCloses();
     for (const id of this.carryRetryAt.keys()) if (!rows.some(row => row.id === id)) this.carryRetryAt.delete(id);
     for (const id of this.retryAt.keys()) if (!rows.some(row => row.id === id)) this.retryAt.delete(id);
@@ -320,6 +328,7 @@ export class CopyLiveManualCloser {
       catch (error) {
         this.retryAt.set(row.id, this.now() + liveRetryDelayMs(error));
         this.log?.(`close ${row.id} kept for the next pass: ${why(error)}`);
+        if (reason(error) === LIVE_CHARGE_UNOWNED) this.log?.(unownedLiveChargeAlert('manual_close', { closeId: row.id, stage: 'close' }));
       }
     }
   }

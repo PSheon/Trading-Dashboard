@@ -1,7 +1,7 @@
 import { BadGatewayException, ConflictException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import { assertSetupTimings, DEFAULT_LIVE_SETUP_TIMINGS, setupStepBudgetMs } from '../src/config/live-timings.js';
-import { backoffMs, classify, decideRetry, exhausted, FUNDING_RETRY_POLICY, IDENTITY_UNVERIFIED_ISSUE, LIVE_LEG_RETRY_POLICY, liveRetryDelayMs, PRIVY_IDENTITY_EVIDENCE_CODES, StepFail, StepWait } from '../src/copy/live/error-class.js';
+import { backoffMs, classify, decideRetry, exhausted, FUNDING_RETRY_POLICY, IDENTITY_UNVERIFIED_ISSUE, LIVE_CHARGE_UNOWNED, LIVE_LEG_RETRY_POLICY, liveRetryDelayMs, PRIVY_IDENTITY_EVIDENCE_CODES, SETTLEMENT_RETRY_POLICY, StepFail, StepWait, unownedLiveChargeAlert } from '../src/copy/live/error-class.js';
 import { describeUnexpected, errorCode } from '../src/runtime/safe-error-text.js';
 import { AbstractWalletError } from '@nktkas/hyperliquid/signing';
 import { fundingBackoffMs } from '../src/copy/copy-funding-scan.js';
@@ -212,5 +212,21 @@ describe('gate 12 (2026-10-17): a boundary code thrown inside a wrapper is that 
     expect(classify(wrapped(new TypeError('fetch failed')))).toEqual({ class: 'transient', code: null, source: 'unknown', exhausts: true });
     expect(errorCode(wrapped(new TypeError('fetch failed')))).toBe('live_execution_failed');
     expect(describeUnexpected(wrapped(new TypeError('fetch failed')))).toMatch(/^AbstractWalletError/);
+  });
+});
+
+describe('H-R11: a live charge of the shared meter nobody owned is a code defect, never a retry', () => {
+  it('hyperliquid_quota_live_unowned is needs_owner: a leg, a settlement and a stop take the owner path, no attempt is retried', () => {
+    const error = new LiveBoundaryError(LIVE_CHARGE_UNOWNED);
+    expect(classify(error)).toEqual({ class: 'needs_owner', code: 'hyperliquid_quota_live_unowned', source: 'boundary' });
+    expect(exhausted(classify(error), 1_000, 1)).toBe(false);
+    for (const policy of [LIVE_LEG_RETRY_POLICY, SETTLEMENT_RETRY_POLICY, FUNDING_RETRY_POLICY])
+      expect(decideRetry(error, 3, policy)).toMatchObject({ kind: 'owner', delayMs: policy.needsOwnerMs, attempts: 3, exhausted: false });
+    // Through the account observer's wrapper too.
+    expect(decideRetry(unavailable(error), 0, LIVE_LEG_RETRY_POLICY)).toMatchObject({ kind: 'owner' });
+  });
+  it('its ALERT names the site and the diagnostic stage, never the error', () => {
+    expect(unownedLiveChargeAlert('copy_leg', { legId: 'l1', leg: 'open', attempt: 1, stage: 'evidence' }))
+      .toBe('ALERT live_charge_unowned {"site":"copy_leg","legId":"l1","leg":"open","attempt":1,"stage":"evidence"}');
   });
 });

@@ -18,7 +18,7 @@ import type { FastMainnetSource } from './fast-mainnet-source.js';
 import { minOrderNotional } from '../min-order-notional.js';
 import { Dec } from '../../common/decimal/dec.js';
 import { HyperliquidBudgetWait } from '../../hyperliquid/hyperliquid-budget-wait.js';
-import { classify, liveRetryDelayMs } from '../live/error-class.js';
+import { classify, LIVE_CHARGE_UNOWNED, liveRetryDelayMs, unownedLiveChargeAlert } from '../live/error-class.js';
 import { budgetConsumer } from '../../hyperliquid/request-budgeter.service.js';
 import { LiveReadComparisonError } from '../live/live-shared-reads.js';
 import { LiveRiskBusyError, liveRiskBusyDetail } from '../live/postgres-live-risk-scope.js';
@@ -473,6 +473,7 @@ export class CopyLiveEngine {
       try { outcome = await this.deps.settler.settle(request); }
       catch (error) {
         const verdict = this.settlementRetries.failed(key, error);
+        if (classify(error).code === LIVE_CHARGE_UNOWNED) this.deps.alert?.(unownedLiveChargeAlert('settlement', { key, accountId: row.accountId, stage: 'settle' }));
         if (verdict.kind !== 'needs_owner' || !this.deps.settler.quarantine) throw error;
         outcome = await this.settlementToOwner(request, verdict);
       }
@@ -623,6 +624,8 @@ export class CopyLiveEngine {
         (error instanceof LiveReadComparisonError ? `, changed reads ${error.changedReads.join(',')}` : '') +
         (error instanceof LiveRiskBusyError ? `, held by ${liveRiskBusyDetail(error)}` : ''));
       if (error instanceof HyperliquidBudgetWait) this.deps.log?.(`leg ${row.id} budget unavailable: ${error.reason}, retry ${error.retryMs} ms`);
+      // A live charge nobody owned: a code defect at this site, never a retry (error-class.ts).
+      if (reason === LIVE_CHARGE_UNOWNED) this.deps.alert?.(unownedLiveChargeAlert('copy_leg', { legId: row.id, leg: row.leg, attempt: row.attempts + 1, stage: timing.sentAt !== undefined ? 'exchange' : 'evidence' }));
       // Stored as live_execution_failed; log what it really was.
       const unexpected = describeUnexpected(error);
       if (unexpected) this.deps.log?.(`leg ${row.id} failed unexpectedly: ${unexpected}`);

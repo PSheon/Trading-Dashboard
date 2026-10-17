@@ -85,8 +85,8 @@ describe('terminal settlement beside saturated background and page lanes on the 
       // The scan: its two list reads, as the follower receipt reader sends them.
       let scanned: number | undefined;
       const scanner = { runFor: async () => {
-        for (let i = 0; i < 2; i++) await transport.fetchInfo(INFO, { method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ type: 'userFillsByTime', user: ACCOUNT, startTime: now - 120_000, endTime: now }) });
+        for (let i = 0; i < 2; i++) await transport.runOwned('settle', () => transport.fetchInfo(INFO, { method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ type: 'userFillsByTime', user: ACCOUNT, startTime: now - 120_000, endTime: now }) }));
         scanned = Date.now();
       } };
       // Stops at the evidence prepayment (the local bucket): the meter is what this test is about.
@@ -152,8 +152,8 @@ describe('terminal settlement beside saturated background and page lanes on the 
       expect(token).toBeDefined();
       expect(Date.now() - started).toBeLessThan(2_500);
       expect(pages).toBe(0);
-      await transport.runLive(token!, () => transport.fetchInfo(INFO, { method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ type: 'userFillsByTime', user: ACCOUNT, startTime: now - 120_000, endTime: now }) }));
+      await transport.runOwned('settle', () => transport.runLive(token!, () => transport.fetchInfo(INFO, { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ type: 'userFillsByTime', user: ACCOUNT, startTime: now - 120_000, endTime: now }) })));
       expect(raw).toHaveBeenCalledTimes(1);
     } finally {
       await pool.end();

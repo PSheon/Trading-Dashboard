@@ -2,9 +2,14 @@ import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 
 import { outsideRequest } from "../runtime/request-context.js";
 import { HyperliquidInfoClient } from "./hyperliquid-info.client.js";
+import { budgetConsumer } from "./request-budgeter.service.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
 import { MARKET_CATALOG_TTL_MS } from '../config/constants/cache-ttls.js';
 import { MARKET_CATALOG_RETRY_MS, MARKET_CATALOG_WAIT_MS } from '../config/constants/hyperliquid.js';
+
+/** The catalog's budget consumer: essential (HyperliquidInfoClient waits for
+ * room in the shared background lane for it instead of failing at once). */
+export const CATALOG_CONSUMER = "catalog";
 
 
 /**
@@ -73,11 +78,11 @@ export class MarketCatalogService implements OnModuleInit {
     if (this.trendingList && now - this.trendingList.at < 5 * 60_000) return this.trendingList.coins;
     if (!this.trendingLoading && now - this.trendingAttemptedAt >= MARKET_CATALOG_RETRY_MS) {
       this.trendingAttemptedAt = now;
-      this.trendingLoading = outsideRequest(async () => {
-        const dexes = await this.info.perpDexs("live");
+      this.trendingLoading = outsideRequest(() => budgetConsumer(CATALOG_CONSUMER, async () => {
+        const dexes = await this.info.perpDexs("background");
         const volumes = new Map<string, number>();
         for (const dex of dexes) {
-          const [meta, contexts] = await this.info.metaAndAssetCtxs("live", undefined, dex?.name || undefined);
+          const [meta, contexts] = await this.info.metaAndAssetCtxs("background", undefined, dex?.name || undefined);
           meta.universe.forEach((asset, index) => {
             const volume = Number(contexts[index]?.dayNtlVlm);
             if (!asset.isDelisted && Number.isFinite(volume) && volume > 0) volumes.set(asset.name, volume);
@@ -87,7 +92,7 @@ export class MarketCatalogService implements OnModuleInit {
         const coins = [...volumes].sort(([a, av], [b, bv]) => bv - av || a.localeCompare(b)).map(([coin]) => coin);
         this.trendingList = { coins, volumes, at: this.now() };
         return coins;
-      }).catch((error: unknown) => {
+      })).catch((error: unknown) => {
         this.logger.warn(`Trending market read failed: ${safeErrorText(error)}`);
         return [];
       }).finally(() => { this.trendingLoading = null; });
@@ -124,12 +129,17 @@ export class MarketCatalogService implements OnModuleInit {
   }
 
   private async read(): Promise<Set<string>> {
-    // The live lane: a dozen small calls an hour, and behind the background
-    // queue they did not finish for minutes after a start.
-    const dexes = await this.info.perpDexs("live");
+    // A dozen small calls an hour that serve display and the feed's rules, not
+    // an order: an essential background consumer on the shared meter (it waits
+    // for room instead of failing at once), never the live lane (H-R11).
+    return budgetConsumer(CATALOG_CONSUMER, () => this.readCatalog());
+  }
+
+  private async readCatalog(): Promise<Set<string>> {
+    const dexes = await this.info.perpDexs("background");
     const coins = new Set<string>();
     for (const dex of dexes) {
-      const meta = await this.info.meta(dex?.name || undefined, "live");
+      const meta = await this.info.meta(dex?.name || undefined, "background");
       for (const asset of meta.universe) coins.add(asset.name);
       for (const [name] of dex?.assetToStreamingOiCap ?? []) coins.add(name);
     }

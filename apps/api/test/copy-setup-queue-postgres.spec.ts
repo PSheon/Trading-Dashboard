@@ -153,7 +153,7 @@ const scenario = (variant: Scenario) => async () => {
       })());
       // The testnet leader source: fills and TWAP slices, 120 each prepaid, every 60 s.
       every(60_000, 2_000, () => timed('source', async () => {
-        for (const type of ['userFillsByTime', 'userTwapSliceFillsByTime']) await settled(workerSide.fetchInfo(INFO, post(type, { startTime: 0 })));
+        for (const type of ['userFillsByTime', 'userTwapSliceFillsByTime']) await settled(workerSide.runOwned('testnet-source', () => workerSide.fetchInfo(INFO, post(type, { startTime: 0 }))));
       }));
       // The follower monitor: one account's fills and funding receipts every 60 s.
       every(60_000, 20_000, () => timed('receipts', async () => {
@@ -183,7 +183,7 @@ const scenario = (variant: Scenario) => async () => {
           await workerSide.fetchInfoBatch(INFO, [{ type: 'userRole', user: USER }, { type: 'extraAgents', user: USER }, { type: 'clearinghouseState', user: USER }], { maxWaitMs: 0 });
           (await workerSide.currentQuota().acquireRest(1, Date.now() + 5000, 'live')).dispatch(() => undefined);
         };
-        await (token ? workerSide.runLive(token, run) : run());
+        await workerSide.runOwned('settle', () => token ? workerSide.runLive(token, run) : run());
       }));
 
       // The worker's testnet order bucket (wallet-network-hyperliquid: rate

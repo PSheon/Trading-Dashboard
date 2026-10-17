@@ -181,8 +181,8 @@ export function worker(meter: Meter | PostgresHyperliquidQuota, testnet: Testnet
       await sleep(300);
       await authority.sign({ walletId: 'master-wallet', address: accountAddress, ownerQuorumId: 'owner-quorum' }, db.rows.agentIntent, () => undefined);
       await live(81);
-      const post = await transport.currentQuota().acquireRest(1, Date.now() + 5000); post.dispatch(() => undefined); await sleep(150);
-      await transport.fetchInfoBatch('https://api.hyperliquid-testnet.xyz/info', [{ type: 'userRole', user: accountAddress }, { type: 'extraAgents', user: accountAddress }], { maxWaitMs: 8_000 });
+      const post = await transport.currentQuota().acquireRest(1, Date.now() + 5000, undefined, { owner: 'agent' }); post.dispatch(() => undefined); await sleep(150);
+      await transport.runOwned('agent', () => transport.fetchInfoBatch('https://api.hyperliquid-testnet.xyz/info', [{ type: 'userRole', user: accountAddress }, { type: 'extraAgents', user: accountAddress }], { maxWaitMs: 8_000 }));
       db.rows.agentActive = true; return { state: 'active' };
     },
   };

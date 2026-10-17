@@ -184,7 +184,7 @@ describe('a live copy\'s first order right after its setup reached running, besi
       const runningAt = Date.now();
       const standbyLive = (workerSide as unknown as { standbyLive?: (weight: number) => Promise<void> }).standbyLive;
       if (standbyLive) every(10_000, 0, () => standbyLive.call(workerSide, ORDER_WEIGHT + 21));
-      const source = new HyperliquidLiveSourceClient('testnet', weight => liveBudget(orders, { maxWaitMs: 5_000 })(weight), workerSide.fetchInfo, Date.now,
+      const source = new HyperliquidLiveSourceClient('testnet', weight => liveBudget(orders, { maxWaitMs: 5_000 })(weight), workerSide.fetchInfoOwned('testnet-source'), Date.now,
         weight => { if (weight > 0) orders.adjust(-weight); });
       // The leader opens BTC FILL_AFTER_RUNNING_MS after the setup is running (the gate: ~74 s).
       const fillAt = runningAt + FILL_AFTER_RUNNING_MS, deadline = fillAt + SIGNAL_AGE_MS;
@@ -227,7 +227,7 @@ describe('a live copy\'s first order right after its setup reached running, besi
             (await quota.acquireRest(ORDER_WEIGHT - 1, Date.now() + 5000, 'live')).dispatch(() => undefined);
             (await workerSide.acquireExchange(Date.now() + 5000)).dispatch(() => { order.sentAt = Date.now(); });
           };
-          await (token ? workerSide.runLive(token, run) : run());
+          await workerSide.runOwned('order', () => token ? workerSide.runLive(token, run) : run());
         } catch (error) {
           const reason = errorCode(error) ?? 'unknown';
           order.attempts.push({ reason, elapsedMs: Date.now() - attemptAt });

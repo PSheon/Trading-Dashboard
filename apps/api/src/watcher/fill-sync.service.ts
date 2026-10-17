@@ -4,6 +4,7 @@ import { EventEmitter2 } from "@nestjs/event-emitter";
 import { AppConfig } from "../config/app-config.js";
 import { UnitOfWork, type DbTransaction } from "../db/unit-of-work.js";
 import { HyperliquidInfoClient, twapSliceToFill } from "../hyperliquid/hyperliquid-info.client.js";
+import { runInLeaderSourceLane } from "../hyperliquid/postgres-hyperliquid-quota.js";
 import type { RequestPriority } from "../hyperliquid/request-budgeter.service.js";
 import type { HlUserFill } from "../hyperliquid/types.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
@@ -82,6 +83,14 @@ async function readPages(
  * - `backfill`: A5, full history of a newly added address.
  */
 type SyncReason = "confirm" | "live" | "sweep" | "reconcile" | "backfill";
+
+/** One sync chain's budget lane: the local priority and rank, and `run`, the
+ * shared-meter context its reads run in (a copied leader's source lane). */
+interface SyncLane {
+  priority: RequestPriority;
+  rank: number | undefined;
+  run: <T>(work: () => Promise<T>) => Promise<T>;
+}
 
 /** How often the fast path's actions matched their real fills. */
 export interface FastPathStats {
@@ -163,15 +172,22 @@ export class FillSyncService {
   }
 
   /**
-   * The budget lane and rank of one read in an address's sync chain. A copied
-   * leader's fills are copy signals (stale after maxSignalAgeSeconds), so every
-   * non-backfill read in its chain goes live, ranked by arrival after the
-   * fast path (2026-10-01: background-lane fills stored 157 s late).
+   * The budget lane and rank of one read in an address's sync chain, and
+   * `run`, which the chain's reads run in. A copied leader's fills are copy
+   * signals (stale after maxSignalAgeSeconds), so every non-backfill read in
+   * its chain goes live on the local budget, ranked by arrival after the
+   * fast path (2026-10-01: background-lane fills stored 157 s late). On the
+   * shared meter they are the leader's `source:` charges (runInSourceLane,
+   * as the fast source's kicks): they serve copying, not an order, so they
+   * yield to orders and never fill the live lane (H-R11: Stage's live lane
+   * held 313 p50 units of these reads, 21 a list, with no order in flight).
+   * One copied leader costs that lane COPIED_LEADER_WATCH_WEIGHT a minute.
    */
-  private async lane(address: string, reason: SyncReason, rank?: number): Promise<{ priority: RequestPriority; rank: number | undefined }> {
-    if (reason === "live") return { priority: "live", rank };
-    if (reason !== "backfill" && (await this.repository.isCopied(address))) return { priority: "live", rank: Date.now() };
-    return { priority: "background", rank };
+  private async lane(address: string, reason: SyncReason, rank?: number): Promise<SyncLane> {
+    const source = <T>(work: () => Promise<T>) => runInLeaderSourceLane(address, work);
+    if (reason === "live") return { priority: "live", rank, run: source };
+    if (reason !== "backfill" && (await this.repository.isCopied(address))) return { priority: "live", rank: Date.now(), run: source };
+    return { priority: "background", rank, run: (work) => work() };
   }
 
   private chained<T>(address: string, work: () => Promise<T>): Promise<T> {
@@ -243,35 +259,37 @@ export class FillSyncService {
   catchUp(address: string, callerRank?: number): Promise<CatchUpResult> {
     if (this.jobs.stopping) return Promise.reject(new Error("Shutting down"));
     return this.chained(address, async () => {
-      const { priority, rank } = await this.lane(address, "sweep", callerRank);
-      const state = await this.repository.coverage(address);
-      const requestedAt = Date.now();
-      const start = state?.verifiedThrough?.getTime() ?? requestedAt - INITIAL_LOOKBACK_MS;
-      let regular: RangeRead;
-      let twap: RangeRead;
-      try {
-        regular = await this.readRange(address, false, start, undefined, MAX_PAGES, rank, priority, true);
-        twap = await this.readRange(address, true, start, undefined, MAX_PAGES, rank, priority, true);
-      } catch (error) {
-        await this.failed(address);
-        throw error;
-      }
-      const dense = [...regular.dense, ...twap.dense];
-      if (dense.length > 0) {
-        // Fills past that millisecond's first page are not stored; the
-        // continuity check records any break they leave as unexplained.
-        this.logger.warn(`${address}: ${dense.length} millisecond(s) hold more than ${PAGE_SIZE} fills (${dense.map((t) => new Date(t).toISOString()).join(", ")}); the cursor moved past them`);
-      }
-      if (twap.fills.length > 0) this.twapSeenAt.set(address, Date.now());
-      const stored = await this.ingest(address, "sweep", [...regular.fills, ...twap.fills], rank);
-      const horizon = requestedAt - INDEX_LAG_MS;
-      const through = Math.min(regular.complete ? horizon : regular.through, twap.complete ? horizon : twap.through);
-      if (through > start) {
-        await this.repository.extend(address, true, start, through, requestedAt - BACKFILL_LOOKBACK_MS);
-        if (dense.length > 0) await this.repository.patchCoverage(address, { lastError: "dense_millisecond" }).catch(() => undefined);
-        await this.checkContinuity(address, false, rank, priority).catch((error: Error) => this.logger.warn(`Continuity check for ${address} failed: ${safeErrorText(error)}`));
-      }
-      return { ...stored, complete: regular.complete && twap.complete, through: Math.max(through, start) };
+      const { priority, rank, run } = await this.lane(address, "sweep", callerRank);
+      return run(async () => {
+        const state = await this.repository.coverage(address);
+        const requestedAt = Date.now();
+        const start = state?.verifiedThrough?.getTime() ?? requestedAt - INITIAL_LOOKBACK_MS;
+        let regular: RangeRead;
+        let twap: RangeRead;
+        try {
+          regular = await this.readRange(address, false, start, undefined, MAX_PAGES, rank, priority, true);
+          twap = await this.readRange(address, true, start, undefined, MAX_PAGES, rank, priority, true);
+        } catch (error) {
+          await this.failed(address);
+          throw error;
+        }
+        const dense = [...regular.dense, ...twap.dense];
+        if (dense.length > 0) {
+          // Fills past that millisecond's first page are not stored; the
+          // continuity check records any break they leave as unexplained.
+          this.logger.warn(`${address}: ${dense.length} millisecond(s) hold more than ${PAGE_SIZE} fills (${dense.map((t) => new Date(t).toISOString()).join(", ")}); the cursor moved past them`);
+        }
+        if (twap.fills.length > 0) this.twapSeenAt.set(address, Date.now());
+        const stored = await this.ingest(address, "sweep", [...regular.fills, ...twap.fills], rank);
+        const horizon = requestedAt - INDEX_LAG_MS;
+        const through = Math.min(regular.complete ? horizon : regular.through, twap.complete ? horizon : twap.through);
+        if (through > start) {
+          await this.repository.extend(address, true, start, through, requestedAt - BACKFILL_LOOKBACK_MS);
+          if (dense.length > 0) await this.repository.patchCoverage(address, { lastError: "dense_millisecond" }).catch(() => undefined);
+          await this.checkContinuity(address, false, rank, priority).catch((error: Error) => this.logger.warn(`Continuity check for ${address} failed: ${safeErrorText(error)}`));
+        }
+        return { ...stored, complete: regular.complete && twap.complete, through: Math.max(through, start) };
+      });
     });
   }
 
@@ -444,56 +462,58 @@ export class FillSyncService {
     expectTids: Iterable<bigint>,
     callerRank?: number,
   ): Promise<SyncResult> {
-    const { priority, rank } = await this.lane(address, reason, callerRank);
-    const expected = [...expectTids];
-    const fetchedTids = new Set<bigint>();
-    let latestFillTime: number | null = null;
-    const newFills: HlUserFill[] = [];
-    const candidates = new Map<bigint, HlUserFill>();
-    let fetched = 0;
-    const take = async (batch: HlUserFill[]) => {
-      fetched += batch.length;
-      for (const f of batch) {
-        fetchedTids.add(BigInt(f.tid));
-        if (latestFillTime === null || f.time > latestFillTime) latestFillTime = f.time;
-        if (!isOutOfScopeSpotFill(f)) candidates.set(BigInt(f.tid), f);
+    const { priority, rank, run } = await this.lane(address, reason, callerRank);
+    return run(async () => {
+      const expected = [...expectTids];
+      const fetchedTids = new Set<bigint>();
+      let latestFillTime: number | null = null;
+      const newFills: HlUserFill[] = [];
+      const candidates = new Map<bigint, HlUserFill>();
+      let fetched = 0;
+      const take = async (batch: HlUserFill[]) => {
+        fetched += batch.length;
+        for (const f of batch) {
+          fetchedTids.add(BigInt(f.tid));
+          if (latestFillTime === null || f.time > latestFillTime) latestFillTime = f.time;
+          if (!isOutOfScopeSpotFill(f)) candidates.set(BigInt(f.tid), f);
+        }
+        newFills.push(...(await this.store(address, batch)));
+      };
+  
+      await readPages(startTime, (start) => this.info.userFillsByTime(address, start, undefined, priority, rank), take);
+  
+      // TWAP slice fills are only in their own endpoint. Read it when the
+      // feed saw trades userFillsByTime didn't return, and on the paths that
+      // must be complete without the feed's help.
+      let missingTids = expected.filter((tid) => !fetchedTids.has(tid));
+      if (missingTids.length > 0 || (await this.wantsTwapSlices(address, reason).catch(() => true))) {
+        let slices = 0;
+        try {
+          await readPages(
+            startTime,
+            async (start) =>
+              (await this.info.userTwapSliceFillsByTime(address, start, undefined, priority, rank)).map(twapSliceToFill),
+            async (batch) => {
+              slices += batch.length;
+              await take(batch);
+            },
+          );
+        } catch (error) {
+          // Fills stored so far still become actions below; the caller's retry
+          // looks for what is missing.
+          this.logger.warn(`TWAP slice fills for ${address} failed: ${safeErrorText(error)}`);
+        }
+        if (slices > 0) this.twapSeenAt.set(address, Date.now());
+        missingTids = expected.filter((tid) => !fetchedTids.has(tid));
       }
-      newFills.push(...(await this.store(address, batch)));
-    };
-
-    await readPages(startTime, (start) => this.info.userFillsByTime(address, start, undefined, priority, rank), take);
-
-    // TWAP slice fills are only in their own endpoint. Read it when the
-    // feed saw trades userFillsByTime didn't return, and on the paths that
-    // must be complete without the feed's help.
-    let missingTids = expected.filter((tid) => !fetchedTids.has(tid));
-    if (missingTids.length > 0 || (await this.wantsTwapSlices(address, reason).catch(() => true))) {
-      let slices = 0;
-      try {
-        await readPages(
-          startTime,
-          async (start) =>
-            (await this.info.userTwapSliceFillsByTime(address, start, undefined, priority, rank)).map(twapSliceToFill),
-          async (batch) => {
-            slices += batch.length;
-            await take(batch);
-          },
-        );
-      } catch (error) {
-        // Fills stored so far still become actions below; the caller's retry
-        // looks for what is missing.
-        this.logger.warn(`TWAP slice fills for ${address} failed: ${safeErrorText(error)}`);
-      }
-      if (slices > 0) this.twapSeenAt.set(address, Date.now());
-      missingTids = expected.filter((tid) => !fetchedTids.has(tid));
-    }
-
-    // Revisit returned fills even when they were already stored: a previous
-    // sync may have failed after storing a page but before deriving actions.
-    // The action lock and coverage check make replay idempotent.
-    const candidateFills = [...candidates.values()];
-    const created = candidateFills.length > 0 ? await this.createActions(address, reason, candidateFills, new Set(newFills.map((f) => BigInt(f.tid))), rank) : 0;
-    return { fetched, inserted: newFills.length, actions: created, missingTids, latestFillTime };
+  
+      // Revisit returned fills even when they were already stored: a previous
+      // sync may have failed after storing a page but before deriving actions.
+      // The action lock and coverage check make replay idempotent.
+      const candidateFills = [...candidates.values()];
+      const created = candidateFills.length > 0 ? await this.createActions(address, reason, candidateFills, new Set(newFills.map((f) => BigInt(f.tid))), rank) : 0;
+      return { fetched, inserted: newFills.length, actions: created, missingTids, latestFillTime };
+    });
   }
 
   /**

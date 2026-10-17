@@ -216,11 +216,19 @@ export const LIVE_LANE_TOKEN=/^[0-9a-f]{16}$/;
  * `source:<leader>:<id>`): the meter's composition tells kicks, settlement
  * passes, orders and explorer reads apart (hyperliquidMeterComposition). A
  * short name or a leader's hash, never a wallet address; never 16 hex, so
- * it is never read as a token (LIVE_LANE_TOKEN). A process on the previous
- * release reads the ticket as before: by its lane prefix and its token. */
+ * it is never read as a token (LIVE_LANE_TOKEN). Every live charge names
+ * one (the quota refuses a live charge without: `hyperliquid_quota_live_unowned`,
+ * PostgresHyperliquidQuota.acquireRest); a ticket from the release before
+ * may still lack it, and is read as `untagged` in the composition. A
+ * process on the previous release reads the ticket as before: by its lane
+ * prefix and its token. */
 export const REST_OWNER=/^[a-z][a-z0-9-]{1,15}$/;
+/** The owner of a copy setup's live charges outside its setup lane (the
+ * api's account-mode step, its absence and abort evidence): `live:setup:`. */
+export const SETUP_OWNER='setup';
 export function isRestOwner(value:unknown):value is string{return typeof value==='string'&&REST_OWNER.test(value)&&!LIVE_LANE_TOKEN.test(value);}
-const LIVE_OWNER_CHARGE=/^live:(?:[0-9a-f]{16}:)?([a-z][a-z0-9-]{1,15}):/;
+// The owner is never a token (16 hex): `live:<token>:<id>` names none.
+const LIVE_OWNER_CHARGE=/^live:(?:[0-9a-f]{16}:)?(?![0-9a-f]{16}:)([a-z][a-z0-9-]{1,15}):/;
 /** The fast leader source's charges (`source:<leader>:<id>`; the leader is
  * its address's hash, 8 hex: sourceLaneOwner). A process on the previous
  * release reads them as unlabelled charges: counted in every lane's window,

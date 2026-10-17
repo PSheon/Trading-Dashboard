@@ -137,18 +137,22 @@ const LOG = [
   line("2026-10-12T04:00:04.000Z", { event: "live_execution_timing", timings: ORDER.slice(6), spans: [] }),
   line("2026-10-12T04:00:05.000Z", "Copy order x: received +10, first attempt +20, sent +900 ms after the leader", "CopyLiveEngine"),
   line("2026-10-12T04:00:06.000Z", { event: "live_execution_boundary_failure", network: "testnet", stage: "transport_shared_quota", elapsedMs: 3, errorCode: "hyperliquid_busy", budgetReason: "shared_capacity" }),
+  line("2026-10-12T04:00:07.000Z", "leg m|f|open refused: signal_expired (source age 120172 ms, 2 attempt(s), last live_risk_stale)", "CopyLiveEngine"),
+  line("2026-10-12T04:00:08.000Z", "leg m|h|open kept for the next pass: live_account_observation_unavailable", "CopyLiveEngine"),
 ].join("\n");
 
-test("scanWorkerLog: the orders and failed attempts in a window of the worker's log", () => {
+test("scanWorkerLog: the orders, failed attempts and refused legs in a window of the worker's log", () => {
   const all = scanWorkerLog(LOG);
   assert.deepEqual(all.orders.map((o) => [o.at, o.evidenceMs, o.submitted]), [["2026-10-12T04:00:00.000Z", 3893, true], ["2026-10-12T04:00:03.000Z", 2631, false]]);
   assert.equal(all.orders[0].spans[0].span, "quota_rest_tx:follower");
   assert.deepEqual(all.failures.map((f) => [f.leg, f.attempt, f.reason, f.elapsedMs, f.sourceAgeMs]), [["m|f|open", 2, "live_risk_stale", 7744, 9948], ["m|g|close", 1, "live_budget_wait", 12, 900]]);
+  // The engine's `leg … refused: …` line: the leg given up on, its attempts and the last attempt's code (a leg kept for another pass is not one).
+  assert.deepEqual(all.refusals, [{ at: "2026-10-12T04:00:07.000Z", leg: "m|f|open", reason: "signal_expired", sourceAgeMs: 120172, attempts: 2, last: "live_risk_stale" }]);
   const later = scanWorkerLog(LOG, { since: Date.parse("2026-10-12T04:00:01.500Z") });
   assert.equal(later.orders.length, 1);
   assert.deepEqual(later.failures.map((f) => f.reason), ["live_budget_wait"]);
   assert.deepEqual(all.boundary, [{ at: "2026-10-12T04:00:06.000Z", stage: "transport_shared_quota", errorCode: "hyperliquid_busy", budgetReason: "shared_capacity" }]);
-  assert.deepEqual(scanWorkerLog(LOG, { until: Date.parse("2026-10-12T03:59:59Z") }), { orders: [], failures: [], boundary: [] });
+  assert.deepEqual(scanWorkerLog(LOG, { until: Date.parse("2026-10-12T03:59:59Z") }), { orders: [], failures: [], boundary: [], refusals: [] });
 });
 
 test("evidenceStats and the gate's table: p50/p95/max per scenario and over all", () => {
@@ -159,16 +163,36 @@ test("evidenceStats and the gate's table: p50/p95/max per scenario and over all"
   const table = renderGateSummary([{ name: "new-coin", ok: true, orders: orders.slice(0, 2) }, { name: "flip", ok: false, orders: orders.slice(2) }, { name: "stop-open", ok: null, orders: [] }]);
   const rows = table.split("\n");
   assert.match(rows[0], /each order's judged evidence < 3500 ms; evidence window 5000 ms \(mainnet's\)$/);
-  // Without a judged number (no fan-out computed) the raw one is judged; no projection. The last column: the window in force.
-  assert.match(rows[2], /^new-coin\s+PASS\s+2\s+1000\s+2000\s+2000\s+2000\s+—\s+5000$/);
-  assert.match(rows[3], /^flip\s+FAIL\s+2\s+3000\s+3600\s+3600\s+3600\s+—\s+5000$/);
-  assert.match(rows[4], /^stop-open\s+SKIP\s+0\s+—\s+—\s+—\s+—\s+—\s+5000$/);
-  assert.match(rows[5], /^all\s+FAIL\s+4\s+2000\s+3600\s+3600\s+3600\s+—\s+5000$/);
+  assert.match(rows[1], /window   miss  trip   sent  \(/);
+  // Without a judged number (no fan-out computed) the raw one is judged; no projection. Then the window in force, the
+  // two classes (none given: 0) and the dispatch created → sent latency (none given: —).
+  assert.match(rows[3], /^new-coin\s+PASS\s+2\s+1000\s+2000\s+2000\s+2000\s+—\s+5000\s+0\s+0\s+—$/);
+  assert.match(rows[4], /^flip\s+FAIL\s+2\s+3000\s+3600\s+3600\s+3600\s+—\s+5000\s+0\s+0\s+—$/);
+  assert.match(rows[5], /^stop-open\s+SKIP\s+0\s+—\s+—\s+—\s+—\s+—\s+5000\s+—\s+—\s+—$/);
+  assert.match(rows[6], /^all\s+FAIL\s+4\s+2000\s+3600\s+3600\s+3600\s+—\s+5000\s+0\s+0\s+—$/);
   // A 7000 run says so on the title and on every row: never read as mainnet-equivalent.
   const wide = renderGateSummary([{ name: "new-coin", ok: true, orders: orders.slice(0, 2) }], 3500, 7000).split("\n");
   assert.match(wide[0], /judged evidence < 3500 ms; evidence window 7000 ms \(TESTNET allowance, not mainnet-equivalent; mainnet stays 5000\)$/);
-  assert.match(wide[2], /^new-coin\s+PASS\s+2\s+1000\s+2000\s+2000\s+2000\s+—\s+7000$/);
+  assert.match(wide[3], /^new-coin\s+PASS\s+2\s+1000\s+2000\s+2000\s+2000\s+—\s+7000\s+0\s+0\s+—$/);
   assert.throws(() => evidenceWindowMs({ COPY_LIVE_TESTNET_EVIDENCE_MAX_AGE_MS: "4000" }), /not a window/);
+});
+
+test("the gate's table carries each scenario's class (criterion miss, trip-wire hits) and its dispatch created → sent latency; `all` sums them", () => {
+  const orders = (...xs) => xs.map((evidenceMs) => ({ evidenceMs }));
+  const trip = (hits, lost = []) => ({ lostLegs: lost, expiredAttempts: 0, attempts: 1, expiredShare: 0, shareTripped: false, hits });
+  const rows = renderGateSummary([
+    { name: "new-coin", ok: true, orders: orders(3107), criterionMiss: false, tripWire: trip(0), createdToSent: { n: 1, p50: 8.37, p95: 8.37, max: 8.37 } },
+    // Gate 12's merged: one order over the limit, every leg settled: a miss, and the gate went on to flip.
+    { name: "merged", ok: false, orders: orders(3591, 2900), criterionMiss: true, tripWire: trip(0), createdToSent: { n: 2, p50: 7.1, p95: 9.2, max: 9.2 } },
+    { name: "flip", ok: false, orders: orders(3000), criterionMiss: false, tripWire: trip(2, [{ leg: "x" }]), createdToSent: null },
+    { name: "stop-open", ok: null, orders: [] },
+  ], 3500, 7000).split("\n");
+  assert.match(rows[3], /^new-coin\s+PASS\s+1\s+3107\s+3107\s+3107\s+3107\s+—\s+7000\s+0\s+0\s+8\.37$/);
+  assert.match(rows[4], /^merged\s+FAIL\s+2\s+2900\s+3591\s+3591\s+3591\s+—\s+7000\s+1\s+0\s+7\.10$/);
+  assert.match(rows[5], /^flip\s+FAIL\s+1\s+3000\s+3000\s+3000\s+3000\s+—\s+7000\s+0\s+2\s+—$/);
+  assert.match(rows[6], /^stop-open\s+SKIP\s+0\s+—\s+—\s+—\s+—\s+—\s+7000\s+—\s+—\s+—$/);
+  // all: scenarios with a miss, hits summed, the scenarios' largest max (s).
+  assert.match(rows[7], /^all\s+FAIL\s+4\s+3000\s+3591\s+3591\s+3591\s+—\s+7000\s+1\s+2\s+9\.20$/);
 });
 
 test("lastStartRtt: the round trip of the worker's latest start", () => {

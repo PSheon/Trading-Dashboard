@@ -10,6 +10,17 @@
 //    and a mainnet order on its raw evidence; both numbers are always shown.
 // 2. Signal latency in two parts: leader fill → dispatch created (the source's REST
 //    poll: a harness fact on testnet) and dispatch created → order sent (ours).
+// 3. Two classes of a gate failure, per scenario and over the run (the reviewer's
+//    ruling of 2026-10-17, after one merged order's 3591 ms stopped gate 12 before
+//    flip and stop-open ran; the limit stays EVIDENCE_MAX_MS): a "criterion miss" is
+//    an order's judged evidence at or over the limit with no money effect (every leg
+//    still settled or was refused for an expected reason); a "trip-wire hit" is a leg
+//    that lost ALL its attempts to the evidence's age (refused live_risk_stale /
+//    live_account_evidence_expired, or signal_expired after attempts that failed for
+//    them), or evidence-age failures over TRIP_WIRE_SHARE of the run's attempts. A
+//    criterion miss is recorded as FAIL and the gate goes on to the next scenario and
+//    the final stop; only a failure that makes continuing unsafe or meaningless (the
+//    copy stopped, positions that do not reconcile, a leg lost) aborts (scenarioOutcome).
 
 import { MAINNET_EVIDENCE_WINDOW_MS, evidenceWindowLabel, percentile } from "./lib.mjs";
 
@@ -156,4 +167,120 @@ export function harnessTimingCause(time, timing) {
   if (Number.isFinite(endAt) && Number.isFinite(pollMs) && pollMs > 0 && time > endAt - pollMs)
     return { rule: "within_last_poll_interval", endAt: new Date(endAt).toISOString(), pollMs };
   return null;
+}
+
+// --- the two classes of a gate failure ---------------------------------------------------------------
+
+/** Attempt failure codes that mean the evidence's age (not its generation proof) was the cause. */
+export const EVIDENCE_AGE_FAILURES = Object.freeze(["live_risk_stale", "live_account_evidence_expired", "live_risk_serialization_stale", "market_evidence_expired"]);
+/** The share of a run's attempts lost to evidence age that trips the wire by itself (the reviewer's 5 %). */
+export const TRIP_WIRE_SHARE = 0.05;
+/** The engine's wait for budget: logged as a failed attempt, never counted as one (measure.mjs). */
+const BUDGET_WAIT = "live_budget_wait";
+/**
+ * Checks whose failure has no money effect of its own: the latency criterion and the
+ * failed-attempt check (a retry that settled). Recorded as FAIL; the gate goes on.
+ * Every other failed check (a leader leg, a mirror, the reconcile, a stop, the follower
+ * not flat) means positions can't be trusted for the next scenario, and aborts.
+ */
+const CONTINUE_ON_FAIL = Object.freeze([/_evidence_under_\d+ms$/, /_no_evidence_failures$/]);
+
+/**
+ * A scenario's checks → whether it passed, and whether a failure in it aborts the gate.
+ * @param {{ name: string, ok: boolean | null }[]} checks the scenario's own checks
+ * @returns {{ ok: boolean, failed: string[], abort: boolean, abortedBy: string[] }}
+ */
+export function scenarioOutcome(checks) {
+  const failed = checks.filter((c) => c.ok === false).map((c) => c.name);
+  const abortedBy = failed.filter((name) => !CONTINUE_ON_FAIL.some((re) => re.test(name)));
+  return { ok: failed.length === 0, failed, abort: abortedBy.length > 0, abortedBy };
+}
+
+/**
+ * The trip-wire over a slice of the worker log (lib.mjs scanWorkerLog: the scenario's,
+ * or the run's): `lostLegs`, the legs refused for evidence age, or refused signal_expired
+ * when their attempts (the line's `last`, or the leg's failed attempts) failed for it; the
+ * evidence-age failed attempts over the attempts (failed attempts, budget waits excluded,
+ * plus the orders that reached the executor — an upper bound, an attempt refused at the
+ * submit gate counts in both), and whether that share is over `share`. `hits`: the lost
+ * legs, plus one when the share tripped.
+ * @param {{ failures?: { leg: string, reason: string }[], refusals?: { leg: string, reason: string, attempts?: number | null, last?: string | null }[], orders?: object[] }} scan
+ */
+export function tripWires({ failures = [], refusals = [], orders = [] } = {}, share = TRIP_WIRE_SHARE) {
+  const aged = (reason) => EVIDENCE_AGE_FAILURES.includes(reason);
+  const legFailures = (leg) => failures.filter((f) => f.leg === leg).map((f) => f.reason);
+  const lostLegs = refusals.filter((r) => aged(r.reason) || (r.reason === "signal_expired" && (aged(r.last) || legFailures(r.leg).some(aged))))
+    .map((r) => ({ leg: r.leg, reason: r.reason, last: r.last ?? legFailures(r.leg).at(-1) ?? null, attempts: r.attempts ?? legFailures(r.leg).length }));
+  const counted = failures.filter((f) => f.reason !== BUDGET_WAIT);
+  const expiredAttempts = counted.filter((f) => aged(f.reason)).length;
+  const attempts = counted.length + orders.length;
+  const expiredShare = attempts ? expiredAttempts / attempts : 0;
+  const shareTripped = expiredShare > share;
+  return { lostLegs, expiredAttempts, attempts, expiredShare, shareTripped, hits: lostLegs.length + (shareTripped ? 1 : 0) };
+}
+
+/**
+ * One scenario's verdict for the gate table: `ok` (every check passed), `abort` (a failure
+ * that stops the gate; scenarioOutcome), `criterionMiss` (an order's judged evidence at or
+ * over `maxMs` while nothing aborted: no money effect), `over` (how many), and the
+ * scenario's trip-wire (tripWires over its slice of the worker log).
+ * @param {{ checks: { name: string, ok: boolean | null }[], orders: object[], failures?: object[], refusals?: object[], maxMs: number }} scenario
+ */
+export function classifyScenario({ checks, orders, failures = [], refusals = [], maxMs }) {
+  const outcome = scenarioOutcome(checks);
+  const over = judgedStats(orders, maxMs).over;
+  const tripWire = tripWires({ failures, refusals, orders });
+  return { ...outcome, over, criterionMiss: over > 0 && !outcome.abort, tripWire };
+}
+
+/** The testnet note's figures (the reviewer, 2026-10-17): the perp dexes testnet listed, what two
+ * observations under saturated contention need, the REST window, and mainnet's requirement. */
+export const TESTNET_TWO_COIN = Object.freeze({ venues: 273, unitsPer120s: 1750, windowUnitsPerMin: 1200, mainnetFreeUnitsPerMin: 575 });
+/**
+ * The note a summary carries when the evidence window in force is not mainnet's: what the
+ * testnet run cannot prove. A note, never a criterion. Null on mainnet's window.
+ * @param {number} windowMs the window in force @param {number | null} [venues] the perp dexes the run read (perpDexs)
+ */
+export function testnetNote(windowMs, venues = null) {
+  if (windowMs === MAINNET_EVIDENCE_WINDOW_MS) return null;
+  const t = TESTNET_TWO_COIN;
+  return `note: ${evidenceWindowLabel(windowMs)}. Two-coin mirroring under saturated contention is not provable on testnet ` +
+    `(${venues ?? t.venues} dexes: two observations need ~${t.unitsPer120s} units per 120 s against the ${t.windowUnitsPerMin}/min window); ` +
+    `the mainnet requirement is ~${t.mainnetFreeUnitsPerMin} free units/min. Not a criterion.`;
+}
+
+/**
+ * The lines after the gate table: each class with its definition and count, the abort
+ * (when one scenario stopped the gate), the testnet note, and the verdict —
+ * `gate: PASS` only when every scenario passed every criterion, else
+ * `gate: FAIL (criterion miss: n scenarios; trip-wire hits: m)` (`; other: k check(s)`
+ * when a failure was neither; `; aborted after <scenario>` when the gate stopped).
+ * @param {{ name: string, ok: boolean | null, criterionMiss?: boolean, tripWire?: ReturnType<typeof tripWires> | null, failed?: string[], over?: number }[]} rows
+ * @param {{ maxMs?: number, windowMs?: number, run?: ReturnType<typeof tripWires> | null, abortedAfter?: string | null, abortedBy?: string[], venues?: number | null }} [options]
+ *   run: tripWires over the whole run's log slice (the 5 % rule is a run figure)
+ */
+export function renderGateVerdict(rows, { maxMs = 3500, windowMs = MAINNET_EVIDENCE_WINDOW_MS, run = null, abortedAfter = null, abortedBy = [], venues = null } = {}) {
+  const ran = rows.filter((r) => r.ok !== null);
+  const misses = ran.filter((r) => r.criterionMiss);
+  const lost = ran.flatMap((r) => r.tripWire?.lostLegs ?? []);
+  const shareTripped = run ? run.shareTripped : ran.some((r) => r.tripWire?.shareTripped);
+  const hits = lost.length + (shareTripped ? 1 : 0);
+  const pct = (x) => `${(x * 100).toFixed(1)} %`;
+  // A failed check that neither class explains: the reconcile, a mirror, a stop, …
+  const other = ran.flatMap((r) => (r.failed ?? []).filter((name) => !(r.criterionMiss && /_evidence_under_\d+ms$/.test(name)) && !(r.tripWire?.hits && name.endsWith("_no_evidence_failures"))));
+  const lines = [
+    `criterion miss (judged evidence at or over ${maxMs} ms, no money effect: every leg settled or refused for an expected reason): ` +
+      `${misses.length} scenario(s)${misses.length ? ` — ${misses.map((r) => `${r.name} (${r.over} order(s))`).join(", ")}` : ""}`,
+    `trip-wire hit (a leg that lost all its attempts to evidence age: ${EVIDENCE_AGE_FAILURES.slice(0, 2).join(" / ")} / signal_expired by them; ` +
+      `or evidence-age failed attempts over ${pct(TRIP_WIRE_SHARE)} of the run's attempts): ${hits}` +
+      `${lost.length ? ` — legs ${lost.map((l) => `${l.leg} ${l.reason}${l.last ? ` (last ${l.last}, ${l.attempts} attempt(s))` : ""}`).join(", ")}` : ""}` +
+      (run ? `; evidence-age failed attempts ${run.expiredAttempts} of ${run.attempts} (${pct(run.expiredShare)})${run.shareTripped ? " — over the share" : ""}` : ""),
+  ];
+  if (abortedAfter) lines.push(`aborted after ${abortedAfter}: ${abortedBy.length ? abortedBy.join(", ") : "a failure that made continuing unsafe"}; the later scenarios did not run (SKIP)`);
+  const note = testnetNote(windowMs, venues);
+  if (note) lines.push(note);
+  const pass = rows.length > 0 && rows.every((r) => r.ok === true);
+  lines.push(pass ? "gate: PASS" : `gate: FAIL (criterion miss: ${misses.length} scenarios; trip-wire hits: ${hits}` +
+    `${other.length ? `; other: ${other.length} check(s)` : ""}${abortedAfter ? `; aborted after ${abortedAfter}` : ""}${ran.length ? "" : "; no scenario ran"})`);
+  return lines.join("\n");
 }

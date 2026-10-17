@@ -547,24 +547,26 @@ describe('unregistered concrete testnet execution runtime', () => {
     await actualClockFixture();
     // The epoch reads one leverage its estimate did not cover (another open
     // coin's, or a preview on a cache that moved): paid inside the epoch.
-    const wave = LiveSharedReads.prototype.wave;
-    vi.spyOn(LiveSharedReads.prototype, 'wave').mockImplementationOnce(function (this: LiveSharedReads, bodies) {
+    const wave = vi.spyOn(LiveSharedReads.prototype, 'wave').mockImplementationOnce(function (this: LiveSharedReads, bodies) {
       const target = bodies.find(body => body.type === 'activeAssetData')?.user;
       expect(target).toBeDefined();
-      return wave.call(this, [...bodies, { type: 'activeAssetData', user: target, coin: 'ETH' }]);
+      wave.mockRestore();
+      return this.wave([...bodies, { type: 'activeAssetData', user: target, coin: 'ETH' }]);
     });
     // Background work drained the local bucket by the time the order signs: a
     // reservation taken then would wait longer than the sign stage allows and
     // is refused at once (reserveLive).
-    const verify = HyperliquidAgentApprovalVerifier.prototype.verify;
     let signing = false;
-    vi.spyOn(HyperliquidAgentApprovalVerifier.prototype, 'verify').mockImplementation(function (this: HyperliquidAgentApprovalVerifier, grant) { signing = true; return verify.call(this, grant); });
+    const verify = vi.spyOn(HyperliquidAgentApprovalVerifier.prototype, 'verify').mockImplementation(function (this: HyperliquidAgentApprovalVerifier, grant) {
+      signing = true; verify.mockRestore(); return this.verify(grant);
+    });
     const liveWaitMs = budget.liveWaitMs.bind(budget);
     vi.spyOn(budget, 'liveWaitMs').mockImplementation((weight, rank) => signing ? 6_000 : liveWaitMs(weight, rank));
     const acquire = vi.spyOn(budget, 'acquire'), adjust = vi.spyOn(budget, 'adjust');
     const result = await runtime(config, { ...options, slippageBps: '0' }).execute(request());
     expect(result.state).toBe('filled');
-    const info = raw.mock.calls.filter(([url]) => String(url).endsWith('/info')).map(([, init]) => JSON.parse(String(init?.body)) as { type: string; coin?: string });
+    const info = raw.mock.calls.filter(([input]) => (typeof input === 'string' ? input : input instanceof URL ? input.href : input.url).endsWith('/info'))
+      .map(([, init]) => JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as { type: string; coin?: string });
     expect(info.filter(b => b.type === 'extraAgents')).toHaveLength(1);
     expect(info.filter(b => b.type === 'activeAssetData').map(b => String(b.coin)).sort((a, b) => a.localeCompare(b))).toEqual(['BTC', 'ETH']);
     // The extra read was taken from the bucket while it still had room, never from the sign stage's cover: what was acquired, less what came back, is what was sent.

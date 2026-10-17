@@ -6,7 +6,7 @@ import { booleanValue, databaseUrl, integerValue, servicePermissions } from "./p
 import { runsCopy, workerRoleValue } from "../runtime/worker-role.js";
 import { liveSetupTimings, liveStopTimings, type LiveSetupTimings, type LiveStopTimings } from "./live-timings.js";
 import { HYPERLIQUID_BACKGROUND_REST_CAP, MAINNET_WORKER_WEIGHT } from './constants/hyperliquid.js';
-import { LIVE_EVIDENCE_MAX_AGE_MS, LIVE_TESTNET_EVIDENCE_MAX_AGE_CAP_MS } from './constants/timings.js';
+import { FAST_SOURCE_GRACE_MS, LIVE_EVIDENCE_MAX_AGE_MS, LIVE_TESTNET_EVIDENCE_MAX_AGE_CAP_MS } from './constants/timings.js';
 
 
 
@@ -241,7 +241,7 @@ function copyTrading(source: Environment, wallet: "mainnet" | "testnet", egressK
     const fast = fastSourceLeaders(source.COPY_LIVE_FAST_SOURCE);
     // G: a read certifies fills only up to this long before it was sent
     // (the fill index trails the exchange; measured p99.9 on mainnet).
-    if (fast) live.fastSource = { leaders: fast, graceMs: integerValue("COPY_LIVE_FAST_SOURCE_GRACE_MS", source.COPY_LIVE_FAST_SOURCE_GRACE_MS, 2000, 0, 60_000) };
+    if (fast) live.fastSource = { leaders: fast, graceMs: integerValue("COPY_LIVE_FAST_SOURCE_GRACE_MS", source.COPY_LIVE_FAST_SOURCE_GRACE_MS, FAST_SOURCE_GRACE_MS, 0, 60_000) };
   }
   return {
     mode,

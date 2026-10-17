@@ -6,7 +6,7 @@ import {LIVE_DEX_NAME,LIVE_PERP_COIN} from '../copy/live/live-market-resolver.js
 import {freezeLiveReservation} from '../copy/live/live-risk-reservation.js';
 import {HyperliquidRestCapacityError} from './hyperliquid-capacity-error.js';
 import type { LiveNetwork } from '../copy/live/wallet-authorization.js';
-import { HYPERLIQUID_BACKGROUND_REST_CAP, HYPERLIQUID_DEMAND_MARKER_CAP, HYPERLIQUID_LIVE_DEMAND_HOLD_MS, HYPERLIQUID_LIVE_REST_RESERVE, HYPERLIQUID_LIVE_STANDBY_HOLD_MS, HYPERLIQUID_LIVE_WS_CONNECT_RESERVE, HYPERLIQUID_MAX_SETUP_CONNECTS, HYPERLIQUID_PAGE_FLOOR, HYPERLIQUID_PAGE_HOLD_MS, HYPERLIQUID_REST_CAP, HYPERLIQUID_SETUP_GRANT_HOLD_MS, HYPERLIQUID_SETUP_PENDING_HOLD_MS, HYPERLIQUID_SETUP_REST_CAP, HYPERLIQUID_STALE_LEASE_RECLAIM_MS } from '../config/constants/hyperliquid.js';
+import { HYPERLIQUID_BACKGROUND_REST_CAP, HYPERLIQUID_DEMAND_MARKER_CAP, HYPERLIQUID_LIVE_DEMAND_HOLD_MS, HYPERLIQUID_LIVE_REST_RESERVE, HYPERLIQUID_LIVE_STANDBY_HOLD_MS, HYPERLIQUID_LIVE_WS_CONNECT_RESERVE, HYPERLIQUID_MAX_SETUP_CONNECTS, HYPERLIQUID_PAGE_FLOOR, HYPERLIQUID_PAGE_HOLD_MS, HYPERLIQUID_REST_CAP, HYPERLIQUID_SETUP_GRANT_HOLD_MS, HYPERLIQUID_SETUP_PENDING_HOLD_MS, HYPERLIQUID_SETUP_REST_CAP, HYPERLIQUID_SOURCE_REST_CAP, HYPERLIQUID_STALE_LEASE_RECLAIM_MS } from '../config/constants/hyperliquid.js';
 export interface HyperliquidQuotaEvent {readonly id:string;readonly kind:'rest'|'ws_message'|'ws_connect';readonly units:number;readonly reservedAt:number;readonly expiresAt:number;}
 export interface HyperliquidQuotaSubscription {readonly id:string;readonly network:LiveNetwork;readonly user:string|null;readonly subscription:Readonly<Record<string,unknown>>;}
 export interface HyperliquidQuotaLease {readonly id:string;readonly egressKey:string;readonly socketId:string;readonly fenceToken:string;readonly ownerId:string;readonly state:'reserved'|'open'|'closing'|'uncertain'|'closed';readonly revision:number;readonly leaseUntil:number;readonly latestAllowedSendAt:number;readonly subscriptions:readonly HyperliquidQuotaSubscription[];readonly createdAt:number;readonly updatedAt:number;readonly closedAt:number|null;}
@@ -27,6 +27,8 @@ export type HyperliquidQuotaRequest=
  |{readonly kind:'live_release';readonly token:string}
  /** A worker with live copies running: keep one order's need free (HYPERLIQUID_LIVE_STANDBY_HOLD_MS). */
  |{readonly kind:'live_standby';readonly id:string;readonly weight:number;readonly sendUntil:number}
+ /** A worker with fast-source copies running: keep the source lane's reserve free of background (HYPERLIQUID_LIVE_STANDBY_HOLD_MS). */
+ |{readonly kind:'source_standby';readonly id:string;readonly weight:number;readonly sendUntil:number}
  |{readonly kind:'connect';readonly id:string;readonly sendUntil:number;readonly lease:Omit<HyperliquidQuotaLease,'state'|'revision'|'subscriptions'|'createdAt'|'updatedAt'|'closedAt'>;
    /** A setup step's socket (its token): drawn from what its grant holds. */
    readonly setupToken?:string;
@@ -45,8 +47,8 @@ export interface HyperliquidRestSettlement {readonly id:string;readonly units:nu
 /** Settlements one REST request may carry. */
 export const HYPERLIQUID_MAX_SETTLEMENTS=64;
 /** Every REST charge has a class; the meter arbitrates between them as a
- * queue: live first, then setups (the oldest waiting one first), then pages,
- * then background.
+ * queue: live first, then the fast leader source, then setups (the oldest
+ * waiting one first), then pages, then background.
  * `background`: work nobody is waiting for (pool loops, warm-ups, sweeps of
  * uncopied leaders, follower snapshots and receipts). It may fill the shared
  * per-IP REST window only up to HYPERLIQUID_BACKGROUND_REST_CAP, so a page or
@@ -65,8 +67,17 @@ export const HYPERLIQUID_MAX_SETTLEMENTS=64;
  * `page`: someone's request (`page:` tickets: trader and wallet pages): the
  * whole window, less what live orders and granted setup claims still need;
  * while a setup waits it leaves that setup's need free too, but for at most
- * HYPERLIQUID_PAGE_HOLD_MS, after which it has HYPERLIQUID_PAGE_FLOOR. */
-export type HyperliquidRestLane='background'|'setup'|'live'|'page';
+ * HYPERLIQUID_PAGE_HOLD_MS, after which it has HYPERLIQUID_PAGE_FLOOR.
+ * `source`: the fast leader source's reads (`source:<leader>:` tickets: a
+ * kick's `userFillsByTime` and TWAP slices of one watched mainnet leader):
+ * the whole window less what live orders and the standby still need (as a
+ * page yields to them), ahead of setups and background, and never more than
+ * HYPERLIQUID_SOURCE_REST_CAP together; while a worker with fast-source
+ * copies keeps a source standby alive (`source_standby`), background leaves
+ * that reserve free for it (HYPERLIQUID_SOURCE_REST_RESERVE). Until 2026-10-17 these
+ * reads were the live lane's, with an order's standing (Stage: one active
+ * leader held 341 p50 / 580 p95 of the window with no order in flight). */
+export type HyperliquidRestLane='background'|'setup'|'live'|'page'|'source';
 /** A deployment's own background cap (HYPERLIQUID_BACKGROUND_REST_CAP): lower
  * it to keep more of the window for copy orders, whose evidence (568–772 a
  * minute for one order) must fit beside whatever background holds. */
@@ -199,6 +210,40 @@ export const LIVE_REST_ID_PREFIX='live:';
 export const LIVE_DEMAND_ID_PREFIX='live-demand:';
 /** A live order's demand token (16 hex; its charges carry it). */
 export const LIVE_LANE_TOKEN=/^[0-9a-f]{16}$/;
+/** A charge's owner, named in its ticket after the lane and the token
+ * (`live:<token>:order:<id>`, `live:settle:<id>`, `live:explorer:<id>`,
+ * `source:<leader>:<id>`): the meter's composition tells kicks, settlement
+ * passes, orders and explorer reads apart (hyperliquidMeterComposition). A
+ * short name or a leader's hash, never a wallet address; never 16 hex, so
+ * it is never read as a token (LIVE_LANE_TOKEN). A process on the previous
+ * release reads the ticket as before: by its lane prefix and its token. */
+export const REST_OWNER=/^[a-z][a-z0-9-]{1,15}$/;
+export function isRestOwner(value:unknown):value is string{return typeof value==='string'&&REST_OWNER.test(value)&&!LIVE_LANE_TOKEN.test(value);}
+const LIVE_OWNER_CHARGE=/^live:(?:[0-9a-f]{16}:)?([a-z][a-z0-9-]{1,15}):/;
+/** The fast leader source's charges (`source:<leader>:<id>`; the leader is
+ * its address's hash, 8 hex: sourceLaneOwner). A process on the previous
+ * release reads them as unlabelled charges: counted in every lane's window,
+ * nothing kept free for them. */
+export const SOURCE_REST_ID_PREFIX='source:';
+export const SOURCE_LANE_OWNER=/^[0-9a-f]{8}$/;
+const SOURCE_CHARGE=/^source:([0-9a-f]{8}):/;
+/** A worker with fast-source copies running keeps the source lane's reserve
+ * free of background (`source-standby:<need>:<id>`, 1 unit, never sent;
+ * renewed with the live standby): a kick's read after a quiet minute finds
+ * room at once instead of racing background loops for the units that
+ * expire. While one is alive background leaves `need` free less what the
+ * lane already holds; the lane itself yields to live demand as before. A
+ * process on the previous release reads the marker as a 1-unit charge. */
+export const SOURCE_STANDBY_ID_PREFIX='source-standby:';
+const SOURCE_STANDBY_TICKET=/^source-standby:([1-9][0-9]{0,3}):[0-9a-f-]{1,36}$/;
+/** A source standby's ticket: its need and a fresh id. */
+export function sourceStandbyTicket(need:number):string{return `${SOURCE_STANDBY_ID_PREFIX}${need}:${randomUUID()}`;}
+/** What the source lane keeps free of background at `now` (the largest alive standby's need), until when. */
+function sourceAhead(rest:readonly HyperliquidQuotaEvent[],now:number):{readonly need:number;readonly until:number|undefined}{
+  let need=0,until:number|undefined;
+  for(const e of rest){const m=SOURCE_STANDBY_TICKET.exec(e.id);if(!m||e.reservedAt+HYPERLIQUID_LIVE_STANDBY_HOLD_MS<=now)continue;need=Math.max(need,Number(m[1]));until=Math.max(until??0,e.reservedAt+HYPERLIQUID_LIVE_STANDBY_HOLD_MS);}
+  return {need,until};
+}
 /** The most a live order announces: with its marker's unit, the window. */
 export const HYPERLIQUID_MAX_LIVE_DEMAND=HYPERLIQUID_REST_CAP-1;
 const LIVE_DEMAND_TICKET=/^live-demand:([1-9][0-9]{0,3}):([0-9a-f]{16}):[0-9a-f-]{1,36}$/;
@@ -235,14 +280,16 @@ export interface HyperliquidLaneDemand {readonly count:number;readonly held:numb
  * orders' demands alive (HYPERLIQUID_LIVE_DEMAND_HOLD_MS), and the page
  * lane, which announces nothing: its reads alive in the window (`count`),
  * what they hold, and when the last of them ends. */
-export function hyperliquidLaneStatus(events:readonly HyperliquidQuotaEvent[],now:number):{readonly setupDemand:HyperliquidLaneDemand;readonly liveDemand:HyperliquidLaneDemand;readonly pageLane:HyperliquidLaneDemand}{
+export function hyperliquidLaneStatus(events:readonly HyperliquidQuotaEvent[],now:number):{readonly setupDemand:HyperliquidLaneDemand;readonly liveDemand:HyperliquidLaneDemand;readonly pageLane:HyperliquidLaneDemand;readonly sourceLane:HyperliquidLaneDemand}{
   const rest=events.filter(e=>e.kind==='rest'&&e.expiresAt>now),units=(list:readonly HyperliquidQuotaEvent[])=>list.reduce((sum,e)=>sum+e.units,0);
   const markers=rest.filter(e=>e.id.startsWith(SETUP_DEMAND_ID_PREFIX)),orders=rest.filter(e=>LIVE_DEMAND_TICKET.test(e.id)&&e.reservedAt+HYPERLIQUID_LIVE_DEMAND_HOLD_MS>now);
-  const tokens=new Set(orders.map(e=>LIVE_DEMAND_TICKET.exec(e.id)![2])),pages=rest.filter(e=>e.id.startsWith(PAGE_REST_ID_PREFIX));
+  const tokens=new Set(orders.map(e=>LIVE_DEMAND_TICKET.exec(e.id)![2])),pages=rest.filter(e=>e.id.startsWith(PAGE_REST_ID_PREFIX)),sources=rest.filter(e=>e.id.startsWith(SOURCE_REST_ID_PREFIX));
   return {
     setupDemand:{count:markers.length,held:units(rest.filter(e=>e.id.startsWith(SETUP_REST_ID_PREFIX))),until:markers.length?Math.max(...markers.map(e=>e.expiresAt)):null},
     liveDemand:{count:tokens.size,held:units(rest.filter(e=>e.id.startsWith(LIVE_REST_ID_PREFIX))),until:orders.length?Math.max(...orders.map(e=>e.reservedAt+HYPERLIQUID_LIVE_DEMAND_HOLD_MS)):null},
     pageLane:{count:pages.length,held:units(pages),until:pages.length?Math.max(...pages.map(e=>e.expiresAt)):null},
+    // The fast leader source's lane (it announces nothing): its reads alive, what they hold, when the last ends.
+    sourceLane:{count:sources.length,held:units(sources),until:sources.length?Math.max(...sources.map(e=>e.expiresAt)):null},
   };
 }
 /** Background charges' tickets (`bg:<id>`): told apart from unlabelled ones
@@ -255,24 +302,31 @@ export const BACKGROUND_REST_ID_PREFIX='bg:';
  * original session, a previous release's charges), `live` (`live:`), each
  * setup's charges by its token's first 8 hex (`setup`), the 1-unit markers,
  * setups whose claim waits (`pending`: need, since when its earliest alive
- * marker) and granted claims (`granted`: what each still needs). */
+ * marker) and granted claims (`granted`: what each still needs); the fast
+ * leader source's charges (`source`, and by leader hash in `sources`) and
+ * the live lane's by owner (`liveKinds`: `order`, `settle`, `explorer`,
+ * `stop`, or `untagged` for a ticket without one: an exchange POST outside
+ * an order or a stop, the testnet leader source, receipts). */
 export interface HyperliquidMeterComposition {
-  readonly total:number;readonly background:number;readonly other:number;readonly live:number;readonly page:number;
-  readonly setup:Readonly<Record<string,number>>;readonly markers:{readonly setup:number;readonly live:number};
+  readonly total:number;readonly background:number;readonly other:number;readonly live:number;readonly page:number;readonly source:number;
+  readonly setup:Readonly<Record<string,number>>;readonly markers:{readonly setup:number;readonly live:number;readonly source:number};
   readonly pending:readonly {readonly token:string;readonly need:number;readonly waitingMs:number}[];
   readonly granted:readonly {readonly token:string;readonly left:number}[];
   readonly liveNeed:number;
+  readonly liveKinds:Readonly<Record<string,number>>;readonly sources:Readonly<Record<string,number>>;
 }
 export function hyperliquidMeterComposition(events:readonly HyperliquidQuotaEvent[],now:number):HyperliquidMeterComposition{
   const rest=events.filter(e=>e.kind==='rest'&&e.expiresAt>now);
-  let background=0,other=0,live=0,page=0,setupMarkers=0,liveMarkers=0;const setup:Record<string,number>={};
+  let background=0,other=0,live=0,page=0,source=0,setupMarkers=0,liveMarkers=0,sourceMarkers=0;const setup:Record<string,number>={},liveKinds:Record<string,number>={},sources:Record<string,number>={};
   for(const e of rest){
     // Held weight is in the total; what each grant holds is `granted`.
     if(isHold(e))continue;
     if(e.id.startsWith(SETUP_DEMAND_ID_PREFIX))setupMarkers+=e.units;
     else if(e.id.startsWith(LIVE_DEMAND_ID_PREFIX)||e.id.startsWith(LIVE_STANDBY_ID_PREFIX))liveMarkers+=e.units;
+    else if(e.id.startsWith(SOURCE_STANDBY_ID_PREFIX))sourceMarkers+=e.units;
     else if(e.id.startsWith(SETUP_REST_ID_PREFIX)){const token=(SETUP_TOKEN_CHARGE.exec(e.id)?.[1]??'untagged').slice(0,8);setup[token]=(setup[token]??0)+e.units;}
-    else if(e.id.startsWith(LIVE_REST_ID_PREFIX))live+=e.units;
+    else if(e.id.startsWith(LIVE_REST_ID_PREFIX)){live+=e.units;const kind=LIVE_OWNER_CHARGE.exec(e.id)?.[1]??'untagged';liveKinds[kind]=(liveKinds[kind]??0)+e.units;}
+    else if(e.id.startsWith(SOURCE_REST_ID_PREFIX)){source+=e.units;const leader=SOURCE_CHARGE.exec(e.id)?.[1]??'untagged';sources[leader]=(sources[leader]??0)+e.units;}
     else if(e.id.startsWith(BACKGROUND_REST_ID_PREFIX))background+=e.units;
     else if(e.id.startsWith(PAGE_REST_ID_PREFIX))page+=e.units;
     else other+=e.units;
@@ -280,7 +334,7 @@ export function hyperliquidMeterComposition(events:readonly HyperliquidQuotaEven
   const holds=setupHolds(rest,now);
   const pending=pendingSetups(rest,now).map(c=>({token:c.token.slice(0,8),need:c.need,waitingMs:now-c.first}));
   const granted=holds.tokens().map(t=>({token:t.slice(0,8),left:holds.held(t)}));
-  return {total:rest.reduce((sum,e)=>sum+e.units,0),background,other,live,page,setup,markers:{setup:setupMarkers,live:liveMarkers},pending,granted,liveNeed:liveAhead(rest,now).outstanding()};
+  return {total:rest.reduce((sum,e)=>sum+e.units,0),background,other,live,page,source,setup,markers:{setup:setupMarkers,live:liveMarkers,source:sourceMarkers},pending,granted,liveNeed:liveAhead(rest,now).outstanding(),liveKinds,sources};
 }
 /**
  * A live order's or a setup's demand marker (1 unit, never sent). It is
@@ -296,7 +350,7 @@ export function hyperliquidMeterComposition(events:readonly HyperliquidQuotaEven
  * one unit less to send), until it expires.
  */
 const isDemandMarker=(e:{kind:string;id:string})=>e.kind==='rest'&&(e.id.startsWith(LIVE_DEMAND_ID_PREFIX)||e.id.startsWith(SETUP_DEMAND_ID_PREFIX));
-const isLaneTicket=(id:string)=>[SETUP_REST_ID_PREFIX,SETUP_DEMAND_ID_PREFIX,SETUP_HOLD_ID_PREFIX,LIVE_REST_ID_PREFIX,LIVE_DEMAND_ID_PREFIX,LIVE_STANDBY_ID_PREFIX,PAGE_REST_ID_PREFIX].some(prefix=>id.startsWith(prefix));
+const isLaneTicket=(id:string)=>[SETUP_REST_ID_PREFIX,SETUP_DEMAND_ID_PREFIX,SETUP_HOLD_ID_PREFIX,LIVE_REST_ID_PREFIX,LIVE_DEMAND_ID_PREFIX,LIVE_STANDBY_ID_PREFIX,PAGE_REST_ID_PREFIX,SOURCE_REST_ID_PREFIX,SOURCE_STANDBY_ID_PREFIX].some(prefix=>id.startsWith(prefix));
 export interface HyperliquidQuotaPlan {readonly state:HyperliquidQuotaState;readonly leases:readonly HyperliquidQuotaLease[];readonly charged:number;
   /** `setup_demand` and `live_demand` only: 0 when the weight fits now, else in how many ms it should (its marker is recorded either way). */
   readonly waitMs?:number;
@@ -324,7 +378,8 @@ const requestSchema=z.union([
   z.object({kind:z.literal('live_demand'),id:identifier,weight:integer.positive().max(HYPERLIQUID_MAX_LIVE_DEMAND),sendUntil:integer.positive()}).strict(),
   z.object({kind:z.literal('live_release'),token:z.string().regex(LIVE_LANE_TOKEN)}).strict(),
   z.object({kind:z.literal('live_standby'),id:identifier,weight:integer.positive().max(HYPERLIQUID_MAX_LIVE_DEMAND),sendUntil:integer.positive()}).strict(),
-  z.object({kind:z.literal('rest'),id:identifier,weight:integer.positive().max(1200),sendUntil:integer.positive(),lane:z.enum(['background','setup','live','page']).optional(),heldMs:integer.max(65_000).optional(),
+  z.object({kind:z.literal('source_standby'),id:identifier,weight:integer.positive().max(HYPERLIQUID_SOURCE_REST_CAP),sendUntil:integer.positive()}).strict(),
+  z.object({kind:z.literal('rest'),id:identifier,weight:integer.positive().max(1200),sendUntil:integer.positive(),lane:z.enum(['background','setup','live','page','source']).optional(),heldMs:integer.max(65_000).optional(),
     settle:z.array(z.object({id:identifier,units:integer.positive().max(1200)}).strict()).max(HYPERLIQUID_MAX_SETTLEMENTS).optional()}).strict(),
   z.object({kind:z.literal('connect'),id:identifier,sendUntil:integer.positive(),lease:leaseSchema.omit({state:true,revision:true,subscriptions:true,createdAt:true,updatedAt:true,closedAt:true}),
     setupToken:z.string().regex(SETUP_LANE_TOKEN).optional(),live:z.boolean().optional()}).strict(),
@@ -448,12 +503,22 @@ export function planHyperliquidQuota(raw:{readonly now:number;readonly state:Hyp
     const connectsFitIn=(connects:number,token:string)=>fitsIn(events.filter(e=>e.kind==='ws_connect'&&!(isHold(e)&&ownedBy(e,token))),connects,caps.ws_connect-HYPERLIQUID_LIVE_WS_CONNECT_RESERVE);
     const restCharge=(units:number,id:string,sendUntil:number,lane:HyperliquidRestLane|undefined,heldMs=0)=>{
       requireQuota(sendUntil>=now&&sendUntil<=now+5000);requireQuota(!s.events.some(e=>e.id===id),'hyperliquid_quota_ticket_conflict');
-      requireQuota(lane==='setup'?id.startsWith(SETUP_REST_ID_PREFIX):lane==='live'?id.startsWith(LIVE_REST_ID_PREFIX):lane==='page'?id.startsWith(PAGE_REST_ID_PREFIX):!isLaneTicket(id));
+      requireQuota(lane==='setup'?id.startsWith(SETUP_REST_ID_PREFIX):lane==='live'?id.startsWith(LIVE_REST_ID_PREFIX):lane==='page'?id.startsWith(PAGE_REST_ID_PREFIX):lane==='source'?SOURCE_CHARGE.test(id):!isLaneTicket(id));
       const rest=events.filter(e=>e.kind==='rest'),holds=setupHolds(rest,now),live=liveAhead(rest,now),ahead=live.outstanding(),head=pendingSetups(rest,now)[0];
       let wait:number|undefined;
       // Live: the whole window, beside setups' grants (an order that needs
       // their room took it when it announced its need).
       if(lane==='live')wait=fitsIn(rest,units,HYPERLIQUID_REST_CAP);
+      else if(lane==='source'){
+        // The fast leader source: the whole window less what live orders
+        // and the standby still need (as a page: it yields to live demand,
+        // and is asked again once that claim ends), ahead of setups and
+        // background; the lane holds at most HYPERLIQUID_SOURCE_REST_CAP
+        // together, so a flood of leaders never takes pages' room.
+        const open=beside(rest,units,HYPERLIQUID_REST_CAP,ahead,[ahead>0?live.until():undefined]);
+        const own=fitsIn(rest.filter(e=>e.id.startsWith(SOURCE_REST_ID_PREFIX)),units,HYPERLIQUID_SOURCE_REST_CAP);
+        wait=open===undefined||own===undefined?undefined:Math.max(open,own);
+      }
       else if(lane==='setup'){
         // Within its granted claim: the charge replaces weight its grant
         // holds, one for one (the window's total does not move), so it is
@@ -495,16 +560,21 @@ export function planHyperliquidQuota(raw:{readonly now:number;readonly state:Hyp
         // reserve, and the oldest waiting setup's need; it also leaves what
         // live orders' demands still need (it is refused first); otherwise
         // its cap. Granted setup claims' holds are in the window it counts.
+        // While a worker with fast-source copies keeps a source standby
+        // alive, it also leaves the source lane that reserve, less what the
+        // lane already holds (sourceAhead).
         const demands=rest.filter(e=>e.id.startsWith(SETUP_DEMAND_ID_PREFIX)),held=holds.until(),base=backgroundRestCap(raw.backgroundCap);
         const share=demands.length===0?0:Math.max(0,HYPERLIQUID_SETUP_REST_CAP-sum(rest.filter(isSetupEvent)));
+        const source=sourceAhead(rest,now),sourceFree=Math.max(0,source.need-sum(rest.filter(e=>e.id.startsWith(SOURCE_REST_ID_PREFIX))));
         let cap=demands.length===0?base:Math.min(base,HYPERLIQUID_REST_CAP-HYPERLIQUID_LIVE_REST_RESERVE-share);
         if(head)cap=Math.min(cap,HYPERLIQUID_REST_CAP-HYPERLIQUID_LIVE_REST_RESERVE-head.need);
         if(ahead>0)cap=Math.min(cap,HYPERLIQUID_REST_CAP-ahead-share);
+        if(sourceFree>0)cap=Math.min(cap,HYPERLIQUID_REST_CAP-ahead-share-sourceFree);
         wait=fitsIn(rest,units,cap);
-        // Room that only comes back once no setup waits and no grant holds
-        // weight: when the last of them ends.
-        if(wait===undefined&&(demands.length>0||held!==undefined||ahead>0)&&fitsIn([],units,base)===0)
-          throw new HyperliquidRestCapacityError(Math.max(...demands.map(e=>e.expiresAt),held??0,ahead>0?live.until()!:0)-now);
+        // Room that only comes back once no setup waits, no grant holds
+        // weight and no standby keeps room: when the last of them ends.
+        if(wait===undefined&&(demands.length>0||held!==undefined||ahead>0||sourceFree>0)&&fitsIn([],units,base)===0)
+          throw new HyperliquidRestCapacityError(Math.max(...demands.map(e=>e.expiresAt),held??0,ahead>0?live.until()!:0,sourceFree>0?source.until!:0)-now);
       }
       // The first expiry alone may not free enough for this request. Only
       // retained REST charges contribute; leases are never refunded.
@@ -597,6 +667,17 @@ export function planHyperliquidQuota(raw:{readonly now:number;readonly state:Hyp
       // charge never sent) keeps one order's need free for
       // HYPERLIQUID_LIVE_STANDBY_HOLD_MS (liveAhead). Nothing waits on it.
       requireQuota(LIVE_STANDBY_TICKET.exec(request.id)?.[1]===String(request.weight));
+      requireQuota(request.sendUntil>=now&&request.sendUntil<=now+5000);requireQuota(!s.events.some(e=>e.id===request.id),'hyperliquid_quota_ticket_conflict');
+      const marker=fitsIn(events.filter(e=>e.kind==='rest'),1,HYPERLIQUID_REST_CAP);
+      if(marker===undefined)throw new LiveBoundaryError('hyperliquid_quota_exhausted');
+      if(marker>0)throw new HyperliquidRestCapacityError(marker);
+      events.push({id:request.id,kind:'rest',units:1,reservedAt:now,expiresAt:request.sendUntil+60000});charged=1;
+    }
+    else if(request.kind==='source_standby'){
+      // A worker with fast-source copies running: its marker (1 unit, an
+      // ordinary charge never sent) keeps the source lane's reserve free of
+      // background for HYPERLIQUID_LIVE_STANDBY_HOLD_MS (sourceAhead). Nothing waits on it.
+      requireQuota(SOURCE_STANDBY_TICKET.exec(request.id)?.[1]===String(request.weight));
       requireQuota(request.sendUntil>=now&&request.sendUntil<=now+5000);requireQuota(!s.events.some(e=>e.id===request.id),'hyperliquid_quota_ticket_conflict');
       const marker=fitsIn(events.filter(e=>e.kind==='rest'),1,HYPERLIQUID_REST_CAP);
       if(marker===undefined)throw new LiveBoundaryError('hyperliquid_quota_exhausted');

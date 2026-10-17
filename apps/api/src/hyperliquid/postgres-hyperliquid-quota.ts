@@ -10,11 +10,11 @@ import type { UnitOfWork,DbTransaction } from '../db/unit-of-work.js';
 import {assertOriginalLiveRiskSession,type LiveRiskDatabaseSession} from '../copy/live/postgres-live-risk-scope.js';
 import {LiveBoundaryError,type LiveNetwork} from '../copy/live/wallet-authorization.js';
 import {HyperliquidRestCapacityError,sharedRestRetryAfterMs} from './hyperliquid-capacity-error.js';
-import { BACKGROUND_REST_ID_PREFIX, PAGE_REST_ID_PREFIX, HYPERLIQUID_MAX_LIVE_DEMAND, HYPERLIQUID_MAX_SETTLEMENTS, LIVE_LANE_TOKEN, LIVE_REST_ID_PREFIX, liveDemandTicket, liveStandbyTicket, SETUP_DEMAND_ID_PREFIX, SETUP_LANE_TOKEN, SETUP_REST_ID_PREFIX, hyperliquidLaneStatus, hyperliquidMeterComposition, planHyperliquidQuota, setupDemandTicket, quotaSubscription, type HyperliquidMeterComposition, type HyperliquidQuotaPlan, type HyperliquidRestLane, type HyperliquidQuotaLease, type HyperliquidQuotaRequest, type HyperliquidQuotaSubscription } from './hyperliquid-global-quota.js';
+import { BACKGROUND_REST_ID_PREFIX, PAGE_REST_ID_PREFIX, HYPERLIQUID_MAX_LIVE_DEMAND, HYPERLIQUID_MAX_SETTLEMENTS, LIVE_LANE_TOKEN, LIVE_REST_ID_PREFIX, SOURCE_LANE_OWNER, SOURCE_REST_ID_PREFIX, isRestOwner, liveDemandTicket, liveStandbyTicket, sourceStandbyTicket, SETUP_DEMAND_ID_PREFIX, SETUP_LANE_TOKEN, SETUP_REST_ID_PREFIX, hyperliquidLaneStatus, hyperliquidMeterComposition, planHyperliquidQuota, setupDemandTicket, quotaSubscription, type HyperliquidMeterComposition, type HyperliquidQuotaPlan, type HyperliquidRestLane, type HyperliquidQuotaLease, type HyperliquidQuotaRequest, type HyperliquidQuotaSubscription } from './hyperliquid-global-quota.js';
 import {freezeLiveReservation} from '../copy/live/live-risk-reservation.js';
 import {liveSourceDigest} from '../copy/live/copy-live-source-evidence.js';
 import {liveSpan} from '../copy/live/live-execution-diagnostics.js';
-import { HYPERLIQUID_MAX_SETUP_CONNECTS, HYPERLIQUID_SEND_WINDOW_MS, HYPERLIQUID_STALE_LEASE_RECLAIM_MS } from '../config/constants/hyperliquid.js';
+import { HYPERLIQUID_MAX_SETUP_CONNECTS, HYPERLIQUID_SEND_WINDOW_MS, HYPERLIQUID_SOURCE_REST_CAP, HYPERLIQUID_STALE_LEASE_RECLAIM_MS } from '../config/constants/hyperliquid.js';
 
 export interface HyperliquidQuotaBinding {readonly egressKey:string;readonly ownerId:string;}
 /** PostgresHyperliquidQuota.meterSnapshot (diagnostics). */
@@ -67,13 +67,45 @@ export interface BoundHyperliquidQuota {
   releaseLiveRest?(token:string,deadline:number):Promise<void>;
   /** A worker running live copies: keeps one order's need free (live_standby). Optional: test doubles. */
   standbyLiveRest?(weight:number,deadline:number):Promise<void>;
+  /** A worker with fast-source copies running: keeps the source lane's reserve free of background (source_standby). Optional: test doubles. */
+  standbySourceRest?(weight:number,deadline:number):Promise<void>;
   reserveSocket(deadline:number,network?:LiveNetwork):Promise<{readonly connect:HyperliquidSendPermit;readonly connection:HyperliquidSocketQuota}>;
 }
 /** A REST charge's class when nothing more specific applies (`fallback`),
- * and how long a page read has waited so far (`heldMs`). */
-export interface HyperliquidRestOptions {readonly fallback?:HyperliquidRestLane;readonly heldMs?:number;}
+ * how long a page read has waited so far (`heldMs`), and the charge's owner
+ * named in its ticket (`owner`, REST_OWNER: `order`, `settle`, `explorer`,
+ * `stop`; the meter's composition tells them apart). Without
+ * one, the owner the work runs under (runAsRestOwner), if any. */
+export interface HyperliquidRestOptions {readonly fallback?:HyperliquidRestLane;readonly heldMs?:number;readonly owner?:string;}
 const fail=(code:string):never=>{throw new LiveBoundaryError(code);};
-const LANES:readonly unknown[]=['background','setup','live','page'];
+const LANES:readonly unknown[]=['background','setup','live','page','source'];
+const restOwner=new AsyncLocalStorage<string>();
+/** Runs work whose REST charges carry `owner` in their tickets (an order's,
+ * a settlement pass's, a stop's), so the meter's composition can tell them
+ * apart; an explicit `options.owner` on a charge still wins. */
+export function runAsRestOwner<T>(owner:string,work:()=>Promise<T>):Promise<T>{
+  if(!isRestOwner(owner))fail('hyperliquid_quota_invalid');
+  return restOwner.run(owner,work);
+}
+/** The owner the current work's charges carry, or undefined (runAsRestOwner). */
+export function currentRestOwner():string|undefined{return restOwner.getStore();}
+const sourceLane=new AsyncLocalStorage<string>();
+/** Runs the fast leader source's reads of one leader (`owner`:
+ * sourceLaneOwner): their charges go in the `source` lane under that owner
+ * (`source:<owner>:<id>`), whatever fallback the client asked for. A live
+ * or setup context and an explicit lane still win. */
+export function runInSourceLane<T>(owner:string,work:()=>Promise<T>):Promise<T>{
+  if(typeof owner!=='string'||!SOURCE_LANE_OWNER.test(owner))fail('hyperliquid_quota_invalid');
+  return sourceLane.run(owner,work);
+}
+/** The leader whose fast-source reads the current work is, or undefined (runInSourceLane). */
+export function currentSourceLane():string|undefined{return sourceLane.getStore();}
+/** A leader's source-lane owner: its address's hash (8 hex), the same in
+ * every process; never the address itself. */
+export function sourceLaneOwner(leaderAddress:string):string{
+  if(typeof leaderAddress!=='string'||!/^0x[0-9a-fA-F]{40}$/.test(leaderAddress))fail('hyperliquid_quota_invalid');
+  return createHash('sha256').update(`source-lane:${leaderAddress.toLowerCase()}`).digest('hex').slice(0,8);
+}
 const setupLane=new AsyncLocalStorage<{readonly token?:string}>();
 /** Runs a copy setup's step: its unlabelled REST charges (outside an original
  * session) go in the `setup` lane, ahead of background within the setups'
@@ -275,21 +307,25 @@ export class PostgresHyperliquidQuota {
   private bind(binding:HyperliquidQuotaBinding,session?:LiveRiskDatabaseSession):BoundHyperliquidQuota {
     const apply=(request:(now:number,sendUntil:number)=>HyperliquidQuotaRequest,deadline?:number)=>this.apply(binding,request,deadline,session);
     return Object.freeze({acquireRest:async(weight:number,deadline:number,requested?:HyperliquidRestLane,options:HyperliquidRestOptions={})=>{
-      if(requested!==undefined&&!LANES.includes(requested)||options.fallback!==undefined&&!LANES.includes(options.fallback))fail('hyperliquid_quota_invalid');
+      if(requested!==undefined&&!LANES.includes(requested)||options.fallback!==undefined&&!LANES.includes(options.fallback)||options.owner!==undefined&&!isRestOwner(options.owner))fail('hyperliquid_quota_invalid');
       const heldMs=options.heldMs===undefined?0:Math.max(0,Math.min(65_000,Math.floor(options.heldMs)));if(!Number.isSafeInteger(heldMs))fail('hyperliquid_quota_invalid');
       // Live copy work (an original session, or a live order's runInLiveLane)
       // and a setup's step (runInSetupLane): their charges without a lane are
-      // the live and the setup lane's; else the caller's fallback; else
+      // the live and the setup lane's; the fast leader source's reads
+      // (runInSourceLane) the source lane's; else the caller's fallback; else
       // background (the meter treats a charge without a lane as background).
-      const live=liveLane.getStore(),setup=session||live!==undefined?undefined:setupLane.getStore();
-      const lane=requested??(session||live!==undefined?'live':setup?'setup':backgroundLane.getStore()?'background':options.fallback);
+      const live=liveLane.getStore(),setup=session||live!==undefined?undefined:setupLane.getStore(),source=session||live!==undefined||setup?undefined:sourceLane.getStore();
+      const lane=requested??(session||live!==undefined?'live':setup?'setup':source!==undefined?'source':backgroundLane.getStore()?'background':options.fallback);
+      // A source charge names its leader; a live one its owner (an explicit one, else the work's).
+      if(lane==='source'&&source===undefined)fail('hyperliquid_quota_invalid');
+      const owner=options.owner??restOwner.getStore();
       // Settlements ride on the next charge (no transaction of their own);
       // they are dropped once that charge commits, kept if it fails.
       const settle=session?[]:this.pendingSettlements(binding.egressKey);
       if(lane==='background'&&!session)this.refuseKnownFull(binding.egressKey,weight);
       const id=lane==='setup'?`${SETUP_REST_ID_PREFIX}${setup?.token!==undefined?`${setup.token}:`:''}${randomUUID()}`
-        :lane==='live'?`${LIVE_REST_ID_PREFIX}${live!==undefined?`${live}:`:''}${randomUUID()}`:lane==='background'?`${BACKGROUND_REST_ID_PREFIX}${randomUUID()}`
-        :lane==='page'?`${PAGE_REST_ID_PREFIX}${randomUUID()}`:randomUUID();let fresh:()=>void;
+        :lane==='live'?`${LIVE_REST_ID_PREFIX}${live!==undefined?`${live}:`:''}${owner!==undefined?`${owner}:`:''}${randomUUID()}`:lane==='background'?`${BACKGROUND_REST_ID_PREFIX}${randomUUID()}`
+        :lane==='page'?`${PAGE_REST_ID_PREFIX}${randomUUID()}`:lane==='source'?`${SOURCE_REST_ID_PREFIX}${source}:${randomUUID()}`:randomUUID();let fresh:()=>void;
       try{fresh=await apply((_now,sendUntil)=>({kind:'rest',id,weight,sendUntil,...(lane?{lane}:{}),...(lane==='page'&&heldMs>0?{heldMs}:{}),...(settle.length?{settle}:{})}),deadline);}
       catch(error){if(lane==='background'&&!session)this.rememberFull(binding.egressKey,weight,error);throw error;}
       if(lane==='background'&&!session)this.backgroundFull.delete(binding.egressKey);
@@ -326,6 +362,10 @@ export class PostgresHyperliquidQuota {
       if(session||!Number.isSafeInteger(weight)||weight<1||weight>HYPERLIQUID_MAX_LIVE_DEMAND)fail('hyperliquid_quota_invalid');
       const id=liveStandbyTicket(weight);
       await this.apply(binding,(_now,sendUntil)=>({kind:'live_standby',id,weight,sendUntil}),deadline);
+    },standbySourceRest:async(weight:number,deadline:number)=>{
+      if(session||!Number.isSafeInteger(weight)||weight<1||weight>HYPERLIQUID_SOURCE_REST_CAP)fail('hyperliquid_quota_invalid');
+      const id=sourceStandbyTicket(weight);
+      await this.apply(binding,(_now,sendUntil)=>({kind:'source_standby',id,weight,sendUntil}),deadline);
     },reserveSocket:async(deadline:number,network:LiveNetwork='testnet')=>{
       if(network!=='testnet'&&network!=='mainnet')fail('hyperliquid_quota_invalid');
       const id=randomUUID(),fenceToken=randomBytes(32).toString('hex'),socketId=randomUUID(),ownerId=binding.ownerId,source={leaseId:id,fenceToken,ownerId};

@@ -67,7 +67,7 @@ export interface LiveEngineDependencies {
   /** Realtime mainnet source for COPY_LIVE_FAST_SOURCE leaders; read on a
    * kick, and by the pass while the trade feed is down. */
   readonly fast?: {
-    readonly source: Pick<FastMainnetSource, 'read' | 'witness' | 'followUp' | 'graceMs'> & Partial<Pick<FastMainnetSource, 'lastTiming'>>;
+    readonly source: Pick<FastMainnetSource, 'read' | 'witness' | 'followUp' | 'nextReadAt' | 'graceMs'> & Partial<Pick<FastMainnetSource, 'lastTiming'>>;
     readonly leaders: 'all' | ReadonlySet<string>;
     /** Whether the trade feed (kicks) is up; leaders are polled while it is not. */
     readonly feedUp?: () => boolean;
@@ -213,15 +213,20 @@ export class CopyLiveEngine {
   }
 
   /** Notes a feed trade; returns when to kick its leader (a fill is certified
-   * once graceMs old), or null for a watched-source leader. */
+   * once graceMs old, and the leader's reads come no closer than graceMs:
+   * FastMainnetSource.witness), or null for a watched-source leader. */
   witness(leader: string, tid: number, time: number): number | null {
     if (!this.fastLeader({ network: 'mainnet', leaderAddress: leader })) return null;
-    this.deps.fast!.source.witness(leader, tid, time);
-    return time + this.deps.fast!.source.graceMs + 100;
+    return this.deps.fast!.source.witness(leader, tid, time);
   }
   /** After a kick: when the fast source next has something to certify. */
   followUp(leader: string): number | null {
     return this.fastLeader({ network: 'mainnet', leaderAddress: leader }) ? this.deps.fast!.source.followUp(leader) : null;
+  }
+  /** The earliest the fast source may read this leader again (0: now; a
+   * kick due before it is moved there: one read per leader per G window). */
+  nextReadAt(leader: string): number {
+    return this.fastLeader({ network: 'mainnet', leaderAddress: leader }) ? this.deps.fast!.source.nextReadAt(leader) : 0;
   }
 
   /**

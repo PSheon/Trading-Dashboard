@@ -279,9 +279,13 @@ export class CopyFundingService {
           if (!checkpoint) return wire(await this.repository.find(userId, id));
           current = checkpoint;
         }
+        // The explorer read is live on the shared meter while someone waits on it (an owner's own
+        // lookup, or a copy setup waiting for its deposit's credit); the monitor's pass over other
+        // transfers is background, so it never takes an order's room.
+        const waited = !background || operation.liveSetupId ? "live" : "background";
         while (scan.pendingDetails?.length) {
           const pending = scan.pendingDetails[0]!;
-          const details = await read(() => this.exchange.txDetails(operation.network, pending.hash));
+          const details = await read(() => this.exchange.txDetails(operation.network, pending.hash, waited));
           delete scan.backoff; delete scan.explorerFailingSince;
           const proof = fundingCreditEvidence(operation, pending.hash, details, pending.ledger);
           if (proof && !scan.receipts.some((receipt) => digest(receipt) === digest(proof)) && scan.receipts.length < 2) scan.receipts.push(proof);

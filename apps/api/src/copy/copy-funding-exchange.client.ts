@@ -1,7 +1,7 @@
 import { Injectable,Optional } from "@nestjs/common";
 import { jsonDigest } from '../common/crypto/digest.js';
 import { WALLET_NETWORKS, usdSendRequest, withdrawalUnits } from "@trading-dashboard/shared/contracts";
-import { RequestBudgeterService } from "../hyperliquid/request-budgeter.service.js";
+import { RequestBudgeterService, type RequestPriority } from "../hyperliquid/request-budgeter.service.js";
 import { reserveLive, takeReserved, type LiveBudgetReservation } from "../hyperliquid/hyperliquid-budget-wait.js";
 import { readInfoJson } from "../hyperliquid/response-validation.js";
 import {HyperliquidGlobalTransport} from '../hyperliquid/hyperliquid-global-transport.js';
@@ -32,13 +32,15 @@ export function consumeFundingNotDispatched(error: unknown, attempt: FundingRow)
 export class CopyFundingExchangeClient {
   constructor(private readonly budget: RequestBudgeterService,@Optional() private readonly global?:HyperliquidGlobalTransport) {if(global!==undefined&&!(global instanceof HyperliquidGlobalTransport))throw new LiveBoundaryError("funding_client_invalid");}
   acquire() { return reserveLive(this.budget, 1, { maxWaitMs: 10_000 }); }
-  private async read(url: string, body: Record<string, unknown>, weight: number, receipt = false, prepaid?: LiveBudgetReservation | void): Promise<unknown> {
+  private async read(url: string, body: Record<string, unknown>, weight: number, receipt = false, prepaid?: LiveBudgetReservation | void, priority: RequestPriority = "live"): Promise<unknown> {
     // A receipt lookup has no proof clock: it may queue up to one refill (≤120 s) instead of
     // abandoning on a 10 s estimate; HTTP stays 10 s after admission; balances/sends keep 10 s.
     const maxWaitMs = receipt ? Math.min(120_000, Math.max(10_000, this.budget.refillMs())) : 10_000;
     // A caller's reservation (a setup step's, taken before its shared claim) pays for it.
     if (!takeReserved(prepaid, weight)) await reserveLive(this.budget, weight, { maxWaitMs });
-    const fetcher=this.global?(url.endsWith("/explorer")?this.global.fetchExplorer:this.global.fetchInfo):fetch;
+    // On the shared meter an explorer read someone waits on (a setup's deposit, an owner's lookup)
+    // is live; one nobody waits on (the monitor's pass) is background, so it never takes an order's room.
+    const fetcher=this.global?(url.endsWith("/explorer")?priority==="background"?this.global.fetchBackgroundExplorer:this.global.fetchExplorer:this.global.fetchInfo):fetch;
     const response = await fetcher(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), redirect: "error", signal: AbortSignal.timeout(10_000) });
     if (!response.ok) { await response.body?.cancel().catch(() => undefined); throw new Error("Funding evidence unavailable"); }
     return readInfoJson(response, "copy funding evidence", 1024 * 1024);
@@ -117,11 +119,12 @@ export class CopyFundingExchangeClient {
     }
   }
   /** A transfer's explorer details. Unreachable rejects `funding_explorer_unreachable` (a wait, not
-   * an attempt); either outcome moves the explorerHealth gauge. */
-  txDetails(network: FundingRow["network"], hash: string): Promise<unknown> {
+   * an attempt); either outcome moves the explorerHealth gauge. `priority`: `live` while a setup
+   * or an owner waits on it (the shared meter's live lane), `background` for the monitor's pass. */
+  txDetails(network: FundingRow["network"], hash: string, priority: RequestPriority = "live"): Promise<unknown> {
     if (!/^0x[0-9a-f]{64}$/.test(hash)) throw new Error("Invalid funding evidence");
     const url = network === "mainnet" ? "https://rpc.hyperliquid.xyz/explorer" : "https://rpc.hyperliquid-testnet.xyz/explorer";
-    return this.read(url, { type: "txDetails", hash }, 40, true).then((details) => { explorerHealth.reachable(); return details; }, (error: unknown) => {
+    return this.read(url, { type: "txDetails", hash }, 40, true, undefined, priority).then((details) => { explorerHealth.reachable(); return details; }, (error: unknown) => {
       if (!networkUnreachable(error)) throw error;
       explorerHealth.unreachable();
       throw new LiveBoundaryError("funding_explorer_unreachable");

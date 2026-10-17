@@ -44,7 +44,7 @@ export class AdminSystemService {
         // This process's own gauge: the api confirms deposits and returns too.
         explorerReachable: explorer.reachable, explorerFailingSince: explorer.failingSince?.toISOString() ?? null,
         // The shared meter's setup, live and page lanes, as this process reads them.
-        ...(meter ? { setupDemand: lane(meter.setupDemand), liveDemand: lane(meter.liveDemand), pageLane: lane(meter.pageLane) } : {}),
+        ...(meter ? { setupDemand: lane(meter.setupDemand), liveDemand: lane(meter.liveDemand), pageLane: lane(meter.pageLane), sourceLane: lane(meter.sourceLane) } : {}),
         // This process's public IPs (HL_EGRESS_IDENTITY; absent while off).
         ...(egressIdentity.mode === "off" ? {} : { egressIdentity: egressIdentity.snapshot() }),
         // Hyperliquid's rate limits this process met; foreign_usage_suspected among them.

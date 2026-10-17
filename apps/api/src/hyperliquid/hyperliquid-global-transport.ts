@@ -2,13 +2,14 @@ import {AsyncLocalStorage} from 'node:async_hooks';
 import {setTimeout as wait} from 'node:timers/promises';
 import { HyperliquidRestCapacityError, sharedRestRetryAfterMs } from './hyperliquid-capacity-error.js';
 import { HYPERLIQUID_MAX_LIVE_DEMAND, type HyperliquidMeterComposition, type HyperliquidRestLane } from './hyperliquid-global-quota.js';
-import {PostgresHyperliquidQuota,liveLaneTokenFor,newLiveLaneToken,runInBackgroundLane,runInLiveLane,runInSetupLane,setupLaneToken,type BoundHyperliquidQuota,type HyperliquidMeterSnapshot,type HyperliquidSendPermit} from './postgres-hyperliquid-quota.js';
+import {PostgresHyperliquidQuota,currentRestOwner,liveLaneTokenFor,newLiveLaneToken,runAsRestOwner,runInBackgroundLane,runInLiveLane,runInSetupLane,runInSourceLane,setupLaneToken,sourceLaneOwner,type BoundHyperliquidQuota,type HyperliquidMeterSnapshot,type HyperliquidSendPermit} from './postgres-hyperliquid-quota.js';
 import {assertOriginalLiveRiskSession,type LiveRiskDatabaseSession} from '../copy/live/postgres-live-risk-scope.js';
 import {LiveBoundaryError} from '../copy/live/wallet-authorization.js';
 import {infoListSurcharge,infoPrepaidWeight,infoWeight} from './info-weights.js';
 import {liveSpan,timedLiveSpan} from '../copy/live/live-execution-diagnostics.js';
 import {foreignUsage as processForeignUsage,isWsRateLimit,restWindowUse,wsWindowUse,type ForeignUsageCounter} from './foreign-usage.js';
-import { ANALYTICS_CAPACITY_WAIT_MS, ESSENTIAL_CAPACITY_WAIT_MS, LIVE_DEMAND_RENEW_MS, PAGE_CAPACITY_WAIT_MS, REST_CHARGE_LIFETIME_MS } from '../config/constants/hyperliquid.js';
+import { ANALYTICS_CAPACITY_WAIT_MS, ESSENTIAL_CAPACITY_WAIT_MS, HYPERLIQUID_SOURCE_REST_CAP, LIVE_DEMAND_RENEW_MS, PAGE_CAPACITY_WAIT_MS, REST_CHARGE_LIFETIME_MS, SOURCE_CAPACITY_WAIT_MS } from '../config/constants/hyperliquid.js';
+import { EXPLORER_WEIGHT } from './info-weights.js';
 const fail=(code:string):never=>{throw new LiveBoundaryError(code);};
 // The requests this process may send (any other is refused, never guessed);
 // their weights come from the one table (info-weights.ts).
@@ -84,6 +85,15 @@ export class HyperliquidGlobalTransport {
  /** Runs a copy setup's step: its unlabelled REST charges go in the setup
   * lane (`key`: the setup's id, as claimed). */
  runSetup<T>(work:()=>Promise<T>,key?:string):Promise<T>{return runInSetupLane(work,key===undefined?undefined:setupLaneToken(key));}
+ /** Runs the fast leader source's reads of `leaderAddress` (a kick's fills
+  * and TWAP slices): their charges go in the `source` lane under the
+  * leader's hash (`source:<hash>:<id>`, never the address), which yields to
+  * live orders and the standby and is never starved by background
+  * (HYPERLIQUID_SOURCE_REST_RESERVE). */
+ runSource<T>(leaderAddress:string,work:()=>Promise<T>):Promise<T>{return runInSourceLane(sourceLaneOwner(leaderAddress),work);}
+ /** Runs work whose REST charges name `owner` in their tickets (`order`,
+  * `settle`, `stop`): the meter's composition tells them apart. */
+ runOwned<T>(owner:string,work:()=>Promise<T>):Promise<T>{return runAsRestOwner(owner,work);}
  /**
   * A live order's need (`weight`: its evidence reads, risk gates, transport
   * check and POST), announced on the shared meter before its SQL locks:
@@ -131,6 +141,15 @@ export class HyperliquidGlobalTransport {
   if(this.isOriginal()||!Number.isSafeInteger(weight)||weight<1)fail('hyperliquid_quota_invalid');
   await this.currentQuota().standbyLiveRest?.(Math.min(HYPERLIQUID_MAX_LIVE_DEMAND,weight),this.now()+5000);
  }
+ /** A worker with fast-source copies running: records that the source
+  * lane's reserve (`weight`, HYPERLIQUID_SOURCE_REST_RESERVE) is kept free
+  * of background on the shared meter for HYPERLIQUID_LIVE_STANDBY_HOLD_MS
+  * (renewed with standbyLive), so a kick's read after a quiet minute finds
+  * room at once. Nothing is sent or waited for; a meter without it ignores it. */
+ async standbySource(weight:number):Promise<void>{
+  if(this.isOriginal()||!Number.isSafeInteger(weight)||weight<1)fail('hyperliquid_quota_invalid');
+  await this.currentQuota().standbySourceRest?.(Math.min(HYPERLIQUID_SOURCE_REST_CAP,weight),this.now()+5000);
+ }
  /** The shared meter's setup and live lanes on this transport's egress
   * (heartbeat): undefined when no egress is configured. */
  async laneStatus():Promise<Awaited<ReturnType<PostgresHyperliquidQuota['laneStatus']>>|undefined>{
@@ -170,20 +189,31 @@ export class HyperliquidGlobalTransport {
   }catch{/* never in the caller's way */}
   return result;
  }
- readonly fetchExplorer:typeof fetch=async(input,init)=>{
+ /** The explorer's `txDetails` (40) someone waits on: a deposit a copy setup
+  * is waiting to see credited, or an owner's own lookup. The live lane
+  * (ticket owner `explorer`), refused at once when it is full. */
+ readonly fetchExplorer:typeof fetch=(input,init)=>this.#explorer(input,init,undefined,false,0,'live');
+ /** The explorer's `txDetails` nobody waits on (the funding monitor's pass
+  * over pending transfers with no setup behind them): the background lane,
+  * waiting for room (at most ESSENTIAL_CAPACITY_WAIT_MS, never past its
+  * signal) instead of taking the live lane's room from orders. */
+ readonly fetchBackgroundExplorer:typeof fetch=(input,init)=>this.#explorer(input,init,'background',true,ESSENTIAL_CAPACITY_WAIT_MS);
+ async #explorer(input:Parameters<typeof fetch>[0],init:Parameters<typeof fetch>[1],lane:HyperliquidRestLane|undefined,waitForCapacity:boolean,maxWaitMs:number,fallback?:HyperliquidRestLane):Promise<Response>{
   const budget=this.currentQuota(),url=typeof input==='string'?input:input instanceof URL?input.toString():'';
   if(!['https://rpc.hyperliquid.xyz/explorer','https://rpc.hyperliquid-testnet.xyz/explorer'].includes(url)||!init||init.method!=='POST'||typeof init.body!=='string'||Buffer.byteLength(init.body)>1024)return fail('hyperliquid_quota_request_invalid');
   let body:unknown;try{body=JSON.parse(init.body);}catch{fail('hyperliquid_quota_request_invalid');}
   if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).sort().join(',')!=='hash,type'||(body as {type:unknown}).type!=='txDetails'||!/^0x[0-9a-f]{64}$/.test((body as {hash:string}).hash))fail('hyperliquid_quota_request_invalid');
   const captured:RequestInit={method:'POST',body:init.body,headers:new Headers(init.headers),redirect:'error',signal:init.signal};captured.signal?.throwIfAborted();
-  const permit=await budget.acquireRest(40,this.now()+5000,undefined,{fallback:'live'});return this.watchAnswer(permit.dispatch(()=>{captured.signal?.throwIfAborted();return this.rawFetch(url,captured);}));
- };
+  const permit=await this.#acquire(budget,EXPLORER_WEIGHT,lane,waitForCapacity,captured.signal,maxWaitMs,fallback,'explorer');captured.signal?.throwIfAborted();
+  return this.watchAnswer(permit.dispatch(()=>{captured.signal?.throwIfAborted();return this.rawFetch(url,captured);}));
+ }
  /**
   * The permit for one exchange POST (1 unit): an order, a cancel, a
   * leverage update, a deposit, return, refund or withdrawal (usdSend,
   * withdraw3), an account-mode or agent approval. Real money or an account
   * action: the live lane (a setup step's stays its setup's), so a full
-  * background lane or a waiting setup never leaves it not dispatched.
+  * background lane or a waiting setup never leaves it not dispatched. Its
+  * ticket names the work it runs in (an order's, a stop's: runOwned), if any.
   */
  async acquireExchange(deadline:number):Promise<HyperliquidSendPermit>{
   const permit=await this.currentQuota().acquireRest(1,deadline,undefined,{fallback:'live'});
@@ -196,6 +226,12 @@ export class HyperliquidGlobalTransport {
   * (a setup step's reads stay the setup's). The live lane: the whole window,
   * ahead of setups, pages and background; refused at once when it is full. */
  readonly fetchInfo:typeof fetch=(input,init)=>this.#info(input,init,undefined,false,PAGE_CAPACITY_WAIT_MS,'live');
+ /** The fast leader source's info request (a kick's `userFillsByTime`, its
+  * TWAP slices; runSource names the leader): the `source` lane, which
+  * yields to live orders and the standby; when it must, it waits for that
+  * room (at most SOURCE_CAPACITY_WAIT_MS, never past its signal) instead of
+  * failing at once and leaving the kick to the watched source. */
+ readonly fetchSourceInfo:typeof fetch=(input,init)=>this.#info(input,init,'source',true,SOURCE_CAPACITY_WAIT_MS);
  /** A page's info request (`page` lane): the whole window less what live
   * orders and granted setup claims need, held back for a waiting setup at
   * most HYPERLIQUID_PAGE_HOLD_MS; when it is full it waits for the charges
@@ -217,11 +253,13 @@ export class HyperliquidGlobalTransport {
   * fills and activity no room (503), so they never take the room above
   * HYPERLIQUID_BACKGROUND_REST_CAP that pages keep. */
  readonly fetchAnalyticsInfo:typeof fetch=(input,init)=>this.#info(input,init,'background',true,ANALYTICS_CAPACITY_WAIT_MS);
- async #acquire(budget:BoundHyperliquidQuota,weight:number,lane:HyperliquidRestLane|undefined,waitForCapacity:boolean,signal:AbortSignal|null|undefined,maxWaitMs=PAGE_CAPACITY_WAIT_MS,fallback?:HyperliquidRestLane){
+ async #acquire(budget:BoundHyperliquidQuota,weight:number,lane:HyperliquidRestLane|undefined,waitForCapacity:boolean,signal:AbortSignal|null|undefined,maxWaitMs=PAGE_CAPACITY_WAIT_MS,fallback?:HyperliquidRestLane,owner?:string){
   const asked=this.now(),giveUpAt=asked+maxWaitMs;
   for(;;){
    // A page says how long it has waited (the meter holds it back for a waiting setup at most HYPERLIQUID_PAGE_HOLD_MS).
-   const options=lane==='page'?{heldMs:this.now()-asked}:fallback?{fallback}:undefined;
+   // A charge with a named owner (an explorer read) keeps it unless the work it runs in has one of its own (runOwned).
+   const named=owner!==undefined&&currentRestOwner()===undefined?{owner}:undefined;
+   const options=lane==='page'?{heldMs:this.now()-asked,...named}:fallback?{fallback,...named}:named;
    try{return await (options?budget.acquireRest(weight,this.now()+5000,lane,options):lane===undefined?budget.acquireRest(weight,this.now()+5000):budget.acquireRest(weight,this.now()+5000,lane));}
    catch(error){
     const wait=waitForCapacity?sharedRestRetryAfterMs(error):undefined;

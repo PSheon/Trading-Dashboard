@@ -24,6 +24,7 @@ import { MainnetSourceReferenceReader } from '../live/live-source-reference.js';
 import { LiveExecutionRuntime } from '../live/live-execution-runtime.js';
 import { CopyLiveEngine, DEFAULT_ENGINE_OPTIONS } from './copy-live-engine.js';
 import { liveStandbyNeed } from './live-standby-need.js';
+import { HYPERLIQUID_SOURCE_REST_RESERVE } from '../../config/constants/hyperliquid.js';
 import { CopyLiveSettler } from './copy-live-settler.js';
 import { CopyLiveWorkerRepository } from './copy-live-worker.repository.js';
 import { WatchedMainnetSource } from './watched-mainnet-source.js';
@@ -98,11 +99,13 @@ export const liveEngineProvider: FactoryProvider<CopyLiveEngine | null> = {
       swept: stop => returns.swept(stop.id),
       autoReturn: new CopyLiveAutoReturn(network, returns, new CopyFundingExchangeClient(walletBudget, walletGlobal), workerSigner) });
     const manual = new CopyLiveManualCloser(stops, closer, scanner, new CopyLiveFlatCarry(network, pool), message => logger.warn(message), Date.now, stopTimings.retry.closeAttempts);
-    // Realtime mainnet signal (COPY_LIVE_FAST_SOURCE) via the info client's live lane.
+    // Realtime mainnet signal (COPY_LIVE_FAST_SOURCE): the info client's live
+    // priority on the local bucket; on the shared meter the `source` lane of
+    // the leader (runSource), which yields to the follower's own orders.
     const fast = live.fastSource ? {
       source: new FastMainnetSource({
-        fills: (leader, from) => info.userFillsSince(leader, from, 'live'),
-        twapSlices: async (leader, from) => (await info.userTwapSliceFillsByTime(leader, from, undefined, 'live')).map(twapSliceToFill),
+        fills: (leader, from) => walletGlobal.runSource(leader, () => info.userFillsSince(leader, from, 'live')),
+        twapSlices: (leader, from) => walletGlobal.runSource(leader, async () => (await info.userTwapSliceFillsByTime(leader, from, undefined, 'live')).map(twapSliceToFill)),
       }, live.fastSource.graceMs, Date.now, message => logger.warn(message), () => clockSkew.aheadMs()),
       leaders: live.fastSource.leaders,
       // No feed (or a socket down): the pass polls the fast leaders instead.
@@ -113,7 +116,13 @@ export const liveEngineProvider: FactoryProvider<CopyLiveEngine | null> = {
       // boundary, what the read cache holds left out; at most the startup
       // bound fit.weight) kept free on the shared meter while copies run:
       // an order never waits for background (liveStandbyNeed).
-      standby: async mandates => { const need = liveStandbyNeed(mandates, network, fit.weight); if (need >= 1) await walletGlobal.standbyLive(need); },
+      // With a fast source, the source lane's reserve is kept free of
+      // background beside it (standbySource), so a kick's read finds room.
+      standby: async mandates => {
+        const need = liveStandbyNeed(mandates, network, fit.weight);
+        if (need >= 1) await walletGlobal.standbyLive(need);
+        if (need >= 1 && fast) await walletGlobal.standbySource(HYPERLIQUID_SOURCE_REST_RESERVE);
+      },
       repository, sources, uow, watched: new WatchedMainnetSource(db, Date.now, message => logger.warn(message)),
       // Testnet leaders (testnet deployment only).
       testnetSource: new HyperliquidLiveSourceClient('testnet', weight => reserve(weight), walletGlobal.fetchInfo,

@@ -246,7 +246,8 @@ export class LiveExecutionRuntime {
     const onTiming: LiveExecutionTimingHook = event => { if (timings.length < 128) timings.push(event); };
     // Below the stages: where the evidence waits (meter transactions, sockets, waves).
     const spans = new LiveSpanRecorder();
-    const lane = <T>(work: () => Promise<T>) => liveToken === undefined ? work() : this.global.runLive(liveToken, work);
+    // Its charges are the live lane's under its demand token, named the order's (`live:<token>:order:`).
+    const lane = <T>(work: () => Promise<T>) => this.global.runOwned('order', () => liveToken === undefined ? work() : this.global.runLive(liveToken, work));
     try { return await spans.run(() => lane(() => scope.run({ userId: request.userId, network: this.network, accountAddress,
       source: { network: routing.mandate.sourceNetwork, leaderAddress } }, async (_scope, session) => this.global.runOriginal(session, async () => {
       // Resolve global configuration against the original private context before

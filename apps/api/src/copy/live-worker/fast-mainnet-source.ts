@@ -6,8 +6,10 @@ import { address, LiveBoundaryError } from '../live/wallet-authorization.js';
 import { FOLLOW_UP_MAX_MS, FOLLOW_UP_MIN_MS, WITNESS_EXPIRY_MS } from '../../config/constants/timings.js';
 import { liveEvidenceMaxAgeMs } from '../../config/live-evidence-window.js';
 
-/** Fast-source provider reads (mainnet live lane; worst-case list weight
- * acquired, unused part returned: `HyperliquidInfoClient.postList`). */
+/** Fast-source provider reads (the shared meter's `source` lane of the
+ * leader, HyperliquidGlobalTransport.runSource; worst-case list weight
+ * acquired on the local bucket, unused part returned:
+ * `HyperliquidInfoClient.postList`). */
 export interface FastSourceReader {
   /** `userFillsByTime` from `from` to now, and when the request left (after any budget wait). */
   fills(leader: string, from: number): Promise<{ fills: HlUserFill[]; sentAt: number }>;
@@ -47,6 +49,14 @@ interface LeaderState {
  * Rows are normalised like the watched source (`fills.raw`), so the same tid
  * from both paths is the same evidence. The TWAP endpoint is read only when a
  * zero-hash fill or a missing witnessed trade calls for it.
+ *
+ * Reads of one leader are coalesced: a trade witnessed while a read is
+ * scheduled or in flight for its leader needs no read of its own (the one
+ * read, from the stream's coverage to now, catches every trade before its
+ * `to`), and two reads come no closer than G (`nextReadAt`): at most 60/G a
+ * minute per leader whatever the trade rate (FAST_SOURCE_LEADER_WEIGHT).
+ * Before 2026-10-17 every trade that arrived during a read brought one
+ * more read right after it.
  */
 export class FastMainnetSource {
   private readonly leaders = new Map<string, LeaderState>();
@@ -66,11 +76,21 @@ export class FastMainnetSource {
     return state;
   }
 
-  /** A trade the feed reported for this leader (exchange time, tid). */
-  witness(leader: string, tid: number | string, time: number): void {
-    if (!Number.isSafeInteger(time) || time <= 0) return;
-    const witnessed = this.state(address(leader)).witnessed, id = String(tid);
+  /** A trade the feed reported for this leader (exchange time, tid): when a
+   * read may certify it (G after it, and never within G of the leader's
+   * last read), or null for a time that is no trade's. */
+  witness(leader: string, tid: number | string, time: number): number | null {
+    if (!Number.isSafeInteger(time) || time <= 0) return null;
+    const leaderAddress = address(leader), witnessed = this.state(leaderAddress).witnessed, id = String(tid);
     if (!witnessed.has(id)) witnessed.set(id, time);
+    return Math.max(time + this.graceMs + 100, this.nextReadAt(leaderAddress));
+  }
+
+  /** The earliest a read of this leader may start: G after its last one
+   * began (a read in flight counts), 0 for a leader never read. */
+  nextReadAt(leader: string): number {
+    const state = this.leaders.get(address(leader));
+    return state ? state.lastReadAt + this.graceMs : 0;
   }
 
   stats(leader: string): FastSourceStats {
@@ -83,7 +103,8 @@ export class FastMainnetSource {
     if (!state) return null;
     const witnessed = [...state.witnessed.values()], earliest = Math.min(...witnessed, state.beyond ?? Infinity);
     if (!Number.isFinite(earliest)) return null;
-    const gap = Math.min(FOLLOW_UP_MAX_MS, FOLLOW_UP_MIN_MS * 2 ** state.misses);
+    // Never within G of the last read (nextReadAt); a second apart, doubling, while a witnessed trade stays missing.
+    const gap = Math.max(this.graceMs, Math.min(FOLLOW_UP_MAX_MS, FOLLOW_UP_MIN_MS * 2 ** state.misses));
     return Math.max(earliest + this.graceMs + 100, state.lastReadAt + gap);
   }
 

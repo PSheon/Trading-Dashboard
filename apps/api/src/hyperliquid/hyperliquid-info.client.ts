@@ -5,6 +5,7 @@ import { Optional } from "@nestjs/common";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { Injectable, Logger } from "@nestjs/common";
 import { HyperliquidGlobalTransport, settleListAnswer } from './hyperliquid-global-transport.js';
+import { currentSourceLane } from './postgres-hyperliquid-quota.js';
 import { LiveBoundaryError } from '../copy/live/wallet-authorization.js';
 
 import { CONSUMER_ANALYTICS, currentBudgetConsumer, isPageWork, PAGE_WORK_MAX_RANK, RequestBudgeterService, type RequestPriority } from "./request-budgeter.service.js";
@@ -223,7 +224,8 @@ export class HyperliquidInfoClient {
 
     const url = apiUrl ?? this.config.value.hyperliquid.apiUrl;
     if (!(this.globalTransport instanceof HyperliquidGlobalTransport)) throw new LiveBoundaryError('hyperliquid_quota_egress_unconfigured');
-    const send = priority === "live" ? this.globalTransport.fetchInfo : page ? this.globalTransport.fetchPageInfo
+    // The fast leader source's reads (HyperliquidGlobalTransport.runSource) go in the shared meter's source lane.
+    const send = priority === "live" ? (currentSourceLane() !== undefined ? this.globalTransport.fetchSourceInfo : this.globalTransport.fetchInfo) : page ? this.globalTransport.fetchPageInfo
       : analytics && priority === "background" ? this.globalTransport.fetchAnalyticsInfo
       : essential ? this.globalTransport.fetchEssentialInfo : this.globalTransport.fetchBackgroundInfo;
     const res = await send(url, {

@@ -29,9 +29,15 @@
 //    .claude/logs/worker-3010.log): under --evidence-max-ms (3500), and no attempt failed live_risk_stale or
 //    a generation proof (lib.mjs EVIDENCE_FAILURES). A testnet order is judged without its dex fan-out (the
 //    run's testnet perpDexs count; criteria.mjs dexFanout), a mainnet order on its raw evidence; both shown,
-//    with the fan-out's ms/dex and a projection to --mainnet-dexes (11) mainnet venues;
+//    with the fan-out's ms/dex and a projection to --mainnet-dexes (11) mainnet venues. Each scenario is
+//    judged on its own checks (criteria.mjs classifyScenario): a latency criterion miss (judged evidence at or
+//    over the limit, no money effect) is recorded as FAIL and the gate goes on; only a failure that makes
+//    continuing unsafe (a leader leg, a mirror, the reconcile, a stop, the follower not flat) aborts the rest;
 // 7. a copy still running at the end is stopped; a summary table (pass/fail per check, latency p50/p95),
-//    then one line per scenario: pass/fail and its orders' evidence p50/p95/max; then the MEASUREMENTS block
+//    then one line per scenario: pass/fail, its orders' evidence p50/p95/max, criterion misses, trip-wire
+//    hits (legs lost to evidence age; evidence-age failures over 5 % of the run's attempts) and its dispatch
+//    created → sent latency; the verdict block (`gate: PASS`, or `gate: FAIL (criterion miss: n scenarios;
+//    trip-wire hits: m)`, with the testnet note when the window in force is not 5000); then the MEASUREMENTS block
 //    (measure.mjs; recorded, never pass/fail): the POST round trip, close and leg attempts, the delay after a
 //    failed attempt, the signer's wallet check age, the workers' foreignUsage / publicIps at start and end
 //    (--measure-workers, default --worker) and the rate-limit lines, the setups' claim waits.
@@ -55,7 +61,7 @@ import { resolve } from "node:path";
 import { EVIDENCE_FAILURES, EVIDENCE_MAX_MS, EXIT, evidenceWindowLabel, evidenceWindowMs, GATE_SCENARIOS, HARNESS_LEADER, ROOT, SCENARIOS, evidenceStats, fundingGate, lastStartRtt, loadEnv, parseScenarios, parseStuckRows, planCleanup, profileEnv,
   renderGateSummary, renderSpans, renderSummary, scanWorkerLog, stopSettled, stuckRowsSql, termsFor, waitFor, zeroCodeCounts } from "./lib.mjs";
 import { apiClient, confirmFromPortfolio, launch, login } from "./follower.mjs";
-import { MAINNET_DEXES, evidenceDetail, judgeOrders, judgedStats } from "./criteria.mjs";
+import { MAINNET_DEXES, classifyScenario, evidenceDetail, judgeOrders, judgedStats, renderGateVerdict, tripWires } from "./criteria.mjs";
 import { attemptDelays, claimWaitSummary, dispatchMeasures, heartbeatDeltas, heartbeatReading, measureSql, renderMeasurements, scanMeasureLog } from "./measure.mjs";
 
 const args = process.argv.slice(2);
@@ -147,8 +153,12 @@ async function health(url) { try { const r = await fetch(url, { signal: AbortSig
 
 const env = loadEnv();
 let browser = null, follower = null, setupId = null;
-/** One row per scenario (the gate's table): pass/fail and its orders' evidence. */
+/** One row per scenario (the gate's table): pass/fail, its orders' evidence, its class (criteria.mjs
+ * classifyScenario: criterion miss, trip-wire) and its dispatch created → sent latency. */
 const scenarioRows = [];
+/** The run's worker-log slice over every scenario (the trip-wire's 5 % rule is a run figure), and the
+ * scenario whose failure stopped the gate (null: every scenario ran). */
+const gateRun = { failures: [], refusals: [], orders: [], abortedAfter: null, abortedBy: [] };
 /** contention.mjs while the scenarios run (--contention), and its latest counts. */
 let contention = null;
 /** The measurements' inputs: the run's start (worker log offset), the workers' first heartbeats, the
@@ -188,9 +198,14 @@ async function measurements() {
   return renderMeasurements(m) + (m.logNote && m.log ? `\n(${m.logNote})` : "");
 }
 const summary = (extra = {}, measured = null) => {
+  // The gate table, then its verdict block (the two classes, the abort, the testnet note, `gate: PASS|FAIL …`);
+  // the verdict line is repeated as the summary's last line.
+  const verdict = scenarioRows.length ? renderGateVerdict(scenarioRows, { maxMs: EVIDENCE_MAX, windowMs: EVIDENCE_WINDOW, run: tripWires(gateRun),
+    abortedAfter: gateRun.abortedAfter, abortedBy: gateRun.abortedBy, venues: testnetDexes?.venues ?? null }) : null;
   const text = renderSummary({ checks, mode: DRY ? "dry run" : "full", ...extra }) +
-    (scenarioRows.length ? `\n\n${renderGateSummary(scenarioRows, EVIDENCE_MAX, EVIDENCE_WINDOW)}\n\n${renderSpans(scenarioRows)}` : "") +
-    (measured ? `\n\n${measured}` : "");
+    (verdict ? `\n\n${renderGateSummary(scenarioRows, EVIDENCE_MAX, EVIDENCE_WINDOW)}\n\n${verdict}\n\n${renderSpans(scenarioRows)}` : "") +
+    (measured ? `\n\n${measured}` : "") +
+    (verdict ? `\n\n${verdict.split("\n").at(-1)}` : "");
   console.log(`\n${text}\n`);
   writeFileSync(SUMMARY, `${text}\n`);
   log("summary_written", { path: SUMMARY });
@@ -434,9 +449,11 @@ try {
    * each one's evidence under EVIDENCE_MAX, and no attempt failed for its
    * evidence's age or generation proof. `required`: a scenario whose legs
    * must have produced orders (a gate scenario); otherwise none is a skip.
+   * Returns the judged orders and the slice's failed attempts and refused legs
+   * (the trip-wire's inputs, criteria.mjs tripWires).
    */
   async function evidenceCheck(label, mark, { required }) {
-    if (mark.offset === null) { check(`${label}_evidence`, required ? false : null, `no worker log at ${WORKER_LOG} (--worker-log)`); return []; }
+    if (mark.offset === null) { check(`${label}_evidence`, required ? false : null, `no worker log at ${WORKER_LOG} (--worker-log)`); return { orders: [], failures: [], refusals: [] }; }
     const scanned = scanWorkerLog(readLogFrom(mark.offset), { since: mark.at - 1000 }), failures = scanned.failures;
     // Testnet orders: judged without the dex fan-out (criteria.mjs); mainnet orders: raw.
     const venues = scanned.orders.some((o) => o.network === "testnet") ? await testnetVenues() : null;
@@ -451,7 +468,7 @@ try {
     const bad = failures.filter((f) => EVIDENCE_FAILURES.includes(f.reason));
     const count = (list) => JSON.stringify(Object.fromEntries([...new Set(list.map((f) => f.reason))].map((r) => [r, list.filter((f) => f.reason === r).length])));
     check(`${label}_no_evidence_failures`, bad.length === 0, bad.length ? `failed attempts: ${count(bad)}` : failures.length ? `other failed attempts: ${count(failures)}` : "no failed attempt");
-    return orders;
+    return { orders, failures, refusals: scanned.refusals };
   }
   /** Each scenario runs on `copy` (a running copy) and returns whether the copy still runs. */
   const scenarios = {
@@ -673,19 +690,31 @@ try {
     child.on("exit", (code) => { own.exited = true; log("contention_exited", { code }); });
     await sleep(3000); // the lane fills before the first order
   }
+  // Each scenario is judged on its own checks (criteria.mjs classifyScenario). A latency criterion miss
+  // or a failed attempt whose retry settled is recorded as FAIL and the gate goes on: the copy continues
+  // to the next scenario and to the final stop. A failure that makes continuing unsafe or meaningless
+  // (a leader leg, a mirror, the reconcile, a stop, the follower not flat) aborts; the rest are SKIP.
   let copy = null;
   for (const [i, name] of SCENARIO_LIST.entries()) {
     copy ??= await startCopy(i === 0 ? "copy" : `copy_${i + 1}`);
     log("scenario_start", { scenario: name, about: SCENARIOS[name].about, strategyId: copy.strategyId, account: copy.account });
     const first = checks.length, mark = { offset: logSize(), at: Date.now() };
+    lastReconcile = null;
     if (!(await scenarios[name](copy))) copy = null;
-    const orders = await evidenceCheck(name.replace(/-/g, "_"), mark, { required: GATE_SCENARIOS.includes(name) });
-    scenarioRows.push({ name, ok: !checks.slice(first).some((c) => c.ok === false), orders });
-    if (checks.some((c) => c.ok === false)) {
-      log("scenarios_stopped_after_failure", { scenario: name });
+    const evidence = await evidenceCheck(name.replace(/-/g, "_"), mark, { required: GATE_SCENARIOS.includes(name) });
+    const verdict = classifyScenario({ checks: checks.slice(first), ...evidence, maxMs: EVIDENCE_MAX });
+    for (const key of ["failures", "refusals", "orders"]) gateRun[key].push(...evidence[key]);
+    scenarioRows.push({ name, ok: verdict.ok, orders: evidence.orders, failed: verdict.failed, over: verdict.over, criterionMiss: verdict.criterionMiss, tripWire: verdict.tripWire,
+      createdToSent: lastReconcile?.signalLatencySeconds?.createdToSent ?? null });
+    log("scenario_end", { scenario: name, ok: verdict.ok, failed: verdict.failed, criterionMiss: verdict.criterionMiss, over: verdict.over,
+      tripWireHits: verdict.tripWire.hits, lostLegs: verdict.tripWire.lostLegs, abort: verdict.abort });
+    if (verdict.abort) {
+      log("scenarios_stopped_after_failure", { scenario: name, checks: verdict.abortedBy });
+      gateRun.abortedAfter = name; gateRun.abortedBy = verdict.abortedBy;
       for (const rest of SCENARIO_LIST.slice(i + 1)) scenarioRows.push({ name: rest, ok: null, orders: [] });
       break;
     }
+    if (!verdict.ok) log("scenario_failed_gate_continues", { scenario: name, checks: verdict.failed });
   }
   // --- 7. a copy still running is stopped (its return credited) ---------------------------------------------
   if (copy) await stopCheck("final", copy);

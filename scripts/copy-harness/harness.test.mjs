@@ -95,6 +95,25 @@ test("an unfunded run has its own exit code", () => {
   assert.notEqual(EXIT.unfunded, EXIT.failed);
 });
 
+import { readFileSync } from "node:fs";
+test("run.mjs judges each scenario on its own checks and stops the gate only on an abort (criteria.mjs classifyScenario), never on a criterion miss", () => {
+  // run.mjs needs the stack to run; its scenario loop is read as source. The reviewer's ruling (2026-10-17): gate 12 stopped
+  // after merged's 3591 ms order, so flip and stop-open never ran.
+  const source = readFileSync(new URL("./run.mjs", import.meta.url), "utf8");
+  const loop = source.slice(source.indexOf("for (const [i, name] of SCENARIO_LIST.entries())"), source.indexOf("// --- 7."));
+  assert.ok(loop.length > 0);
+  assert.match(loop, /classifyScenario\(\{ checks: checks\.slice\(first\)/, "each scenario is classified on its own checks");
+  assert.match(loop, /if \(verdict\.abort\) \{\s*log\("scenarios_stopped_after_failure"[\s\S]*?break;\s*\}/, "only an abort stops the later scenarios");
+  assert.equal((loop.match(/break;/g) ?? []).length, 1, "one exit from the loop: the abort");
+  assert.doesNotMatch(loop, /checks\.some\(\(c\) => c\.ok === false\)/, "an earlier failed check (a latency miss) no longer stops the gate");
+  assert.match(loop, /scenario_failed_gate_continues/);
+  // The table's row carries the classes and the created → sent latency; the summary prints the verdict block.
+  for (const field of ["criterionMiss: verdict.criterionMiss", "tripWire: verdict.tripWire", "createdToSent: lastReconcile?.signalLatencySeconds?.createdToSent"]) assert.ok(loop.includes(field), field);
+  assert.match(source, /renderGateVerdict\(scenarioRows, \{ maxMs: EVIDENCE_MAX, windowMs: EVIDENCE_WINDOW, run: tripWires\(gateRun\)/);
+  // A copy still running after the loop is stopped whatever the verdict (the final stop).
+  assert.match(source.slice(source.indexOf("// --- 7.")), /if \(copy\) await stopCheck\("final", copy\);/);
+});
+
 // --- reconciliation rules (checks.mjs) ----------------------------------------------------------
 import { DEFAULT_ALLOWED_REFUSALS, evaluate, fixedOrderSize, parseAllowedRefusals } from "./checks.mjs";
 

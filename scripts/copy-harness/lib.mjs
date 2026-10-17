@@ -265,16 +265,21 @@ export function orderEvidence(timings) {
 
 /** `leg <id> attempt <n> failed: <reason>; elapsed <ms> ms, source age <ms> ms, …` (CopyLiveEngine). */
 const ATTEMPT_FAILED = /^leg (\S+) attempt (\d+) failed: ([a-z0-9_]+); elapsed (\d+) ms, source age (\d+) ms/;
+/** `leg <id> refused: <reason> (source age <ms> ms, <n> attempt(s), last <code>)` (CopyLiveEngine.submit: an
+ * open lost for good to signal age after its attempts failed; `last` is the final attempt's failure code). */
+const LEG_REFUSED = /^leg (\S+) refused: ([a-z0-9_]+)(?: \(source age (\d+) ms, (\d+) attempt\(s\), last ([a-z0-9_]+)\))?/;
 
 /**
- * The orders and failed attempts in a slice of the worker's log (JSON lines,
- * as stack.mjs writes them), within [since, until] when given (ms epoch).
+ * The orders, failed attempts, boundary failures and refused legs in a slice of the
+ * worker's log (JSON lines, as stack.mjs writes them), within [since, until] when
+ * given (ms epoch). `refusals`: legs the engine gave up on (`leg … refused: …`), with
+ * the last attempt's failure code when the line names it.
  * @param {string} text @param {{ since?: number, until?: number }} [window]
  */
 export function scanWorkerLog(text, { since = -Infinity, until = Infinity } = {}) {
-  const orders = [], failures = [], boundary = [];
+  const orders = [], failures = [], boundary = [], refusals = [];
   for (const line of text.split("\n")) {
-    if (!line.includes("live_execution_timing") && !line.includes(" failed: ") && !line.includes("live_execution_boundary_failure")) continue;
+    if (!line.includes("live_execution_timing") && !line.includes(" failed: ") && !line.includes(" refused: ") && !line.includes("live_execution_boundary_failure")) continue;
     let row;
     try { row = JSON.parse(line); } catch { continue; }
     const at = Date.parse(row?.timestamp);
@@ -286,11 +291,12 @@ export function scanWorkerLog(text, { since = -Infinity, until = Infinity } = {}
     } else if (message && typeof message === "object" && message.event === "live_execution_boundary_failure") {
       boundary.push({ at: row.timestamp, stage: message.stage, errorCode: message.errorCode, ...(message.budgetReason ? { budgetReason: message.budgetReason } : {}) });
     } else if (typeof message === "string") {
-      const m = message.match(ATTEMPT_FAILED);
-      if (m) failures.push({ at: row.timestamp, leg: m[1], attempt: Number(m[2]), reason: m[3], elapsedMs: Number(m[4]), sourceAgeMs: Number(m[5]) });
+      let m;
+      if ((m = message.match(ATTEMPT_FAILED))) failures.push({ at: row.timestamp, leg: m[1], attempt: Number(m[2]), reason: m[3], elapsedMs: Number(m[4]), sourceAgeMs: Number(m[5]) });
+      else if ((m = message.match(LEG_REFUSED))) refusals.push({ at: row.timestamp, leg: m[1], reason: m[2], sourceAgeMs: m[3] === undefined ? null : Number(m[3]), attempts: m[4] === undefined ? null : Number(m[4]), last: m[5] ?? null });
     }
   }
-  return { orders, failures, boundary };
+  return { orders, failures, boundary, refusals };
 }
 
 /** An order's spans (LiveSpanRecorder.summary) summed per role: follower, leader, target, other_account, and `none` (unlabelled). */
@@ -376,22 +382,36 @@ export function evidenceStats(orders, maxMs = EVIDENCE_MAX_MS) {
 
 /**
  * The gate's table: one line per scenario, pass/fail and its orders' judged evidence p50/p95/max (ms),
- * then the raw max and the mainnet projection's max, then all of them. Judged: `judgedMs` (a testnet
- * order without its dex fan-out, criteria.mjs), else the raw `evidenceMs`.
+ * then the raw max, the mainnet projection's max and the evidence window in force; then the two
+ * classes of a failure (criteria.mjs classifyScenario) — `miss`: a criterion miss (an order's judged
+ * evidence at or over the limit with no money effect), `trip`: trip-wire hits (legs lost to evidence
+ * age) — and the copy's own signal latency, dispatch created → order sent (s, p50); then all of them
+ * (`miss`: scenarios with a miss; `trip`: hits summed; `sent`: the scenarios' largest max). Judged:
+ * `judgedMs` (a testnet order without its dex fan-out, criteria.mjs), else the raw `evidenceMs`.
+ * @param {{ name: string, ok: boolean | null, orders?: object[], criterionMiss?: boolean, tripWire?: { hits: number } | null, createdToSent?: { p50: number | null, max: number | null } | null }[]} rows
  */
 export function renderGateSummary(rows, maxMs = EVIDENCE_MAX_MS, windowMs = MAINNET_EVIDENCE_WINDOW_MS) {
   const width = Math.max(8, ...rows.map((r) => r.name.length));
   const ms = (v) => (v === null || v === undefined ? "—" : String(Math.round(v))).padStart(6);
+  const s2 = (v) => (v === null || v === undefined ? "—" : Number(v).toFixed(2)).padStart(6);
+  const count = (v) => (v === null || v === undefined ? "—" : String(v)).padStart(5);
   const mark = (ok) => ok === true ? "PASS" : ok === false ? "FAIL" : "SKIP";
   const judged = (orders) => orders.map((o) => ({ evidenceMs: o.judgedMs ?? o.evidenceMs }));
-  const line = (name, ok, orders) => {
+  const line = (name, ok, orders, miss, trip, sent) => {
     const s = evidenceStats(judged(orders), maxMs), raw = evidenceStats(orders, maxMs);
     const projected = orders.map((o) => o.fanout?.projectedMainnetMs).filter(Number.isFinite);
-    return `${name.padEnd(width)}  ${mark(ok).padEnd(6)}  ${String(s.orders).padStart(6)}  ${ms(s.p50)} ${ms(s.p95)} ${ms(s.max)} ${ms(raw.max)} ${ms(projected.length ? Math.max(...projected) : null)} ${ms(windowMs)}`;
+    return `${name.padEnd(width)}  ${mark(ok).padEnd(6)}  ${String(s.orders).padStart(6)}  ${ms(s.p50)} ${ms(s.p95)} ${ms(s.max)} ${ms(raw.max)} ${ms(projected.length ? Math.max(...projected) : null)} ${ms(windowMs)}` +
+      `  ${count(miss)} ${count(trip)} ${s2(sent)}`;
   };
   const lines = [`pre-mainnet gate: every leg settled or refused for an expected reason, each order's judged evidence < ${maxMs} ms; ${evidenceWindowLabel(windowMs)}`,
-    `${"scenario".padEnd(width)}  result  orders     p50    p95    max    raw  mainnet window  (judged evidence ms: testnet without the dex fan-out; raw max; mainnet projection max; the evidence window in force)`];
-  for (const r of rows) lines.push(line(r.name, r.ok, r.orders ?? []));
-  if (rows.length > 1) lines.push(line("all", rows.some((r) => r.ok === false) ? false : rows.every((r) => r.ok === null) ? null : true, rows.flatMap((r) => r.orders ?? [])));
+    `${"scenario".padEnd(width)}  result  orders     p50    p95    max    raw  mainnet window   miss  trip   sent  (judged evidence ms: testnet without the dex fan-out; raw max; mainnet projection max; the evidence window in force;`,
+    `${"".padEnd(width)}                                                                                      miss: criterion miss; trip: trip-wire hits; sent: dispatch created → order sent, s p50 (all: max))`];
+  const classes = (r) => r.ok === null ? [null, null] : [r.criterionMiss ? 1 : 0, r.tripWire?.hits ?? 0];
+  for (const r of rows) lines.push(line(r.name, r.ok, r.orders ?? [], ...classes(r), r.ok === null ? null : r.createdToSent?.p50 ?? null));
+  if (rows.length > 1) {
+    const ran = rows.filter((r) => r.ok !== null), maxima = ran.map((r) => r.createdToSent?.max).filter(Number.isFinite);
+    lines.push(line("all", rows.some((r) => r.ok === false) ? false : ran.length === 0 ? null : true, rows.flatMap((r) => r.orders ?? []),
+      ran.length ? ran.filter((r) => r.criterionMiss).length : null, ran.length ? ran.reduce((n, r) => n + (r.tripWire?.hits ?? 0), 0) : null, maxima.length ? Math.max(...maxima) : null));
+  }
   return lines.join("\n");
 }

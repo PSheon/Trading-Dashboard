@@ -4,8 +4,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { evaluate, positionBefore } from "./checks.mjs";
-import { FIXED_SUBSCRIPTIONS, MAINNET_DEXES, dexFanout, evidenceDetail, fanoutShare, harnessTimingCause, judgeOrders, judgedStats, signalLatency } from "./criteria.mjs";
-import { renderGateSummary } from "./lib.mjs";
+import { EVIDENCE_AGE_FAILURES, FIXED_SUBSCRIPTIONS, MAINNET_DEXES, TRIP_WIRE_SHARE, classifyScenario, dexFanout, evidenceDetail, fanoutShare, harnessTimingCause, judgeOrders, judgedStats,
+  renderGateVerdict, scenarioOutcome, signalLatency, testnetNote, tripWires } from "./criteria.mjs";
+import { EVIDENCE_FAILURES, renderGateSummary, scanWorkerLog } from "./lib.mjs";
 
 /** Gate 9's one order (new-coin, BTC open, 2026-10-14T08:53:54.456Z): evidence 4256 ms, its spans as logged. */
 const span = (span, count, totalMs, maxMs, firstAtMs, lastEndMs) => ({ span, count, totalMs, maxMs, firstAtMs, lastEndMs });
@@ -99,7 +100,145 @@ test("gate 9's new_coin_evidence_under_3500ms under the new criteria: judged 276
   assert.equal(judgedStats(mainnet, 3500).over, 1);
   assert.match(evidenceDetail(mainnet, 3500, GATE9_DEXES), /judged = raw \(mainnet: raw evidence\)/);
   const table = renderGateSummary([{ name: "new-coin", ok: true, orders }]).split("\n");
-  assert.match(table[2], /^new-coin\s+PASS\s+1\s+2763\s+2763\s+2763\s+4256\s+2930\s+5000$/);
+  assert.match(table[3], /^new-coin\s+PASS\s+1\s+2763\s+2763\s+2763\s+4256\s+2930\s+5000\s+0\s+0\s+—$/);
+});
+
+// --- the two classes of a gate failure (the reviewer, 2026-10-17: gate 12's merged order of 3591 ms) ---------------
+
+/** Gate 12's merged scenario: every leg settled (the reconcile passed), one order judged 3591 ms. */
+const judged = (...xs) => xs.map((judgedMs) => ({ at: "t", network: "testnet", evidenceMs: judgedMs + 1500, judgedMs, fanout: { applied: true, fanoutMs: 1500, projectedMainnetMs: judgedMs + 170 } }));
+const GATE12_MERGED_CHECKS = [
+  { name: "merged_leader", ok: true }, { name: "merged_reconcile", ok: true }, { name: "merged_follower_flat", ok: true }, { name: "merged_legs_merged", ok: true },
+  { name: "merged_evidence_under_3500ms", ok: false }, { name: "merged_no_evidence_failures", ok: true },
+];
+const engine = (timestamp, message) => JSON.stringify({ timestamp, level: "info", context: "CopyLiveEngine", message });
+
+test("scenarioOutcome: a latency criterion miss (or a failed attempt whose retry settled) is a FAIL the gate continues past; anything touching positions aborts", () => {
+  const miss = scenarioOutcome(GATE12_MERGED_CHECKS);
+  assert.deepEqual(miss, { ok: false, failed: ["merged_evidence_under_3500ms"], abort: false, abortedBy: [] });
+  assert.equal(scenarioOutcome([{ name: "flip_reconcile", ok: true }, { name: "flip_no_evidence_failures", ok: false }]).abort, false);
+  assert.deepEqual(scenarioOutcome(GATE12_MERGED_CHECKS.map((c) => ({ ...c, ok: c.ok === false ? true : c.ok }))), { ok: true, failed: [], abort: false, abortedBy: [] });
+  // A skipped check (null) is not a failure.
+  assert.equal(scenarioOutcome([{ name: "merged_legs_merged", ok: null }]).ok, true);
+  for (const name of ["merged_reconcile", "merged_follower_flat", "new_coin_ETH_mirrored", "stop_open_stop_return_credited", "stop_open_stop_positions_closed", "flip_leader", "final_stop_shown_stopped"]) {
+    const r = scenarioOutcome([...GATE12_MERGED_CHECKS, { name, ok: false }]);
+    assert.equal(r.abort, true, name);
+    assert.deepEqual(r.abortedBy, [name]);
+    assert.deepEqual(r.failed, ["merged_evidence_under_3500ms", name]);
+  }
+});
+
+test("classifyScenario on gate 12's merged: a criterion miss (1 order at 3591), no trip-wire, and the gate goes on; with a failed reconcile it is no miss but an abort", () => {
+  const miss = classifyScenario({ checks: GATE12_MERGED_CHECKS, orders: judged(3591, 2900, 3100), maxMs: 3500 });
+  assert.equal(miss.ok, false);
+  assert.equal(miss.abort, false);
+  assert.equal(miss.criterionMiss, true);
+  assert.equal(miss.over, 1);
+  assert.deepEqual(miss.tripWire, { lostLegs: [], expiredAttempts: 0, attempts: 3, expiredShare: 0, shareTripped: false, hits: 0 });
+  // The limit is the stated one: 3499 passes, 3500 is a miss.
+  assert.equal(classifyScenario({ checks: GATE12_MERGED_CHECKS, orders: judged(3499), maxMs: 3500 }).over, 0);
+  assert.equal(classifyScenario({ checks: GATE12_MERGED_CHECKS, orders: judged(3500), maxMs: 3500 }).criterionMiss, true);
+  // A money effect (the reconcile failed) is never a "miss": the scenario aborts the gate.
+  const lost = classifyScenario({ checks: [...GATE12_MERGED_CHECKS, { name: "merged_reconcile", ok: false }], orders: judged(3591), maxMs: 3500 });
+  assert.equal(lost.criterionMiss, false);
+  assert.equal(lost.abort, true);
+  assert.equal(lost.over, 1);
+  // Every order under the limit and every check green: a pass.
+  const pass = classifyScenario({ checks: GATE12_MERGED_CHECKS.map((c) => ({ ...c, ok: true })), orders: judged(2763), maxMs: 3500 });
+  assert.deepEqual([pass.ok, pass.abort, pass.criterionMiss, pass.tripWire.hits], [true, false, false, 0]);
+});
+
+test("tripWires: a leg that lost all its attempts to evidence age, directly or as signal_expired after them; never a source-lag signal_expired", () => {
+  assert.deepEqual(EVIDENCE_AGE_FAILURES, ["live_risk_stale", "live_account_evidence_expired", "live_risk_serialization_stale", "market_evidence_expired"]);
+  for (const code of EVIDENCE_AGE_FAILURES) assert.ok(code === "live_account_evidence_expired" || EVIDENCE_FAILURES.includes(code), `${code} also fails <scenario>_no_evidence_failures`);
+  assert.equal(TRIP_WIRE_SHARE, 0.05);
+  // The worker's lines (CopyLiveEngine.submit, 2026-10-14 and 2026-10-16): the leg's attempts, then its refusal.
+  const text = [
+    engine("2026-10-17T04:00:01.000Z", "leg d1|testnet:0xab:1|open attempt 1 failed: live_risk_stale; elapsed 7744 ms, source age 9948 ms, exchange started false"),
+    engine("2026-10-17T04:00:02.000Z", "leg d1|testnet:0xab:1|open attempt 2 failed: live_account_evidence_expired; elapsed 54230 ms, source age 166154 ms, exchange started false"),
+    engine("2026-10-17T04:00:03.000Z", "leg d1|testnet:0xab:1|open refused: signal_expired (source age 120172 ms, 2 attempt(s), last live_account_evidence_expired)"),
+    // Gate 9's ETH open: expired for the source's own lag (no attempt ever ran): a reconcile failure, not a trip-wire.
+    engine("2026-10-17T04:00:04.000Z", "leg d2|testnet:0xab:2|open refused: signal_expired (source age 120313 ms, 0 attempt(s), last live_risk_busy)"),
+    engine("2026-10-17T04:00:05.000Z", "leg d3|testnet:0xab:3|open attempt 1 failed: live_budget_wait; elapsed 12 ms, source age 900 ms, exchange started false"),
+    engine("2026-10-17T04:00:06.000Z", "leg d3|testnet:0xab:3|open budget unavailable: local_budget, retry 300 ms"),
+    engine("2026-10-17T04:00:07.000Z", "leg d4|testnet:0xab:4|close refused: live_risk_stale"),
+  ].join("\n");
+  const scan = scanWorkerLog(text);
+  assert.deepEqual(scan.refusals.map((r) => [r.leg, r.reason, r.attempts, r.last, r.sourceAgeMs]), [
+    ["d1|testnet:0xab:1|open", "signal_expired", 2, "live_account_evidence_expired", 120172],
+    ["d2|testnet:0xab:2|open", "signal_expired", 0, "live_risk_busy", 120313],
+    ["d4|testnet:0xab:4|close", "live_risk_stale", null, null, null],
+  ]);
+  const t = tripWires(scan);
+  assert.deepEqual(t.lostLegs, [
+    { leg: "d1|testnet:0xab:1|open", reason: "signal_expired", last: "live_account_evidence_expired", attempts: 2 },
+    { leg: "d4|testnet:0xab:4|close", reason: "live_risk_stale", last: null, attempts: 0 },
+  ]);
+  // Budget waits are not attempts: 2 evidence-age failures of 2 counted attempts (no order ran) → the share trips too.
+  assert.deepEqual([t.expiredAttempts, t.attempts, t.expiredShare, t.shareTripped, t.hits], [2, 2, 1, true, 3]);
+  // The signal_expired leg is a trip-wire when the log's `last` is missing but the leg's attempts failed for evidence age.
+  const bare = tripWires({ failures: [{ leg: "x", reason: "live_risk_stale" }], refusals: [{ leg: "x", reason: "signal_expired" }], orders: judged(1, 2) });
+  assert.deepEqual(bare.lostLegs, [{ leg: "x", reason: "signal_expired", last: "live_risk_stale", attempts: 1 }]);
+  assert.equal(bare.expiredShare, 1 / 3);
+});
+
+test("tripWires: the 5 % rule counts evidence-age failed attempts over the run's attempts (failed attempts without budget waits, plus the orders)", () => {
+  const stale = (n) => Array.from({ length: n }, (_, i) => ({ leg: `l${i}`, reason: "live_risk_stale" }));
+  const busy = (n) => Array.from({ length: n }, (_, i) => ({ leg: `b${i}`, reason: "live_risk_busy" }));
+  const waits = (n) => Array.from({ length: n }, (_, i) => ({ leg: `w${i}`, reason: "live_budget_wait" }));
+  // 1 of 30: 3.3 %, under; 2 of 30: 6.7 %, over; exactly 5 % does not trip.
+  assert.equal(tripWires({ failures: [...stale(1), ...busy(9), ...waits(100)], orders: judged(...Array(20).fill(1000)) }).shareTripped, false);
+  const over = tripWires({ failures: [...stale(2), ...busy(8), ...waits(100)], orders: judged(...Array(20).fill(1000)) });
+  assert.deepEqual([over.expiredAttempts, over.attempts, over.shareTripped, over.hits, over.lostLegs], [2, 30, true, 1, []]);
+  assert.equal(tripWires({ failures: stale(1), orders: judged(...Array(19).fill(1000)) }).shareTripped, false);
+  assert.deepEqual(tripWires({}), { lostLegs: [], expiredAttempts: 0, attempts: 0, expiredShare: 0, shareTripped: false, hits: 0 });
+});
+
+test("testnetNote: only when the window in force is not mainnet's; what a 7000 run cannot prove, as a note", () => {
+  assert.equal(testnetNote(5000), null);
+  assert.equal(testnetNote(5000, 273), null);
+  const note = testnetNote(7000, 273);
+  assert.match(note, /^note: evidence window 7000 ms \(TESTNET allowance, not mainnet-equivalent; mainnet stays 5000\)\. Two-coin mirroring under saturated contention is not provable on testnet \(273 dexes: two observations need ~1750 units per 120 s against the 1200\/min window\); the mainnet requirement is ~575 free units\/min\. Not a criterion\.$/);
+  // Without the run's venue count, the reviewer's 273.
+  assert.match(testnetNote(7000), /\(273 dexes:/);
+  assert.match(testnetNote(7000, 270), /\(270 dexes:/);
+});
+
+test("renderGateVerdict: gate: PASS only when every scenario passed; else the two counts, the abort and the testnet note", () => {
+  const pass = (name) => ({ name, ok: true, orders: judged(3000), failed: [], over: 0, criterionMiss: false, tripWire: tripWires({ orders: judged(3000) }) });
+  const run = tripWires({ orders: judged(...Array(7).fill(3000)) });
+  const green = renderGateVerdict(["new-coin", "add-reduce", "merged", "flip", "stop-open"].map(pass), { maxMs: 3500, windowMs: 5000, run });
+  assert.equal(green.split("\n").at(-1), "gate: PASS");
+  assert.match(green, /^criterion miss \(judged evidence at or over 3500 ms, no money effect: every leg settled or refused for an expected reason\): 0 scenario\(s\)$/m);
+  assert.match(green, /^trip-wire hit \(a leg that lost all its attempts to evidence age: live_risk_stale \/ live_account_evidence_expired \/ signal_expired by them; or evidence-age failed attempts over 5\.0 % of the run's attempts\): 0; evidence-age failed attempts 0 of 7 \(0\.0 %\)$/m);
+  assert.doesNotMatch(green, /^note:/m);
+  // Gate 12 as the reviewer wants it: merged's 3591 is a miss, flip and stop-open still ran, the window note is there.
+  const merged = { name: "merged", ok: false, orders: judged(3591, 2900), ...classifyScenario({ checks: GATE12_MERGED_CHECKS, orders: judged(3591, 2900), maxMs: 3500 }) };
+  const gate12 = renderGateVerdict([pass("new-coin"), pass("add-reduce"), merged, pass("flip"), pass("stop-open")], { maxMs: 3500, windowMs: 7000, run, venues: 273 });
+  const lines = gate12.split("\n");
+  assert.equal(lines.at(-1), "gate: FAIL (criterion miss: 1 scenarios; trip-wire hits: 0)");
+  assert.match(lines[0], /: 1 scenario\(s\) — merged \(1 order\(s\)\)$/);
+  assert.match(lines[2], /^note: evidence window 7000 ms .*not provable on testnet \(273 dexes/);
+  assert.equal(lines.length, 4);
+  // A trip-wire hit: the lost leg is named; a skipped scenario (the old abort) is never a pass.
+  const scan = scanWorkerLog([
+    engine("2026-10-17T04:00:01.000Z", "leg d1|testnet:0xab:1|open attempt 1 failed: live_risk_stale; elapsed 7744 ms, source age 9948 ms, exchange started false"),
+    engine("2026-10-17T04:00:03.000Z", "leg d1|testnet:0xab:1|open refused: signal_expired (source age 120172 ms, 1 attempt(s), last live_risk_stale)"),
+  ].join("\n"));
+  const lostChecks = [{ name: "new_coin_reconcile", ok: false }, { name: "new_coin_no_evidence_failures", ok: false }];
+  const newCoin = { name: "new-coin", ok: false, orders: judged(3107), ...classifyScenario({ checks: lostChecks, orders: judged(3107), ...scan, maxMs: 3500 }) };
+  assert.equal(newCoin.abort, true);
+  const tripped = renderGateVerdict([newCoin, ...["add-reduce", "merged", "flip", "stop-open"].map((name) => ({ name, ok: null, orders: [] }))],
+    { maxMs: 3500, windowMs: 7000, run: tripWires({ ...scan, orders: judged(3107) }), abortedAfter: "new-coin", abortedBy: ["new_coin_reconcile"] });
+  const t = tripped.split("\n");
+  // The lost leg, plus the share (1 evidence-age failure of 2 attempts).
+  assert.match(t[1], /\): 2 — legs d1\|testnet:0xab:1\|open signal_expired \(last live_risk_stale, 1 attempt\(s\)\); evidence-age failed attempts 1 of 2 \(50\.0 %\) — over the share$/);
+  assert.equal(t[2], "aborted after new-coin: new_coin_reconcile; the later scenarios did not run (SKIP)");
+  assert.equal(t.at(-1), "gate: FAIL (criterion miss: 0 scenarios; trip-wire hits: 2; other: 1 check(s); aborted after new-coin)");
+  // All skipped (nothing ran) or a single SKIP among passes: not a PASS.
+  assert.match(renderGateVerdict([{ name: "flip", ok: null, orders: [] }]).split("\n").at(-1), /^gate: FAIL \(criterion miss: 0 scenarios; trip-wire hits: 0; no scenario ran\)$/);
+  assert.match(renderGateVerdict([pass("new-coin"), { name: "flip", ok: null, orders: [] }]).split("\n").at(-1), /^gate: FAIL \(criterion miss: 0 scenarios; trip-wire hits: 0\)$/);
+  assert.match(renderGateVerdict([]).split("\n").at(-1), /^gate: FAIL/);
 });
 
 // Gate 9's dispatch rows (strategy 129) and the leader's testnet fills.

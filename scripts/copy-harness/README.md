@@ -53,7 +53,36 @@ node scripts/copy-harness/stack.mjs restart api && node scripts/copy-harness/sta
 | `flip` (24) | open long, then long → short in one leader fill (a close and an open leg), then close |
 | `stop-open` (4) | stop while a position is open: flat, the return credited, shown stopped |
 
-Pass criteria (exit 0, `ALL GREEN`, and every row of the gate table `PASS`):
+**Per-scenario criteria; the gate keeps running (the reviewer's ruling, 2026-10-17).** Gate 12 stopped after one
+merged order's judged evidence of 3591 ms (criterion < 3500, unchanged), so flip and stop-open never ran. Now each
+scenario is judged on its own checks (`criteria.mjs` `classifyScenario`), and the summary's verdict block sorts a
+failure into two classes:
+
+- **criterion miss**: an order's judged evidence at or over 3500 ms with no money effect — every leg still settled
+  or was refused for an expected reason (the scenario's reconcile, mirrors and stops passed). Recorded as `FAIL`
+  (`<scenario>_evidence_under_3500ms`, the row, the exit code); the copy goes on to the next scenario and to the final
+  stop. A `<scenario>_no_evidence_failures` failure whose retry settled continues the same way;
+- **trip-wire hit**: a leg that lost all its attempts to evidence age — the engine's `leg … refused:` line names
+  `live_risk_stale` / `live_account_evidence_expired`, or `signal_expired` after attempts that failed for them
+  (`last …`, or the leg's failed attempts) — or evidence-age failed attempts over 5 % of the run's attempts (failed
+  attempts without budget waits, plus the orders that reached the executor). A lost open also fails the reconcile
+  (`signal_expired`), so it aborts; a hit whose leg settled later is recorded and the gate continues;
+- **abort** (the later scenarios `SKIP`, the copy still stopped at the end): only a failure that makes continuing
+  unsafe or meaningless — a leader leg, a mirror, the reconcile (positions that do not match, a leg lost), the
+  follower not flat, a stop (never blocked, flat, return credited, shown stopped). The summary says
+  `aborted after <scenario>: <checks>`.
+
+The gate table's `miss` and `trip` columns carry each scenario's counts (the `all` row: scenarios with a miss, hits
+summed) beside `sent`, the copy's own signal latency dispatch created → order sent (s, p50; `all`: the largest max);
+the verdict block then repeats each class with its definition and the legs lost, and ends with the verdict line —
+`gate: PASS` only when every scenario passed every criterion, else
+`gate: FAIL (criterion miss: n scenarios; trip-wire hits: m)` (`; other: k check(s)` for a failure of neither class;
+`; aborted after <scenario>` when the gate stopped) — repeated as the summary's last line. When the window in force is
+not 5000 the block adds a **note** (never a criterion): two-coin mirroring under saturated contention is not provable
+on testnet (273 dexes: two observations need ~1750 units per 120 s against the 1200/min window); the mainnet
+requirement is ~575 free units/min.
+
+Pass criteria (exit 0, `ALL GREEN`, `gate: PASS`, and every row of the gate table `PASS`):
 
 - `stack_worker_db_rtt`: the worker's latest start ran with the profile's round trip (8 ms);
 - `<scenario>_reconcile`: every leader leg has a dispatch that settled with the follower's fill, or was
@@ -138,7 +167,8 @@ covered by unit and database tests only):
 
 The summary (its path is the last line printed: `.claude/logs/copy-harness/<run>-summary.txt`) has every
 check, then the gate table — per scenario the result, its orders' judged evidence p50 / p95 / max (ms), the
-raw max, the mainnet projection's max and the evidence window in force — then
+raw max, the mainnet projection's max, the evidence window in force, its criterion misses and trip-wire hits and
+its dispatch created → sent latency — then the verdict block (above), then
 each order's evidence spans summed per role (follower / leader / target / other_account / none) and each
 span's p50 / p95 / max over the orders, so a regression shows which segment grew. Each scenario's orders,
 spans and failed attempts are also in `.claude/logs/copy-harness/<run>-<scenario>-evidence.json`, with the

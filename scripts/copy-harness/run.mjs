@@ -4,7 +4,20 @@
 //   node scripts/copy-harness/run.mjs [--dry-run] [--headed] [--gap 20] [--scenarios base,3,4,…]
 //        [--profile default|stage-caps|ratio-floor|stage-like] [--web http://localhost:3000] [--api http://localhost:3100] [--worker http://localhost:3010]
 //        [--leader 0x… --watch-min 15] [--contention] [--worker-log .claude/logs/worker-3010.log] [--evidence-max-ms 3500]
-//        [--measure-workers http://localhost:3010,…] [--mainnet-dexes 11]
+//        [--measure-workers http://localhost:3010,…] [--mainnet-dexes 11] [--roles split --worker-read http://localhost:3011]
+//
+// --roles split: the stack runs a copy-role worker (3010) and a read worker (3011), as Stage does
+// (stack.mjs restart worker|worker-read --roles split): the stack check wants both heartbeats' roles,
+// the worker-restart scenario restarts the copy worker as `copy`, and the read worker's heartbeat is
+// measured too. Without it the one all-role worker is accepted and the report says so beside the
+// local-bucket waits (TradeAnalytics / Cohort / Leaderboard reads drain the same bucket as orders).
+//
+// Before a scenario's reconcile and before the final stop the harness waits (lib.mjs waitForInFlight:
+// up to the risk policy's signal-age limit plus 30 s, 150 s at most) while a leg of the copy is still
+// in flight — a dispatch `submitted`, or `pending` with a running attempt (first_attempt_at) or a
+// retry due — so a legitimate attempt is neither judged missing nor cut by the stop (gate 13's flip:
+// the window closed 36 s after the leader's last order on a pending attempt, then the stop produced a
+// misleading live_risk_mandate_changed). Logged as scenario_wait_in_flight {dispatches, waitedMs}.
 //
 // 1. leader and follower balances: too little stops the run (exit 3) before anything is signed;
 // 2. cleanup: running copies of the harness leader are stopped, waiting setups cancelled, the leader flattened;
@@ -58,11 +71,12 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { closeSync, fstatSync, mkdirSync, openSync, readSync, statSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { EVIDENCE_FAILURES, EVIDENCE_MAX_MS, EXIT, evidenceWindowLabel, evidenceWindowMs, GATE_SCENARIOS, HARNESS_LEADER, ROOT, SCENARIOS, evidenceStats, fundingGate, lastStartRtt, loadEnv, parseScenarios, parseStuckRows, planCleanup, profileEnv,
-  renderGateSummary, renderSpans, renderSummary, scanWorkerLog, stopSettled, stuckRowsSql, termsFor, waitFor, zeroCodeCounts } from "./lib.mjs";
+import { DEFAULT_SIGNAL_AGE_LIMIT_MS, EVIDENCE_FAILURES, EVIDENCE_MAX_MS, EXIT, evidenceWindowLabel, evidenceWindowMs, GATE_SCENARIOS, HARNESS_LEADER, ROOT, SCENARIOS, evidenceStats, fundingGate, inFlightSql, inFlightWaitMs, lastStartRtt, loadEnv, parseScenarios, parseStuckRows, planCleanup, profileEnv,
+  renderGateSummary, renderSpans, renderSummary, scanWorkerLog, stopSettled, stuckRowsSql, termsFor, waitFor, waitForInFlight, zeroCodeCounts } from "./lib.mjs";
 import { apiClient, confirmFromPortfolio, launch, login } from "./follower.mjs";
 import { MAINNET_DEXES, classifyScenario, evidenceDetail, judgeOrders, judgedStats, renderGateVerdict, tripWires } from "./criteria.mjs";
-import { attemptDelays, claimWaitSummary, dispatchMeasures, heartbeatDeltas, heartbeatReading, measureSql, renderMeasurements, scanMeasureLog } from "./measure.mjs";
+import { attemptDelays, claimWaitSummary, dispatchMeasures, heartbeatDeltas, heartbeatReading, measureSql, renderMeasurements, scanMeasureLog, workerRolesLabel } from "./measure.mjs";
+import { WORKER_ROLES_MODES } from "./stack-plan.mjs";
 
 const args = process.argv.slice(2);
 const flag = (name, fallback) => { const i = args.indexOf(`--${name}`); return i >= 0 ? args[i + 1] : fallback; };
@@ -81,7 +95,11 @@ if (!(EVIDENCE_MAX > 0)) { console.error("--evidence-max-ms: a positive number o
 const EVIDENCE_WINDOW = evidenceWindowMs(profileEnv(TERMS.profile));
 const MAINNET_DEX_COUNT = Number(flag("mainnet-dexes", String(MAINNET_DEXES)));
 if (!Number.isSafeInteger(MAINNET_DEX_COUNT) || MAINNET_DEX_COUNT < 1) { console.error("--mainnet-dexes: a positive integer (perpDexs entries, the main dex included)"); process.exit(EXIT.usage); }
-const MEASURE_WORKERS = flag("measure-workers", WORKER).split(",").map((u) => u.trim().replace(/\/+$/, "")).filter(Boolean);
+// --roles split: a copy worker (--worker) and a read worker (--worker-read), as on Stage; else one all-role worker.
+const ROLES = flag("roles", "all"), WORKER_READ = flag("worker-read", "http://localhost:3011").replace(/\/+$/, "");
+if (!WORKER_ROLES_MODES.includes(ROLES)) { console.error(`--roles: ${WORKER_ROLES_MODES.join(" | ")}`); process.exit(EXIT.usage); }
+const SPLIT = ROLES === "split";
+const MEASURE_WORKERS = [...new Set([...flag("measure-workers", WORKER).split(",").map((u) => u.trim().replace(/\/+$/, "")).filter(Boolean), ...(SPLIT ? [WORKER_READ] : [])])];
 const OUT = resolve(ROOT, ".claude/logs/copy-harness"); mkdirSync(OUT, { recursive: true });
 const runId = new Date().toISOString().replace(/[:.]/g, "-");
 const log = (event, data = {}) => console.log(JSON.stringify({ at: new Date().toISOString(), event, ...data }));
@@ -194,6 +212,8 @@ async function measurements() {
   }
   if (measureRun.heartbeats) m.health = heartbeatDeltas(measureRun.heartbeats, await heartbeats());
   else m.healthNote = "no start reading (the run ended before it)";
+  // The worker roles the run measured: the local-bucket waits of an all-role worker include the read work's.
+  m.roles = workerRolesLabel(measureRun.heartbeats ?? [], { copy: WORKER, read: SPLIT ? WORKER_READ : null });
   writeFileSync(resolve(OUT, `${runId}-measurements.json`), `${JSON.stringify({ ...m, setupStages: measureRun.setupStages }, null, 2)}\n`);
   return renderMeasurements(m) + (m.logNote && m.log ? `\n(${m.logNote})` : "");
 }
@@ -245,6 +265,17 @@ try {
   // The measurements' start: each worker's foreignUsage and public IPs (I-17).
   measureRun.heartbeats = await heartbeats();
   log("measure_start", { heartbeats: measureRun.heartbeats });
+  // The worker roles (WORKER_ROLE, the heartbeat's worker.role): --roles split wants a copy worker on
+  // --worker and a read worker on --worker-read, as on Stage; else the all-role worker is accepted and named.
+  {
+    const role = (url) => measureRun.heartbeats.find((h) => h.url === url)?.role ?? null;
+    const copyRole = role(WORKER);
+    if (SPLIT) {
+      const readUp = await health(`${WORKER_READ}/health`), readRole = readUp ? (await heartbeats().then((hs) => hs.find((h) => h.url === WORKER_READ)?.role)) ?? null : null;
+      if (!check("stack_worker_roles", copyRole === "copy" && readRole === "read", `--roles split: worker ${WORKER} role ${copyRole ?? "?"}, read worker ${WORKER_READ} ${readUp ? `role ${readRole ?? "?"}` : "not up"}` +
+        (copyRole === "copy" && readRole === "read" ? "" : `; restart them: node scripts/copy-harness/stack.mjs restart worker --roles split${TERMS.profile === "default" ? "" : ` --profile ${TERMS.profile}`}, then restart worker-read (same flags), and api --roles split`))) await finish(EXIT.failed);
+    } else check("stack_worker_roles", null, `${copyRole === "all" ? "all-role worker" : `worker role ${copyRole ?? "?"}`} on ${WORKER} (roles not split; --roles split runs a copy and a read worker as on Stage)`);
+  }
 
   // --- 1. balances -----------------------------------------------------------------------------
   const leader = await leaderState();
@@ -368,8 +399,50 @@ try {
   };
   const followerHolds = (copy, coin) => waitFor(() => usdc(copy.account), (b) => b.positions.some((p) => p.coin === coin), { timeoutMs: 120_000, intervalMs: 3000 });
   let lastReconcile = null;
+  /** The risk policy's signal-age limit (ms), read once from the api's admin risk policy (HARNESS_ADMIN_TOKEN /
+   * AUTH_SERVICE_TOKEN); without one, or unreadable, the policy's default (lib.mjs DEFAULT_SIGNAL_AGE_LIMIT_MS). */
+  let signalAgeLimit = null;
+  async function signalAgeLimitMs() {
+    if (signalAgeLimit === null) {
+      signalAgeLimit = { ms: DEFAULT_SIGNAL_AGE_LIMIT_MS, source: "default (no admin token)" };
+      if (admin) {
+        try { const seconds = Number((await admin.get("/admin/copy/risk")).limits?.maxSignalAgeSeconds); if (seconds > 0) signalAgeLimit = { ms: seconds * 1000, source: "api /admin/copy/risk" }; }
+        catch (error) { signalAgeLimit.source = `default (/admin/copy/risk: ${error.message.slice(0, 60)})`; }
+      }
+    }
+    return signalAgeLimit;
+  }
+  /** The copies' legs not yet terminal (lib.mjs inFlightSql, psql on the stack's DATABASE_URL; psql's errors stay unprinted). */
+  async function inFlightRows() {
+    if (!measureRun.strategyIds.size) return [];
+    const result = await new Promise((resolveOut) => {
+      const child = spawn("psql", [env.DATABASE_URL, "-At", "-v", "ON_ERROR_STOP=1", "-c", inFlightSql([...measureRun.strategyIds])], { stdio: ["ignore", "pipe", "ignore"] });
+      let text = ""; child.stdout.on("data", (d) => { text += d; });
+      child.on("error", () => resolveOut({ code: -1, text })); child.on("close", (code) => resolveOut({ code, text }));
+    });
+    if (result.code !== 0) throw new Error(`psql exit ${result.code}`);
+    return JSON.parse(result.text.trim() || "[]");
+  }
+  /**
+   * Before a scenario is judged (its reconcile) and before the final stop: wait while a leg of the copy
+   * is in flight (lib.mjs waitForInFlight), up to the signal-age limit plus a margin (150 s at most).
+   * Nothing in flight: no wait. Logged as scenario_wait_in_flight; a wait that gave up is a check failure
+   * (a leg still pending after the limit is the engine's defect, not the harness's timing).
+   */
+  async function waitInFlight(label) {
+    const limit = await signalAgeLimitMs(), waitMs = inFlightWaitMs(limit.ms);
+    let waited;
+    try { waited = await waitForInFlight(inFlightRows, { waitMs, intervalMs: 3000 }); }
+    catch (error) { log("scenario_wait_in_flight", { scenario: label, error: error.message, waitMs }); return null; }
+    log("scenario_wait_in_flight", { scenario: label, dispatches: waited.dispatches.map((d) => `${d.id} ${d.leg} ${d.coin} ${d.state}${d.reason ? `:${d.reason}` : ""} attempts ${d.attempts}${d.firstAttemptAt ? ` first ${d.firstAttemptAt}` : ""}`),
+      waitedMs: waited.waitedMs, polls: waited.polls, left: waited.left.map((d) => d.id), waitMs, signalAgeLimitMs: limit.ms, limitSource: limit.source });
+    if (waited.timedOut) check(`${label}_in_flight_settled`, false, `${waited.left.length} leg(s) still in flight after ${Math.round(waited.waitedMs / 1000)} s (limit ${limit.ms} ms + margin): ${waited.left.map((d) => `${d.id} ${d.leg} ${d.coin} ${d.state}${d.reason ? `:${d.reason}` : ""}`).join(", ")}`);
+    return waited;
+  }
   /** reconcile.mjs over [since, now] with the profile's rules, retried while the copy catches up. */
   async function reconcileCheck(label, copy, since, allow = []) {
+    // A leg still in flight is waited for first: it is judged on its outcome, never on its timing.
+    await waitInFlight(label);
     const reconcileArgs = ["--leader", HARNESS_LEADER, "--leader-network", "testnet", "--follower", copy.account, "--network", "testnet", "--since", since, "--db", "env",
       "--portfolio-url", `${API}/me/copy/live/portfolio`,
       ...(TERMS.sizingMode === "ratio" ? ["--ratio-floor-max-usd", String(TERMS.ratioFloorMaxUsd)] : ["--per-trade-usd", String(TERMS.perTradeUsd), "--max-per-trade-usd", String(TERMS.maxPerTradeUsd)]),
@@ -418,7 +491,8 @@ try {
     } catch (error) { check(`${label}_stop_shown_stopped`, false, error.message); }
   }
   const nowIso = () => new Date(Date.now() - 1000).toISOString();
-  const profileArgs = TERMS.profile !== "default" ? ["--profile", TERMS.profile] : [];
+  // stack.mjs's flags: the profile, and the roles (a restarted worker keeps its copy role when they are split).
+  const profileArgs = [...(TERMS.profile !== "default" ? ["--profile", TERMS.profile] : []), ...(SPLIT ? ["--roles", "split"] : [])];
   const sizingArgs = ["--per-trade", String(TERMS.perTradeUsd), "--max-per-trade", String(TERMS.maxPerTradeUsd)];
   /** An admin client (kill switch): HARNESS_ADMIN_TOKEN, else the api's service token; never printed. */
   const adminToken = process.env.HARNESS_ADMIN_TOKEN || env.AUTH_SERVICE_TOKEN || null;
@@ -716,8 +790,8 @@ try {
     }
     if (!verdict.ok) log("scenario_failed_gate_continues", { scenario: name, checks: verdict.failed });
   }
-  // --- 7. a copy still running is stopped (its return credited) ---------------------------------------------
-  if (copy) await stopCheck("final", copy);
+  // --- 7. a copy still running is stopped (its return credited), once no leg is in flight -------------------
+  if (copy) { await waitInFlight("final"); await stopCheck("final", copy); }
   await stuckCheck();
   if (checks.some((c) => c.ok === false) && (await leaderState()).positions.length) await leaderRun("failure_cleanup", ["flatten"]);
 

@@ -27,23 +27,59 @@ on a mainnet `HYPERLIQUID_NETWORK`; the api image never carries `scripts/`. The 
 unchanged, and the summary's gate title, its `window` column and every evidence check's detail name the window in
 force (5000 or 7000): a 7000 run is never mainnet-equivalent.
 
-From the main checkout, one heavy step at a time:
+From the main checkout, one heavy step at a time. The Stage-like way runs the worker split in two, as
+Stage does (`--roles split`, below): the all-role worker's orders share the local bucket with the
+TradeAnalytics / Cohort / Leaderboard reads (gate 13's 18 s prepay wait was partly that artefact).
 
 ```sh
 # 0. the api built from the commit under test (when dev moved)
 pnpm turbo run build --filter=@trading-dashboard/api --concurrency=1
-# 1. the api and the worker on the stage-like profile (the worker's log then shows copy_harness_db_rtt 8)
-node scripts/copy-harness/stack.mjs restart api --profile stage-like
-node scripts/copy-harness/stack.mjs restart worker --profile stage-like
+# 1. the stage-like profile with the roles split: the copy worker first (an all-role worker holds the
+#    read lease; stack.mjs refuses to start the read worker beside one), then the read worker (3011),
+#    then the api (it gets WORKER_READ_URL and merges both heartbeats). The worker's log then shows
+#    copy_harness_db_rtt 8, its heartbeat worker.role copy, the read worker's worker.role read.
+node scripts/copy-harness/stack.mjs restart worker --profile stage-like --roles split
+node scripts/copy-harness/stack.mjs restart worker-read --profile stage-like --roles split
+node scripts/copy-harness/stack.mjs restart api --profile stage-like --roles split
+node scripts/copy-harness/stack.mjs status --roles split
 # 2. nothing signed or deposited: login, the setup up to its consent, every leg planned from live markets
-node scripts/copy-harness/run.mjs --profile stage-like --scenarios gate --dry-run
+node scripts/copy-harness/run.mjs --profile stage-like --roles split --scenarios gate --dry-run
 # 3. the gate: new-coin, add-reduce, merged, flip, stop-open on one fresh copy (~25 min)
-node scripts/copy-harness/run.mjs --profile stage-like --scenarios gate --contention
+node scripts/copy-harness/run.mjs --profile stage-like --roles split --scenarios gate --contention
 # 4. a real mainnet trader for an hour (a mainnet source on this testnet stack)
-node scripts/copy-harness/run.mjs --profile stage-like --contention --leader <0x… mainnet trader> --scenarios follow --watch-min 60
-# 5. back to the plain harness profile
+node scripts/copy-harness/run.mjs --profile stage-like --roles split --contention --leader <0x… mainnet trader> --scenarios follow --watch-min 60
+# 5. back to the plain harness profile and the one all-role worker (the read worker is stopped by PID)
 node scripts/copy-harness/stack.mjs restart api && node scripts/copy-harness/stack.mjs restart worker
+kill "$(lsof -tnP -iTCP:3011 -sTCP:LISTEN)"
 ```
+
+**Worker roles (`stack.mjs --roles split`, `run.mjs --roles split`; `stack-plan.mjs`, tested in `stack.test.mjs`).**
+`WORKER_ROLE` (`apps/api/src/runtime/worker-role.ts`, `docs/worker-deployment.md` 角色拆分) splits the worker
+into a `copy` worker, lease (73106,1) — the live engine, stops, closes, settlement, the setup driver, the
+trade feed and the fast source — and a `read` worker, lease (73106,2) — scheduler crons, traders, discovery,
+cohorts, leaderboard, follower snapshots, outbox, Telegram. `stack.mjs restart worker --roles split` starts the
+3010 worker as `WORKER_ROLE=copy`, `restart worker-read --roles split` the read worker on 3011
+(`.claude/logs/worker-read-3011.log`, `/health` on its port), and `restart api --roles split` gives the api
+`WORKER_READ_URL=http://localhost:3011`. Without `--roles` (all) the worker runs every role as before and gets no
+`WORKER_ROLE` (one left in the shell is dropped: the api refuses it, and it would silently make the worker a
+copy one). `run.mjs --roles split` adds `stack_worker_roles` (both heartbeats' roles; without the flag the check
+is a SKIP naming the all-role worker), restarts the worker as `copy` in the worker-restart scenario, measures
+the read worker's heartbeat (I-17) and names the roles in the MEASUREMENTS block beside the local-bucket waits
+(1d: `local-bucket waits measured on: all-role worker …` or `roles split: …`). No api change was needed: the
+worker reads `WORKER_ROLE` / `WORKER_PORT`, the api `WORKER_READ_URL`, all already there.
+
+**Legs in flight are waited for (gate 13).** The flip's reconcile window closed 36 s after the leader's last
+order while a legitimate follower attempt was running (dispatch `pending`, `first_attempt_at` set); the scenario
+was judged FAIL and the final stop then cut that attempt with a misleading `live_risk_mandate_changed`. Before a
+scenario's reconcile and before the final stop, `run.mjs` now waits (`lib.mjs` `waitForInFlight`, polled every
+3 s from `copy_live_dispatches`) while any leg of the run's copies is in flight — `submitted`, or `pending` with
+a running attempt (`first_attempt_at`) or a retry due (a counted attempt or a reason, the engine's retry marker;
+the table has no next-attempt column) — for at most the risk policy's signal-age limit plus 30 s, 150 s in all
+(`maxSignalAgeSeconds` from `GET /admin/copy/risk` with the admin token, else the policy's default 120 s).
+Nothing in flight: no wait. Logged as `scenario_wait_in_flight {scenario, dispatches, waitedMs, polls, left,
+waitMs, signalAgeLimitMs}`; a wait that gave up fails `<scenario>_in_flight_settled` (a leg still pending past
+the limit is the engine's defect). A fresh pending leg nobody attempted yet (merging, or the next engine pass) is
+not in flight.
 
 | scenario | legs |
 | --- | --- |

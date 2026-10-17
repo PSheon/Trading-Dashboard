@@ -110,8 +110,8 @@ test("run.mjs judges each scenario on its own checks and stops the gate only on 
   // The table's row carries the classes and the created → sent latency; the summary prints the verdict block.
   for (const field of ["criterionMiss: verdict.criterionMiss", "tripWire: verdict.tripWire", "createdToSent: lastReconcile?.signalLatencySeconds?.createdToSent"]) assert.ok(loop.includes(field), field);
   assert.match(source, /renderGateVerdict\(scenarioRows, \{ maxMs: EVIDENCE_MAX, windowMs: EVIDENCE_WINDOW, run: tripWires\(gateRun\)/);
-  // A copy still running after the loop is stopped whatever the verdict (the final stop).
-  assert.match(source.slice(source.indexOf("// --- 7.")), /if \(copy\) await stopCheck\("final", copy\);/);
+  // A copy still running after the loop is stopped whatever the verdict (the final stop), once no leg is in flight (gate 13).
+  assert.match(source.slice(source.indexOf("// --- 7.")), /if \(copy\) \{ await waitInFlight\("final"\); await stopCheck\("final", copy\); \}/);
 });
 
 // --- reconciliation rules (checks.mjs) ----------------------------------------------------------

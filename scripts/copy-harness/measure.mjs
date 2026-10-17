@@ -241,6 +241,22 @@ export function heartbeatDeltas(start, end) {
   return { rows, shared: [...owners].filter(([, urls]) => urls.length > 1).map(([ip, urls]) => ({ ip, urls })) };
 }
 
+/**
+ * What the measured workers' roles (the heartbeats' worker.role, WORKER_ROLE) mean for the
+ * local-bucket waits: an `all` worker's orders share the local bucket with TradeAnalytics / Cohort /
+ * Leaderboard reads (gate 13's 18 s prepay wait was partly that artefact); a `copy` worker beside a
+ * `read` worker is Stage's split. `urls`: the copy worker's url and the read worker's (null: none).
+ * @param {{ url: string, role?: string | null, error?: string }[]} heartbeats
+ * @param {{ copy: string, read: string | null }} urls
+ */
+export function workerRolesLabel(heartbeats, { copy, read }) {
+  const of = (url) => heartbeats.find((h) => h.url === url);
+  const copyRole = of(copy)?.role ?? null, readRole = read ? of(read)?.role ?? null : null;
+  if (copyRole === "copy" && readRole === "read") return { split: true, copyRole, readRole, label: `roles split: copy worker ${copy}, read worker ${read} (as on Stage)` };
+  if (copyRole === "all") return { split: false, copyRole, readRole, label: `all-role worker ${copy}: TradeAnalytics / Cohort / Leaderboard reads drain the same local bucket as the orders (roles not split; Stage splits them)` };
+  return { split: false, copyRole, readRole, label: `worker ${copy} role ${copyRole ?? "unknown (no heartbeat role)"}${read ? `, read worker ${read} role ${readRole ?? "unknown"}` : ""}` };
+}
+
 // --- setup claims --------------------------------------------------------------------------------------
 
 /** The step a setup runs at a stage (CopyLiveSetupSteps: funded → mode, mode_set → agent, agent_active → builder fee). */
@@ -288,7 +304,8 @@ const head = (unit, width = 52) => `  ${"".padEnd(width)} ${"n".padStart(5)} ${"
 /**
  * The summary's measurements block. `m`: { window: {from, to}, log: scanMeasureLog | null,
  * logNote?, db: dispatchMeasures | null, dbNote?, delays: attemptDelays | null,
- * health: heartbeatDeltas | null, healthNote?, claims: claimWaitSummary | null }.
+ * health: heartbeatDeltas | null, healthNote?, claims: claimWaitSummary | null,
+ * roles?: workerRolesLabel (named beside the local-bucket waits of 1d) }.
  */
 export function renderMeasurements(m) {
   const L = ["=".repeat(100), "MEASUREMENTS (recorded, not pass/fail; gate run 9: LIVE_HTTP_TIMEOUT_MS 20 s, CLOSE_ATTEMPT_LIMIT 30,",
@@ -312,6 +329,7 @@ export function renderMeasurements(m) {
       (log ? `; released as never sent: ${log.unsentReleases.length}` : ""));
   } else L.push(`  database: ${m.dbNote ?? "not read"}`);
   L.push("", "1d. failed leg attempt → the leg's next try, by failure code (LIVE_LEG_RETRY_POLICY 3 s)");
+  if (m.roles) L.push(`  local-bucket waits measured on: ${m.roles.label}`);
   if (m.delays && m.delays.samples.length) {
     L.push(head("ms"));
     for (const r of m.delays.byReason) {

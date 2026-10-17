@@ -240,3 +240,89 @@ test("stuckRowsSql: rows with an issue over 2 min past their retry, in non-final
     { table: "copy_live_setups", id: "s1", issue: "live_setup_funding_wait", state: "funding_submitted", since: "2026-10-12 04:00:00" },
     { table: "copy_funding_operations", id: "f1", issue: null, state: "claimed", since: "2026-10-12 04:00:00" }]);
 });
+
+// --- legs in flight (gate 13: the flip's reconcile window closed on a pending attempt) -----------------------
+import { DEFAULT_SIGNAL_AGE_LIMIT_MS, IN_FLIGHT_WAIT_MARGIN_MS, IN_FLIGHT_WAIT_MAX_MS, inFlightDispatches, inFlightSql, inFlightWaitMs, waitForInFlight } from "./lib.mjs";
+
+test("inFlightWaitMs: the signal-age limit plus the margin, 150 s at most; the policy's default without a limit", () => {
+  assert.equal(DEFAULT_SIGNAL_AGE_LIMIT_MS, 120_000);
+  assert.equal(inFlightWaitMs(60_000), 60_000 + IN_FLIGHT_WAIT_MARGIN_MS);
+  assert.equal(inFlightWaitMs(120_000), IN_FLIGHT_WAIT_MAX_MS);
+  assert.equal(inFlightWaitMs(600_000), IN_FLIGHT_WAIT_MAX_MS);
+  assert.equal(inFlightWaitMs(), inFlightWaitMs(DEFAULT_SIGNAL_AGE_LIMIT_MS));
+  assert.equal(inFlightWaitMs(NaN), inFlightWaitMs(DEFAULT_SIGNAL_AGE_LIMIT_MS));
+});
+
+test("inFlightSql: the copies' non-terminal legs with their attempt fields, nothing else", () => {
+  const sql = inFlightSql([7, 9]);
+  assert.match(sql, /from copy_live_dispatches where strategy_id in \(7,9\) and state in \('pending', 'submitted'\)/);
+  for (const col of ["state", "reason", "attempts", 'first_attempt_at as "firstAttemptAt"']) assert.ok(sql.includes(col), col);
+  assert.doesNotMatch(sql, /address|signature|record|key/);
+  assert.throws(() => inFlightSql([]), /strategyIds/);
+  assert.throws(() => inFlightSql(["1; drop"]), /strategyIds/);
+});
+
+test("inFlightDispatches: a running attempt, a retry due or a submitted order is in flight; a fresh pending leg or a terminal one is not", () => {
+  const rows = [
+    // Gate 13's flip open: pending, its first attempt running (dispatch state pending, first_attempt_at set).
+    { id: "running", leg: "open", coin: "ETH", state: "pending", reason: null, attempts: 0, firstAttemptAt: "2026-10-17T05:00:00.000Z" },
+    { id: "retry", leg: "open", coin: "ETH", state: "pending", reason: "unsent_retry", attempts: 1, firstAttemptAt: "2026-10-17T05:00:00.000Z" },
+    { id: "failed-once", leg: "close", coin: "ETH", state: "pending", reason: null, attempts: 1, firstAttemptAt: null },
+    { id: "sent", leg: "close", coin: "ETH", state: "submitted", reason: null, attempts: 1, firstAttemptAt: "2026-10-17T05:00:01.000Z" },
+    { id: "fresh", leg: "open", coin: "SOL", state: "pending", reason: null, attempts: 0, firstAttemptAt: null },
+    { id: "done", leg: "open", coin: "BTC", state: "settled", reason: null, attempts: 1, firstAttemptAt: "2026-10-17T04:00:00.000Z" },
+    { id: "refused", leg: "open", coin: "BTC", state: "refused", reason: "signal_expired", attempts: 3, firstAttemptAt: "2026-10-17T04:00:00.000Z" },
+  ];
+  assert.deepEqual(inFlightDispatches(rows).map((d) => d.id), ["running", "retry", "failed-once", "sent"]);
+  assert.deepEqual(inFlightDispatches(rows)[0], { id: "running", leg: "open", coin: "ETH", state: "pending", reason: null, attempts: 0, firstAttemptAt: "2026-10-17T05:00:00.000Z" });
+  assert.deepEqual(inFlightDispatches([]), []);
+});
+
+test("waitForInFlight: a pending leg with a running attempt delays the judging until it settles; nothing in flight → no wait at all", async () => {
+  let clock = 1_000_000;
+  const slept = [];
+  const sleep = async (ms) => { slept.push(ms); clock += ms; };
+  const now = () => clock;
+  const running = { id: "d1", leg: "open", coin: "ETH", state: "pending", reason: null, attempts: 0, firstAttemptAt: "2026-10-17T05:00:00.000Z" };
+  // In flight on the first two reads, settled on the third.
+  const reads = [[running], [{ ...running, state: "submitted", attempts: 1 }], [{ ...running, state: "settled", attempts: 1 }]];
+  let i = 0;
+  const waited = await waitForInFlight(async () => reads[Math.min(i++, reads.length - 1)], { waitMs: 150_000, intervalMs: 3000, now, sleep });
+  assert.deepEqual(waited.dispatches.map((d) => d.id), ["d1"]);
+  assert.deepEqual(waited.left, []);
+  assert.equal(waited.polls, 3);
+  assert.deepEqual(slept, [3000, 3000]);
+  assert.equal(waited.waitedMs, 6000);
+  assert.equal(waited.timedOut, false);
+  // Nothing in flight: one read, no sleep, waitedMs 0 (the wait is never extended).
+  slept.length = 0;
+  const none = await waitForInFlight(async () => [{ ...running, state: "settled" }, { ...running, id: "d2", firstAttemptAt: null }], { waitMs: 150_000, now, sleep });
+  assert.deepEqual(none, { dispatches: [], left: [], waitedMs: 0, polls: 1, timedOut: false });
+  assert.deepEqual(slept, []);
+  // Still in flight at the deadline: gives up at waitMs, the last sleep clipped to it.
+  slept.length = 0;
+  const stuck = await waitForInFlight(async () => [running], { waitMs: 7000, intervalMs: 3000, now, sleep });
+  assert.equal(stuck.timedOut, true);
+  assert.deepEqual(stuck.left.map((d) => d.id), ["d1"]);
+  assert.deepEqual(slept, [3000, 3000, 1000]);
+  assert.equal(stuck.waitedMs, 7000);
+});
+
+test("run.mjs waits for in-flight legs before a scenario's reconcile and before the final stop, and restarts the worker with the roles it runs", () => {
+  const source = readFileSync(new URL("./run.mjs", import.meta.url), "utf8");
+  const reconcile = source.slice(source.indexOf("async function reconcileCheck("), source.indexOf("async function stopCheck("));
+  assert.match(reconcile, /^\s*await waitInFlight\(label\);/m, "the reconcile window opens only once no leg is in flight");
+  assert.ok(source.indexOf("await waitInFlight(label)") < source.indexOf('await node("reconcile.mjs"'), "the wait precedes the first reconcile attempt");
+  assert.match(source.slice(source.indexOf("// --- 7.")), /if \(copy\) \{ await waitInFlight\("final"\); await stopCheck\("final", copy\); \}/, "the final stop waits too");
+  const wait = source.slice(source.indexOf("async function waitInFlight("), source.indexOf("async function reconcileCheck("));
+  assert.match(wait, /waitForInFlight\(inFlightRows, \{ waitMs, intervalMs: 3000 \}\)/);
+  assert.match(wait, /log\("scenario_wait_in_flight", \{ scenario: label, dispatches: [\s\S]*waitedMs: waited\.waitedMs/);
+  assert.match(wait, /inFlightWaitMs\(limit\.ms\)/, "bounded by the signal-age limit plus the margin");
+  assert.match(source, /admin\.get\("\/admin\/copy\/risk"\)\)\.limits\?\.maxSignalAgeSeconds/, "the limit is read from the api's risk policy when an admin token is given");
+  // --roles split: the stack check wants both roles, the worker-restart scenario keeps the copy role, the read worker is measured.
+  assert.match(source, /const SPLIT = ROLES === "split";/);
+  assert.match(source, /check\("stack_worker_roles", copyRole === "copy" && readRole === "read"/);
+  assert.match(source, /\.\.\.\(SPLIT \? \["--roles", "split"\] : \[\]\)\]/, "stack.mjs restart worker gets --roles split");
+  assert.match(source, /\.\.\.\(SPLIT \? \[WORKER_READ\] : \[\]\)/, "the read worker's heartbeat is measured");
+  assert.match(source, /m\.roles = workerRolesLabel\(measureRun\.heartbeats \?\? \[\], \{ copy: WORKER, read: SPLIT \? WORKER_READ : null \}\)/);
+});

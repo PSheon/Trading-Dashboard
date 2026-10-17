@@ -344,6 +344,64 @@ export function zeroCodeCounts({ failures = [], boundary = [], outcomes = {} }, 
   }]));
 }
 
+// --- legs in flight (gate 13: a scenario judged while an attempt still ran) ------------------------------------
+
+/** The risk policy's default maxSignalAgeSeconds (packages/shared copy.ts copyRiskLimitsSchema; read-only copy):
+ * the age past which the engine refuses an open as signal_expired, so no attempt of it can start later. */
+export const DEFAULT_SIGNAL_AGE_LIMIT_MS = 120_000;
+/** Margin past the signal-age limit for a close (which never ages) or a last attempt that started just inside it. */
+export const IN_FLIGHT_WAIT_MARGIN_MS = 30_000;
+/** The longest the harness waits for in-flight legs before it judges or stops, whatever the limit says. */
+export const IN_FLIGHT_WAIT_MAX_MS = 150_000;
+/** How long to wait for in-flight legs: the signal-age limit plus the margin, at most IN_FLIGHT_WAIT_MAX_MS. */
+export function inFlightWaitMs(signalAgeLimitMs = DEFAULT_SIGNAL_AGE_LIMIT_MS) {
+  const limit = Number.isFinite(signalAgeLimitMs) && signalAgeLimitMs > 0 ? signalAgeLimitMs : DEFAULT_SIGNAL_AGE_LIMIT_MS;
+  return Math.min(IN_FLIGHT_WAIT_MAX_MS, limit + IN_FLIGHT_WAIT_MARGIN_MS);
+}
+/**
+ * One psql statement (-At: one JSON line, `[]` for none) for the copies' legs that are not terminal:
+ * copy_live_dispatches of `strategyIds` in state pending or submitted, with what tells an attempt in
+ * flight or a retry due (attempts, reason, first_attempt_at; the table has no next-attempt column: a
+ * pending leg with a reason or a counted attempt is one the engine retries, LIVE_LEG_RETRY_BASE_MS).
+ * No key, address or payload is selected.
+ */
+export function inFlightSql(strategyIds) {
+  if (!strategyIds.length || !strategyIds.every(Number.isSafeInteger)) throw new Error("strategyIds: integers");
+  return `select coalesce(json_agg(t), '[]'::json) from (select id, leg, coin, state, reason, attempts, first_attempt_at as "firstAttemptAt", ` +
+    `updated_at as "updatedAt" from copy_live_dispatches where strategy_id in (${strategyIds.join(",")}) and state in ('pending', 'submitted') order by created_at) t`;
+}
+/**
+ * The legs still in flight among the rows inFlightSql returns: a `submitted` order (sent, not yet
+ * resolved), or a `pending` leg with a running attempt (first_attempt_at set) or a retry due (a
+ * counted attempt or a reason, the engine's retry marker). A pending leg nobody has attempted yet
+ * (no first attempt, no reason, no attempt counted) only waits for the next engine pass, or to
+ * merge: not in flight. Terminal rows (settled, refused) never are.
+ * @param {{ id: string, leg: string, coin: string, state: string, reason?: string | null, attempts?: number, firstAttemptAt?: string | null }[]} rows
+ */
+export function inFlightDispatches(rows) {
+  return rows.filter((r) => r.state === "submitted" || (r.state === "pending" && (Boolean(r.firstAttemptAt) || Number(r.attempts) > 0 || Boolean(r.reason))))
+    .map((r) => ({ id: r.id, leg: r.leg, coin: r.coin, state: r.state, reason: r.reason || null, attempts: Number(r.attempts) || 0, firstAttemptAt: r.firstAttemptAt ?? null }));
+}
+/**
+ * Waits while `read()` (the rows of inFlightSql) shows a leg in flight, polling every `intervalMs`
+ * until none is or `waitMs` has passed. Nothing in flight at the first read: returns at once, no
+ * sleep. Returns the legs seen at the first read, those still in flight at the end (`[]`: all
+ * settled or refused), how long it waited and whether it gave up (`timedOut`).
+ * @param {() => Promise<object[]>} read
+ * @param {{ waitMs: number, intervalMs?: number, now?: () => number, sleep?: (ms: number) => Promise<void> }} options
+ */
+export async function waitForInFlight(read, { waitMs, intervalMs = 3000, now = Date.now, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
+  const start = now(), end = start + waitMs;
+  const first = inFlightDispatches(await read());
+  let left = first, polls = 1;
+  while (left.length && now() < end) {
+    await sleep(Math.max(0, Math.min(intervalMs, end - now())));
+    left = inFlightDispatches(await read());
+    polls++;
+  }
+  return { dispatches: first, left, waitedMs: now() - start, polls, timedOut: left.length > 0 };
+}
+
 // --- stuck rows (a manual stuck detector) --------------------------------------------------------------------
 
 /** How long a row with an issue may wait past its retry before it counts as stuck. */

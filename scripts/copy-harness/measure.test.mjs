@@ -164,3 +164,22 @@ test("scanMeasureLog and renderMeasurements: the observer's evidence_expired lin
   const out = renderMeasurements({ window: { from: "a", to: "b" }, log, delays: attemptDelays([]), claims: claimWaitSummary([]) });
   assert.match(out, /live_account_evidence_expired: 3 \(provider_state_time older_than_bound ×2, max age 5400 ms; final ahead_of_clock ×1, max age -12 ms\)/);
 });
+
+import { workerRolesLabel } from "./measure.mjs";
+test("workerRolesLabel: an all-role worker is named beside the local-bucket waits; copy + read is Stage's split", () => {
+  const copy = "http://localhost:3010", read = "http://localhost:3011";
+  const all = workerRolesLabel([{ url: copy, role: "all" }], { copy, read: null });
+  assert.equal(all.split, false);
+  assert.match(all.label, /^all-role worker http:\/\/localhost:3010: TradeAnalytics \/ Cohort \/ Leaderboard reads drain the same local bucket as the orders \(roles not split/);
+  const split = workerRolesLabel([{ url: copy, role: "copy" }, { url: read, role: "read" }], { copy, read });
+  assert.deepEqual(split, { split: true, copyRole: "copy", readRole: "read", label: `roles split: copy worker ${copy}, read worker ${read} (as on Stage)` });
+  // A copy worker whose read worker is down (or unread) is not the split.
+  const half = workerRolesLabel([{ url: copy, role: "copy" }, { url: read, error: "/health 503" }], { copy, read });
+  assert.equal(half.split, false);
+  assert.match(half.label, /worker http:\/\/localhost:3010 role copy, read worker http:\/\/localhost:3011 role unknown/);
+  assert.match(workerRolesLabel([], { copy, read: null }).label, /role unknown \(no heartbeat role\)$/);
+  // The block names it on the local-bucket waits' section (1d), and says nothing when the run has no roles reading.
+  const base = { window: { from: "a", to: "b" }, log: null, delays: null, claims: null };
+  assert.match(renderMeasurements({ ...base, roles: all }), /1d\. failed leg attempt[^\n]*\n  local-bucket waits measured on: all-role worker/);
+  assert.doesNotMatch(renderMeasurements(base), /local-bucket waits measured on/);
+});

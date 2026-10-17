@@ -227,7 +227,9 @@ describe('the paper signal drain and the copy user lock (H-R5)', () => {
     const sampler = await drainSampled();
     expect(provider.reads).toHaveLength(1);
     const read = provider.reads[0]!;
-    expect(read.to - read.from).toBeGreaterThanOrEqual(1_000);
+    // A 1 s setTimeout may fire a millisecond early (CI run 39016923638 saw 999): the read's own
+    // duration only has to be the delay within timer precision; the lock-after-read assertion below is exact.
+    expect(read.to - read.from).toBeGreaterThanOrEqual(1_000 - 10);
     expect(holds.length).toBe(2);
     for (const h of holds) {
       expect(h.lockedAt, 'the lock is taken after the read resolved').toBeGreaterThanOrEqual(read.to);

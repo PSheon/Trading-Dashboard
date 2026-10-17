@@ -50,7 +50,6 @@ async function heartbeat(port) {
   try { const r = await fetch(`http://localhost:${port}/health`, { signal: AbortSignal.timeout(5000) }); return r.ok ? await r.json().catch(() => ({})) : null; }
   catch { return null; }
 }
-const healthy = async (port) => (await heartbeat(port)) !== null;
 
 if (command === "status") {
   for (const { role: name, port } of statusRoles(roles)) {

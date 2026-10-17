@@ -1,7 +1,7 @@
 import { exchangeApprovalFixture, executionGateFixture } from "./copy-live-test-utils.js";
 import { LiveSubmissionBlockedError, type LiveExecutionGate, type LiveExecutionLease } from "../src/copy/live/live-execution-gate.js";
 import { describe, expect, it, vi } from "vitest";
-import { LIVE_REQUEST_NEVER_BEGAN, LiveOrderExecutor, NEVER_PLACED, type LiveExecutionJournal, type LiveExecutionRecord, type LiveExchangeTransport } from '../src/copy/live/live-execution.js';
+import { isDefinitelyUnsent, LIVE_REQUEST_NEVER_BEGAN, LiveOrderExecutor, NEVER_PLACED, type LiveExecutionJournal, type LiveExecutionRecord, type LiveExchangeTransport } from '../src/copy/live/live-execution.js';
 import { buildOrderAction, executionKey, wireDecimal, type LiveOrderIntent } from "../src/copy/live/live-order.js";
 import { LiveBoundaryError, assertWalletAuthorization, WalletAuthorizationService, type WalletAuthorization } from "../src/copy/live/wallet-authorization.js";
 import { NEVER_PLACED_GRACE_MS } from '../src/config/constants/timings.js';
@@ -236,11 +236,13 @@ describe("live execution durable submission semantics (injected transport)", () 
     await expect(executor.execute(intent)).rejects.toThrow("db failed");
     expect((await journal.get(executionKey(intent)))!.state).toBe("submitting");
   });
-  it("definitely pre-submit signing errors remain prepared", async () => {
+  it("a definitely pre-submit signing error is recorded never placed and marked unsent (its hold is released by settlement, not at expiry)", async () => {
     const { executor, transport, journal } = setup();
     vi.mocked(transport.sign).mockRejectedValue(new Error("signer unavailable"));
     await expect(executor.execute(intent)).rejects.toThrow("signer unavailable");
-    expect((await journal.get(executionKey(intent)))!.state).toBe("prepared");
+    const record = (await journal.get(executionKey(intent)))!;
+    expect(record).toMatchObject({ state: "rejected", errorCode: "exchange_order_never_placed", unsent: "request_never_began", outcome: { state: "rejected", reason: "signing_failed" } });
+    expect(isDefinitelyUnsent(record)).toBe(true);
     expect(transport.submit).not.toHaveBeenCalled();
   });
   it("refuses network mismatch before touching persistence", async () => {

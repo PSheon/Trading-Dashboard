@@ -25,6 +25,15 @@ export const ABSTRACTION_ATTEMPT_LIMIT = 3;
  */
 export const MAX_SIGNAL_ATTEMPTS = 8;
 
+/** basis: measured — gate 12 (2026-10-17 04:26–04:32Z): a paper pass of one leader's 200 outbox rows held an owner's
+ * copy user lock (7404) 12.0–12.9 s, back-to-back statements (idle ≤ 57 ms), ~60 ms a fill on Stage's 8 ms round trip;
+ * a live order of that owner waits LIVE_RISK_LOCK_WAIT_MS (1 s) for the same lock and then fails live_risk_busy.
+ * Eight fills with batched leg statements is ≤ ~30 statements a transaction (≈ 250 ms on Stage); the spec records the
+ * statements under the lock. The paper signal drain copies at most this many of one leader's fills for one strategy
+ * in one locked transaction, commits, and waits LIVE_RISK_LOCK_POLL_MS before locking that owner again.
+ */
+export const PAPER_SIGNAL_FILLS_PER_LOCK_LIMIT = 8;
+
 /** basis: guessed — a stop's automatic return is reserved again at most 5 times; verify: return outcomes on Stage
  * Only a return that provably never reached the exchange is reserved again
  * (new nonce), no sooner than sweepRetryDelayMs(n) after attempt n ended.

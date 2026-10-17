@@ -1360,7 +1360,7 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
       const { id, activatedAt } = await startCopy();
       await store([fill({ side: "B", sz: 0.5, px: 100_000, start: 0, time: activatedAt + 1_000 })]);
       const repo = app.get(CopyRepository);
-      const spy = vi.spyOn(repo, "claimLeg").mockRejectedValueOnce(new Error("db blip"));
+      const spy = vi.spyOn(repo, "claimLegs").mockRejectedValueOnce(new Error("db blip"));
       expect(await signals.drain()).toEqual({ processed: 0, orders: 0, failed: 1 });
       spy.mockRestore();
       const [row] = await db.select().from(copySignalOutbox);
@@ -1844,10 +1844,10 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
       await store([fill({ side: "B", sz: 0.5, px: 100_000, start: 0, time: a.activatedAt + 1_000 }), bad]);
       await store([fill({ side: "B", sz: 0.5, px: 100_000, start: 0, time: Date.now() })], OTHER);
       const repo = app.get(CopyRepository);
-      const claim = repo.claimLeg.bind(repo);
-      const spy = vi.spyOn(repo, "claimLeg").mockImplementation(async (tx, v) => {
-        if (v.tid === BigInt(bad.tid)) throw new Error("poisoned row");
-        return claim(tx, v);
+      const claim = repo.claimLegs.bind(repo);
+      const spy = vi.spyOn(repo, "claimLegs").mockImplementation(async (tx, strategyId, version, legs) => {
+        if (legs.some((l) => l.tid === BigInt(bad.tid))) throw new Error("poisoned row");
+        return claim(tx, strategyId, version, legs);
       });
       const result = await signals.drain();
       spy.mockRestore();
@@ -1859,7 +1859,7 @@ describe("paper copy trading — real services, real Postgres, stubbed Hyperliqu
       expect((await orders(b)).map((o) => o.coin)).toEqual(["BTC"]);
       // The bad row is retried on its own schedule and parked as failed after its attempts, where /admin/copy shows it.
       await db.update(copySignalOutbox).set({ attempts: 7, availableAt: new Date(0) }).where(eq(copySignalOutbox.id, rows[1]!.id));
-      const again = vi.spyOn(repo, "claimLeg").mockRejectedValue(new Error("poisoned row"));
+      const again = vi.spyOn(repo, "claimLegs").mockRejectedValue(new Error("poisoned row"));
       expect(await signals.drain()).toEqual({ processed: 0, orders: 0, failed: 1 });
       again.mockRestore();
       expect((await db.select().from(copySignalOutbox).where(eq(copySignalOutbox.id, rows[1]!.id)))[0]).toMatchObject({ status: "failed", attempts: 8 });

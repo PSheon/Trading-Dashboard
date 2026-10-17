@@ -2,7 +2,8 @@ import { BadGatewayException, ConflictException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import { assertSetupTimings, DEFAULT_LIVE_SETUP_TIMINGS, setupStepBudgetMs } from '../src/config/live-timings.js';
 import { backoffMs, classify, decideRetry, exhausted, FUNDING_RETRY_POLICY, IDENTITY_UNVERIFIED_ISSUE, LIVE_LEG_RETRY_POLICY, liveRetryDelayMs, PRIVY_IDENTITY_EVIDENCE_CODES, StepFail, StepWait } from '../src/copy/live/error-class.js';
-import { errorCode } from '../src/runtime/safe-error-text.js';
+import { describeUnexpected, errorCode } from '../src/runtime/safe-error-text.js';
+import { AbstractWalletError } from '@nktkas/hyperliquid/signing';
 import { fundingBackoffMs } from '../src/copy/copy-funding-scan.js';
 import { setupRetryPolicy } from '../src/config/live-timings.js';
 import { AgentIdentityEvidenceExpired } from '../src/copy/copy-agent.service.js';
@@ -180,5 +181,36 @@ describe('THE back-off table (backoffMs): a funding confirmation and a setup abo
     expect([0, 1, 9].map(prior => backoffMs(prior, LIVE_LEG_RETRY_POLICY))).toEqual([3_000, 3_000, 3_000]);
     // A huge count never overflows to Infinity (the exponent is capped).
     expect(backoffMs(1_000, FUNDING_RETRY_POLICY)).toBe(60_000);
+  });
+});
+
+describe('gate 12 (2026-10-17): a boundary code thrown inside a wrapper is that code, not an unexpected failure', () => {
+  // Our signer's `signTypedData` threw live_risk_stale (an 8.9 s attempt against a 7 s window) and the
+  // wallet library wrapped it: `AbstractWalletError: Failed to sign the typed data using the wallet`.
+  const wrapped = (cause: unknown) => new AbstractWalletError('Failed to sign the typed data using the wallet', { cause });
+  it('classifies by the first boundary error in the cause chain, and the leg is stored and retried under it', () => {
+    const error = wrapped(new LiveBoundaryError('live_risk_stale'));
+    expect(classify(error)).toEqual({ class: 'transient', code: 'live_risk_stale', source: 'boundary', exhausts: true });
+    expect(errorCode(error)).toBe('live_risk_stale');
+    expect(describeUnexpected(error)).toBeNull();
+    // The stale read's own retry decision: a failed provider read, spaced PROVIDER_READ_RETRY_MS.
+    expect(decideRetry(error, 0, LIVE_LEG_RETRY_POLICY)).toMatchObject({ kind: 'retry', delayMs: PROVIDER_READ_RETRY_MS, classified: { code: 'live_risk_stale' } });
+    expect(liveRetryDelayMs(error)).toBe(liveRetryDelayMs(new LiveBoundaryError('live_risk_stale')));
+  });
+  it("a wrapped wait is a wait; a wrapped owner code is the owner's; an AggregateError is searched too", () => {
+    expect(classify(wrapped(new HyperliquidBudgetWait(4_000, 'shared_capacity')))).toMatchObject({ class: 'budget', retryAfterMs: 4_000 });
+    expect(classify(new Error('fetch failed', { cause: new LiveBoundaryError('wallet_authorization_revoked') })).class).toBe('needs_owner');
+    const aggregate = new AggregateError([new TypeError('ECONNREFUSED'), new Error('x', { cause: new LiveBoundaryError('privy_wallet_identity_stale') })], 'all failed');
+    expect(classify(aggregate)).toMatchObject({ code: 'privy_wallet_identity_stale' });
+    expect(errorCode(aggregate)).toBe('privy_wallet_identity_stale');
+  });
+  it("the error's own code wins over a cause; a chain deeper than 4 or without a boundary error is unexpected", () => {
+    expect(classify(new Error('no_follower_position', { cause: new LiveBoundaryError('live_risk_stale') })).code).toBe('no_follower_position');
+    let deep: Error = new LiveBoundaryError('live_risk_stale');
+    for (let i = 0; i < 5; i++) deep = new Error(`wrapper ${i}`, { cause: deep });
+    expect(classify(deep)).toEqual({ class: 'transient', code: null, source: 'unknown', exhausts: true });
+    expect(classify(wrapped(new TypeError('fetch failed')))).toEqual({ class: 'transient', code: null, source: 'unknown', exhausts: true });
+    expect(errorCode(wrapped(new TypeError('fetch failed')))).toBe('live_execution_failed');
+    expect(describeUnexpected(wrapped(new TypeError('fetch failed')))).toMatch(/^AbstractWalletError/);
   });
 });

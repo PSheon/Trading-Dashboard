@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { describeUnexpected } from '../src/copy/live-worker/copy-live-engine.js';
 import { LiveBoundaryError } from '../src/copy/live/wallet-authorization.js';
+import { errorCode } from '../src/runtime/safe-error-text.js';
 
 // Stage 2026-10-06: a leg failed as `live_execution_failed` five times with
 // nothing in the log; an unexpected error must be described there.
@@ -19,13 +20,12 @@ describe('the engine describes a leg failure it has no code for', () => {
     const text = describeUnexpected(new Error(`signing failed for key ${key} sig ${sig} with ${jwt}; Authorization: Bearer abc.def`))!;
     for (const secret of [key, sig, jwt, 'abc.def', 'signing failed']) expect(text).not.toContain(secret);
   });
-  it('reports a wrapped local boundary code without echoing SDK or provider messages', () => {
+  it('a wrapped local boundary code is not unexpected: the leg is stored under that code, the wrapper never logged (gate 12, 2026-10-17)', () => {
     const error = new Error('sdk echoed private signature', { cause: new Error('provider echoed private token', {
       cause: new LiveBoundaryError('privy_wallet_identity_stale'),
     }) });
-    const text = describeUnexpected(error)!;
-    expect(text).toContain('[cause: privy_wallet_identity_stale]');
-    expect(text).not.toContain('private signature'); expect(text).not.toContain('private token');
+    expect(describeUnexpected(error)).toBeNull();
+    expect(errorCode(error)).toBe('privy_wallet_identity_stale');
   });
   it('does not evaluate an untrusted cause getter', () => {
     const error = new Error('sdk failed'); let evaluated = false;

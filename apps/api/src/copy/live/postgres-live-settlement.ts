@@ -1,8 +1,8 @@
 import { isDeepStrictEqual } from 'node:util';
-import { and, eq, inArray, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, or, sql } from 'drizzle-orm';
 import { copyExecutionAccounts, copyExecutionWallets, copyWalletAuthorizations, copyLiveExecutions, copyLiveRiskReservations, copyLiveExecutionEvidence,
   copyFollowerReceipts, copyFollowerLedger, copyFollowerAccountState, copyFollowerScans, copyStrategies, users,
-  copyLiveIntentProvenance, copyLiveSignalLegs, copyLiveReductionCarry, copyLiveSourceFills, copyLiveMandates, copyLiveStrategyConfigs, copyStrategyVersions, copyRiskPolicies } from '@trading-dashboard/shared/database';
+  copyLiveIntentProvenance, copyLiveSignalLegs, copyLiveReductionCarry, copyLiveSourceFills, copyLiveMandates, copyLiveStrategyConfigs, copyStrategyVersions, copyRiskPolicies, copyLiveStopOperations } from '@trading-dashboard/shared/database';
 import { ACTUAL_STRATEGY_MODE, copyStrategySettingsSchema, copyRiskLimitsSchema, isHyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { Dec } from '../../common/decimal/dec.js';
 import { decodeLiveCopyMandate } from '../copy-live-mandate-evidence.js';
@@ -91,6 +91,36 @@ export class PostgresLiveSettlement {
       check(changed.length === 1,'live_settlement_revision_changed');
     }
     return Object.freeze({kind:'quarantine' as const,reason});
+  }
+  /** The account's stop proven flat after `at` (its flat certificate's
+   * observation), or null: from then on the copy's generation is over and
+   * its position no longer projects from its orders. */
+  private async flatAfter(session: LiveRiskDatabaseSession, tx: DbTransaction, accountId: string, at: number) {
+    const [stop] = await this.query(session, tx.select({ id: copyLiveStopOperations.id, flatDigest: copyLiveStopOperations.flatDigest, flatVerifiedAt: copyLiveStopOperations.flatVerifiedAt })
+      .from(copyLiveStopOperations).where(and(eq(copyLiveStopOperations.accountId, accountId), inArray(copyLiveStopOperations.state, ['flat', 'stopped']),
+        gte(copyLiveStopOperations.flatVerifiedAt, new Date(at)))).orderBy(asc(copyLiveStopOperations.flatVerifiedAt)).limit(1));
+    return stop?.flatDigest && stop.flatVerifiedAt ? { stopId: stop.id, flatDigest: stop.flatDigest, flatVerifiedAt: stop.flatVerifiedAt.getTime() } : null;
+  }
+  /**
+   * A settlement that could not prove its order within its retries
+   * (SETTLEMENT_RETRY_POLICY): the reservation is quarantined for its owner
+   * (the account too, as any settlement quarantine), so nothing retries it.
+   * A reservation already released or quarantined is answered as it is.
+   * `flat`: the account's stop proven flat after the order, when there is one.
+   */
+  async quarantineUnsettled(session: LiveRiskDatabaseSession, raw: { accountId: string; key: string; reason: string }): Promise<Readonly<{ kind: 'released' } | { kind: 'quarantine'; reason: string; flat: { stopId: string; flatDigest: string; flatVerifiedAt: number } | null }>> {
+    const input = structuredClone(raw); session.scope.assertFresh();
+    check(/^[a-z][a-z0-9_]{0,79}$/.test(input.reason), 'live_settlement_invalid');
+    const result = await session.transaction(async tx => {
+      const { row, record } = await this.load(session, tx, input.accountId, input.key);
+      if (row.state === 'released') return { kind: 'released' as const };
+      const flat = await this.flatAfter(session, tx, row.accountId, record.updatedAt);
+      if (row.state === 'quarantined') return { kind: 'quarantine' as const, reason: 'live_settlement_quarantined', flat };
+      const quarantined = await this.quarantine(session, tx, row, input.reason);
+      session.scope.assertFresh();
+      return { ...quarantined, flat };
+    });
+    return freezeLiveReservation(result);
   }
   private observation(record: LiveExecutionRecord, supplied: LiveOrderEvidence): LiveOrderEvidence {
     const parsed = parseLiveOrderEvidence({record,market:supplied.identity.market,raw:supplied.raw,checkedAt:supplied.checkedAt,completedAt:supplied.completedAt,now:this.now()});
@@ -379,7 +409,14 @@ export class PostgresLiveSettlement {
       if (decision.kind === 'quarantine') return this.quarantine(session,tx,row,decision.reason);
       if (decision.kind !== 'release') return decision;
       const source = await this.sourcePlan(session,tx,loaded);
-      if (source) {
+      // A stop proven flat after this order ended its copy (and reset what
+      // closes owed): the account's position no longer projects from the
+      // generation, so it is not compared. The order's own evidence and its
+      // booked fills still prove what it filled (gate 11, 2026-10-16: a stop
+      // closed the position of an order not yet settled, and its settlement
+      // failed live_settlement_position_changed on every pass).
+      const flat = source ? await this.flatAfter(session,tx,row.accountId,record.updatedAt) : null;
+      if (source && !flat) {
         const snapshot = assessmentInput.accountSource.snapshot, b = source.envelope.basis, filled = Dec.from(decision.certificate.filledSize);
         const before = Dec.from(b.generation.positionSize), signedFill = filled.mul(reservation.payload.intent.side === 'B' ? 1 : -1);
         const position = snapshot.positions.find(p => p.coin === source.plan.order.coin), remaining = Dec.from(position?.size ?? '0');
@@ -397,6 +434,8 @@ export class PostgresLiveSettlement {
             .where(and(eq(copyLiveReductionCarry.mandateId,source.carry.mandateId),eq(copyLiveReductionCarry.coin,source.carry.coin),eq(copyLiveReductionCarry.revision,b.carry.revision),eq(copyLiveReductionCarry.carry,b.carry.amount))).returning());
           check(changedCarry.length === 1,'live_settlement_carry_changed');
         }
+      }
+      if (source) {
         const terminal = this.terminalRecord(record,observation,decision.certificate.filledSize,decision.certificate.oid);
         const changedJournal = await this.query(session,tx.update(copyLiveExecutions).set({state:terminal.state,record:json(terminal),updatedAt:new Date(terminal.updatedAt)})
           .where(and(eq(copyLiveExecutions.key,row.key),eq(copyLiveExecutions.state,record.state),eq(copyLiveExecutions.updatedAt,new Date(record.updatedAt)))).returning());

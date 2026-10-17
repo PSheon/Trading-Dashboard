@@ -88,9 +88,12 @@ it('the terminal settlement loop logs why an order is still pending, at most onc
     settle: async () => ({ kind: 'pending' as const, reason: 'live_settlement_terminal_stale' }) });
   const api = new CopyLiveApiSettlementService(config, new BackgroundJobs(), { candidates: async () => ['testnet:a:k1', 'testnet:a:k2'] } as never, { run } as never, work as never);
   const pending = () => warn.mock.calls.map(([line]) => String(line)).filter(line => line.startsWith('settlement '));
-  await api.tick(); clock += 3000; await api.tick(); clock += 26_000; await api.tick();
+  // A pending pass is a failed one: the next is due SETTLEMENT_RETRY_MS (6 s) later.
+  await api.tick(); clock += 6000; await api.tick(); clock += 23_000; await api.tick();
   expect(pending()).toEqual(['settlement testnet:a:k1 pending: live_settlement_terminal_stale', 'settlement testnet:a:k2 pending: live_settlement_terminal_stale']);
   clock += 1000; await api.tick();
+  expect(pending()).toHaveLength(2);
+  clock += 6000; await api.tick();
   expect(pending()).toHaveLength(4);
   // What the loop stores and does next is unchanged.
   expect(finish).toHaveBeenCalledTimes(8);

@@ -158,6 +158,21 @@ describe('distributed user and account risk serialization', () => {
     });
     expect(await scopes.run({ ...identity, userId: 2 }, async () => 'new owner')).toBe('new owner');
   });
+  // Gate 11 (2026-10-16): another order's or a settlement's scope holds the
+  // user lock a few hundred ms (sampled: ≤ 330 ms); the order's single try
+  // failed live_risk_busy, three times, until its signal expired.
+  it('tries an exclusive lock held briefly by another holder again within LIVE_RISK_LOCK_WAIT_MS instead of answering busy', async () => {
+    const writer = await pool.connect();
+    try {
+      await writer.query('begin');
+      await writer.query('select pg_advisory_xact_lock(7404, $1::integer)', [identity.userId]);
+      const released = new Promise(resolve => setTimeout(() => { void writer.query('commit').then(resolve); }, 300));
+      const started = performance.now();
+      expect(await scopes.run(identity, async () => 'served')).toBe('served');
+      expect(performance.now() - started).toBeGreaterThanOrEqual(250);
+      await released;
+    } finally { writer.release(); }
+  });
   // Gate run 9 (2026-10-14): an order waited 12 s, then live_risk_busy, with
   // nothing saying who held the lock.
   it('names the lock and its holder (kind, id, how long) in a live_risk_busy refusal', async () => {

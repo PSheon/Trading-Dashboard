@@ -37,6 +37,8 @@ export interface LiveSettleRequest {
  * `unplaced`: a never-placed order's liability released; `unsent: true` when its
  * request provably never began (its leg may be planned again). */
 export type LiveSettleOutcome = { kind: 'released' } | { kind: 'unplaced'; unsent?: true } |{ kind: 'pending' | 'quarantine' | 'unsent'; reason: string };
+/** CopyLiveSettler.quarantine's answer: the order quarantined (with the account's flat stop, if any), or already released. */
+export type LiveQuarantineOutcome = Readonly<{ kind: 'released' } | { kind: 'quarantine'; reason: string; flat: { stopId: string; flatDigest: string; flatVerifiedAt: number } | null }>;
 
 /**
  * Settles one terminal order on `network`: scans the account's fills now, reads
@@ -158,6 +160,19 @@ export class CopyLiveSettler {
       } finally { await sockets.close(); }
     })); } finally { if (prepaid > 0) this.budget.adjust(-prepaid); }
     }); } finally { if (token !== undefined) await this.global.releaseLive(request.key); }
+  }
+
+  /**
+   * Gives a settlement that could not prove its order (SETTLEMENT_RETRY_POLICY
+   * exhausted) to its owner: its reservation is quarantined (the account too),
+   * so nothing retries it or claims live demand for it again. No provider read.
+   * `flat`: the account's stop proven flat after the order, for the ALERT.
+   */
+  async quarantine(request: LiveSettleRequest, reason: string, claim?: SettlementClaim): Promise<LiveQuarantineOutcome> {
+    if (claim) await claim.assertHeld();
+    return new PostgresLiveRiskScope(this.pool, this.now, claim, { kind: 'settlement_quarantine', id: request.key }).run({ userId: request.userId, network: this.network,
+      accountAddress: request.accountAddress, source: { network: request.sourceNetwork, leaderAddress: request.leaderAddress } }, async (_scope, session) =>
+      new PostgresLiveSettlement(this.now).quarantineUnsettled(session, { accountId: request.accountId, key: request.key, reason }));
   }
 
   /** Claims settlement's need on the shared meter (claimLive, keyed by the

@@ -118,6 +118,19 @@ export const STOP_CANCEL_ATTEMPTS = 3;
  */
 export const LIVE_RISK_BUSY_RETRY_MS = 1_000;
 
+/** basis: measured — gate 11 lock sampler (2026-10-16, f3c2f9ba): the user lock's by-design holders, a settlement's scope (≤ 330 ms, p50 26) and an order's (≤ 267 ms, p50 19); 1 s covers the longest three times over
+ * How long a live-risk scope tries its exclusive locks (user, account) again
+ * before answering live_risk_busy: a scope held for a few hundred ms by
+ * another order or a settlement no longer fails the attempt (the order's
+ * next try was a second later and its signal had expired after three).
+ * Nothing is read or reserved while it waits; LIVE_RISK_LOCK_POLL_MS apart.
+ */
+export const LIVE_RISK_LOCK_WAIT_MS = 1_000;
+
+/** basis: derived — LIVE_RISK_LOCK_WAIT_MS / 10: ten tries, each one round trip (8 ms on Stage)
+ */
+export const LIVE_RISK_LOCK_POLL_MS = LIVE_RISK_LOCK_WAIT_MS / 10;
+
 /** basis: measured — local harness 2026-10-12: a burst of failed reads used up the 30 WebSocket connects a minute
  * Retry delay for a failed provider read (PROVIDER_READ_FAILURES, a meter
  * refusal): it opened a socket or spent weight.
@@ -304,3 +317,17 @@ export const SETTLEMENT_PENDING_LOG_INTERVAL_MS = 30_000;
  * its own earlier passes.
  */
 export const SETTLEMENT_CLAIM_WAIT_MS = 15_000;
+
+/** basis: measured — gate 11 (2026-10-16): a terminal settlement's pass took 3–6 s; the one that could not prove its order failed every pass for 50+ min
+ * A failed settlement pass is tried again this long after it (flat; a failed
+ * provider read waits PROVIDER_READ_RETRY_MS), not on every 3 s tick: each
+ * pass claims live demand and opens the account's sockets.
+ */
+export const SETTLEMENT_RETRY_MS = 6_000;
+
+/** basis: derived — SETTLEMENT_RETRY_MS (6 s, 10 s after a failed read) × 10: about 1–1.5 min of failed passes
+ * Failed passes (counted by decideRetry: a meter wait is not one) after
+ * which a settlement stops retrying: its order is quarantined for its owner
+ * (needs_owner) with an ALERT, and nothing claims live demand for it again.
+ */
+export const SETTLEMENT_RETRY_ATTEMPTS = 10;

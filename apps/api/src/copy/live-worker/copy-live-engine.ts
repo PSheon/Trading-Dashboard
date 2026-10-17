@@ -7,7 +7,8 @@ import type { LiveExecutionHooks, LiveExecutionRequest } from '../live/live-exec
 import { canonicalLiveSourceLegs, decodeLiveSourceFill, liveSourceDigest, liveSourceEvidenceDetail } from '../live/copy-live-source-evidence.js';
 import { liveSourceExecutionAttempt, liveSourceExecutionCloid } from '../live/copy-live-leg-attempt.js';
 import { describeUnexpected, errorCode } from '../../runtime/safe-error-text.js';
-import { TERMINAL_STATES, type LiveSettleOutcome, type LiveSettleRequest } from './copy-live-settler.js';
+import { TERMINAL_STATES, type LiveQuarantineOutcome, type LiveSettleOutcome, type LiveSettleRequest } from './copy-live-settler.js';
+import { SETTLEMENT_NEEDS_OWNER, SettlementRetries, type SettlementVerdict } from './settlement-retries.js';
 import { SettlementPendingLog } from './settlement-pending-log.js';
 import { UNSENT_RELEASED, UNSENT_RETRY, type CopyLiveWorkerRepository, type DispatchRow, type LiveMandateWork, type LiveStreamWork } from './copy-live-worker.repository.js';
 import { openNotionalCeiling, planAdjustments, type PendingLeg } from './copy-live-adjustments.js';
@@ -42,7 +43,9 @@ export interface LiveEngineDependencies {
   readonly testnetSource: HyperliquidLiveSourceClient;
   readonly runtime: (hooks: Pick<LiveExecutionHooks, 'onExchange'>) => LiveExecutor;
   readonly apiTerminalSettlement?: boolean;
-  readonly settler: { settle(request: LiveSettleRequest): Promise<LiveSettleOutcome> };
+  readonly settler: { settle(request: LiveSettleRequest): Promise<LiveSettleOutcome>;
+    /** Its retries are over (SETTLEMENT_RETRY_POLICY): the order goes to its owner (CopyLiveSettler.quarantine). */
+    quarantine?(request: LiveSettleRequest, reason: string): Promise<LiveQuarantineOutcome> };
   /** Retain a committed settlement observation for reporting; never a permit. */
   readonly settlementObservation?: (key: string) => Promise<unknown>;
   /** One-click setups; run before funded generations start, so a new one starts this pass. */
@@ -54,6 +57,8 @@ export interface LiveEngineDependencies {
   /** Owner stop requests (cancel, close, flat, return); after the legs. */
   readonly stopper?: { tick(): Promise<void> };
   readonly log?: (message: string) => void;
+  /** An ALERT line (logged at error level). */
+  readonly alert?: (message: string) => void;
   /** Info-level timing lines (order sent). */
   readonly trace?: (message: string) => void;
   /** A mainnet leader's account value (ratio denominator, cached); used to
@@ -133,8 +138,10 @@ export class CopyLiveEngine {
   private readonly ingesting = new Set<string>();
   /** Why an order's settlement is still pending (rate-limited per order). */
   private readonly pendingSettlements = new SettlementPendingLog(message => this.deps.log?.(message), () => this.now());
+  /** Failed settlement passes per order (SETTLEMENT_RETRY_POLICY). */
+  private readonly settlementRetries: SettlementRetries;
   constructor(private readonly deps: LiveEngineDependencies, private readonly options: LiveEngineOptions = DEFAULT_ENGINE_OPTIONS,
-    private readonly now: () => number = Date.now) {}
+    private readonly now: () => number = Date.now) { this.settlementRetries = new SettlementRetries(() => this.now()); }
 
   /** Source evidence only, beside a blocked order/settlement pass: no setup,
    * activation, dispatch, signing or settlement runs here. */
@@ -451,9 +458,23 @@ export class CopyLiveEngine {
       if (row.reason === UNSENT_RELEASED) await this.afterUnsent(row, mandate, signalAgeMs);
       return;
     }
-    const outcome = await this.deps.settler.settle({ userId: row.userId, accountId: row.accountId, accountAddress: mandate.accountAddress,
-      sourceNetwork: mandate.sourceNetwork, leaderAddress: mandate.leaderAddress, key: row.executionKey! });
-    this.pendingSettlements.note(row.executionKey!, outcome);
+    const key = row.executionKey!, request: LiveSettleRequest = { userId: row.userId, accountId: row.accountId, accountAddress: mandate.accountAddress,
+      sourceNetwork: mandate.sourceNetwork, leaderAddress: mandate.leaderAddress, key };
+    // A failed settlement pass is not tried again before its retry is due; once its retries are over its order goes to its owner.
+    if (!this.settlementRetries.due(key)) return;
+    let outcome: LiveSettleOutcome;
+    if (this.settlementRetries.owed(key) && this.deps.settler.quarantine) outcome = await this.settlementToOwner(request, null);
+    else {
+      try { outcome = await this.deps.settler.settle(request); }
+      catch (error) {
+        const verdict = this.settlementRetries.failed(key, error);
+        if (verdict.kind !== 'needs_owner' || !this.deps.settler.quarantine) throw error;
+        outcome = await this.settlementToOwner(request, verdict);
+      }
+      const verdict = outcome.kind === 'pending' ? this.settlementRetries.outcome(key, outcome) : (this.settlementRetries.done(key), null);
+      if (verdict?.kind === 'needs_owner' && this.deps.settler.quarantine) outcome = await this.settlementToOwner(request, verdict);
+    }
+    this.pendingSettlements.note(key, outcome);
     if (outcome.kind === 'released') {
       await this.deps.repository.update(row, { state: 'settled', settledAt: new Date(this.now()), reason: null });
       try { await this.deps.settlementObservation?.(row.executionKey!); }
@@ -463,6 +484,17 @@ export class CopyLiveEngine {
     else if (outcome.kind === 'unplaced') await this.deps.repository.update(row, { state: 'refused', reason: 'exchange_order_never_placed' });
     else if (outcome.kind === 'quarantine' || outcome.kind === 'unsent') await this.deps.repository.update(row, { state: 'refused', reason: outcome.reason.slice(0, 80) });
     else await this.deps.repository.update(row, { reason: outcome.reason.slice(0, 80) });
+  }
+
+  /** A settlement whose retries are over: its order quarantined for its owner,
+   * with an ALERT (naming the account's flat stop when there is one). */
+  private async settlementToOwner(request: LiveSettleRequest, verdict: Extract<SettlementVerdict, { kind: 'needs_owner' }> | null): Promise<LiveSettleOutcome> {
+    const outcome = await this.deps.settler.quarantine!(request, SETTLEMENT_NEEDS_OWNER);
+    this.settlementRetries.done(request.key);
+    if (outcome.kind === 'released') return outcome;
+    this.deps.alert?.(`ALERT settlement_needs_owner ${JSON.stringify({ key: request.key, accountId: request.accountId, attempts: verdict?.attempts ?? null, lastCode: verdict?.code ?? null,
+      reservation: outcome.reason, flatStop: outcome.flat ? { stopId: outcome.flat.stopId, flatDigest: outcome.flat.flatDigest, flatVerifiedAt: new Date(outcome.flat.flatVerifiedAt).toISOString() } : null })}`);
+    return { kind: 'quarantine', reason: SETTLEMENT_NEEDS_OWNER };
   }
 
   /** The execution key of `attempt` of this leg on the copy's account. */

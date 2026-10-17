@@ -5,7 +5,8 @@ import * as schema from '@trading-dashboard/shared/database';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import type { DbExecutor, DbTransaction } from '../../db/unit-of-work.js';
 import { LiveBoundaryError, type LiveNetwork } from './wallet-authorization.js';
-import { LOCK_CHECK_REUSE_MS } from '../../config/constants/timings.js';
+import { LIVE_RISK_LOCK_POLL_MS, LIVE_RISK_LOCK_WAIT_MS, LOCK_CHECK_REUSE_MS } from '../../config/constants/timings.js';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { liveEvidenceMaxAgeMs } from '../../config/live-evidence-window.js';
 
 export interface LiveRiskIdentity {
@@ -84,8 +85,11 @@ const HELD_SQL = `
               or ($3::text is not null and objsubid = 1 and mode = 'ShareLock'
                 and classid::bigint = ((hashtextextended($3::text, 8) >> 32) & 4294967295)
                 and objid::bigint = (hashtextextended($3::text, 8) & 4294967295)))`;
-/** SET LOCAL statement_timeout and idle_in_transaction_session_timeout, as one statement. */
-const TRANSACTION_TIMEOUTS_SQL = "select set_config('statement_timeout', '5000ms', true), set_config('idle_in_transaction_session_timeout', '5000ms', true)";
+/** SET LOCAL statement_timeout and idle_in_transaction_session_timeout, as one
+ * statement; and the transaction's application_name, the pool's plus what the
+ * scope is held for ($1), so a live_risk_busy in another process names its
+ * holder (pg_stat_activity) at no extra round trip. */
+const TRANSACTION_TIMEOUTS_SQL = "select set_config('statement_timeout', '5000ms', true), set_config('idle_in_transaction_session_timeout', '5000ms', true), set_config('application_name', left(split_part(current_setting('application_name'), ':', 1) || ':' || $1::text, 63), true)";
 /**
  * What Drizzle is told BEGIN answered, for a transaction whose reads go out
  * before BEGIN's real answer (see the scope). drizzle-orm (pinned exactly,
@@ -305,7 +309,7 @@ export class PostgresLiveRiskScope {
           beginPending = true; beginFailed = false;
           answered.then(() => { beginPending = false; }, () => { beginPending = false; beginFailed = true; });
         }
-        opened = Promise.all([answered, client.query(TRANSACTION_TIMEOUTS_SQL)]);
+        opened = Promise.all([answered, client.query(TRANSACTION_TIMEOUTS_SQL, [holding.kind])]);
         void opened.catch(() => {});
       }
       void issueCheck().result.catch(() => {});
@@ -393,9 +397,20 @@ export class PostgresLiveRiskScope {
       for (const lock of locks) {
         this.externalFence?.assertFresh();
         assertCounted();
-        const result = await client.query<{ locked: boolean }>(lock.acquire, lock.values);
+        let result = await client.query<{ locked: boolean }>(lock.acquire, lock.values);
         this.externalFence?.assertFresh();
         if (lost) fail('live_risk_busy');
+        // An exclusive lock another scope holds for a few hundred ms (an order,
+        // a settlement) is tried again for LIVE_RISK_LOCK_WAIT_MS before
+        // live_risk_busy: still a try, nothing read or reserved meanwhile.
+        for (const until = performance.now() + LIVE_RISK_LOCK_WAIT_MS; result.rows[0]?.locked !== true && !lock.shared && performance.now() + LIVE_RISK_LOCK_POLL_MS <= until;) {
+          await sleep(LIVE_RISK_LOCK_POLL_MS, undefined, this.externalFence ? { signal: this.externalFence.signal } : undefined);
+          this.externalFence?.assertFresh();
+          assertCounted();
+          result = await client.query<{ locked: boolean }>(lock.acquire, lock.values);
+          this.externalFence?.assertFresh();
+          if (lost) fail('live_risk_busy');
+        }
         if (result.rows[0]?.locked !== true) await busy(lock);
         acquired.push(lock);
         let named = holders.get(lock.name);

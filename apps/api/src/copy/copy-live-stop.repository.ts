@@ -18,12 +18,14 @@ export class CopyLiveStopRepository {
   constructor(private readonly mandates: CopyLiveMandateRepository) {}
   async lock(tx: DbTransaction, userId: number, system = false) { return this.mandates.lock(tx, userId, system); }
   fence(tx: DbTransaction) { return this.mandates.fence(tx); }
-  private async context(tx: DbTransaction, userId: number, mandateId: string, system = false) {
-    const owner = await this.mandates.owner(userId, tx, system), mandate = await this.mandates.find(userId, mandateId, tx, true);
-    const [binding] = await tx.select({ account: copyExecutionAccounts, strategy: copyStrategies, setup: copyAgentSetups })
+  /** `locked`: a writer's context (its rows locked for update); a read's is a plain snapshot read. */
+  private async context(tx: DbTransaction, userId: number, mandateId: string, system = false, locked = true) {
+    const owner = await this.mandates.owner(userId, tx, system), mandate = await this.mandates.find(userId, mandateId, tx, locked);
+    const query = tx.select({ account: copyExecutionAccounts, strategy: copyStrategies, setup: copyAgentSetups })
       .from(copyExecutionAccounts).innerJoin(copyStrategies, eq(copyStrategies.id, copyExecutionAccounts.strategyId))
       .innerJoin(copyAgentSetups, eq(copyAgentSetups.id, mandate.setupId))
-      .where(and(eq(copyExecutionAccounts.id, mandate.accountId), eq(copyExecutionAccounts.userId, userId))).for('update');
+      .where(and(eq(copyExecutionAccounts.id, mandate.accountId), eq(copyExecutionAccounts.userId, userId)));
+    const [binding] = await (locked ? query.for('update') : query);
     if (!binding) throw new NotFoundException('Copy account not found');
     const { account, strategy, setup } = binding;
     // Only a copy of the deployment's network stops here.
@@ -60,15 +62,17 @@ export class CopyLiveStopRepository {
       trackingComplete: row.trackingComplete, issue: row.issue, flatVerifiedAt: row.flatVerifiedAt?.toISOString() ?? null,
       createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() });
   }
+  /** Read only, no lock (UnitOfWork.read: one snapshot). */
   async byKey(tx: DbTransaction, userId: number, key: string) {
-    await this.lock(tx, userId);
+    await this.mandates.owner(userId, tx);
     const [row] = await tx.select().from(copyLiveStopOperations).where(and(eq(copyLiveStopOperations.userId, userId), eq(copyLiveStopOperations.idempotencyKey, key)));
     if (!row) throw new NotFoundException('Stop operation not found');
-    this.assertStored(row, await this.context(tx, userId, row.mandateId));
+    this.assertStored(row, await this.context(tx, userId, row.mandateId, false, false));
     return row;
   }
+  /** Read only, no lock (UnitOfWork.read: one snapshot). */
   async overview(tx: DbTransaction, userId: number) {
-    await this.lock(tx, userId);
+    await this.mandates.owner(userId, tx);
     // Only this deployment's network: `context` refuses another network's stops (Stage 2026-10-12).
     const ids = await tx.select({ id: copyLiveStopOperations.id }).from(copyLiveStopOperations)
       .where(and(eq(copyLiveStopOperations.userId, userId), eq(copyLiveStopOperations.network, this.mandates.network)))
@@ -78,7 +82,7 @@ export class CopyLiveStopRepository {
     for (const { id } of ids.slice(0, 100)) {
       const [row] = await tx.select().from(copyLiveStopOperations).where(and(eq(copyLiveStopOperations.id, id), eq(copyLiveStopOperations.userId, userId)));
       if (!row) conflict();
-      this.assertStored(row, await this.context(tx, userId, row.mandateId)); items.push(this.wire(row));
+      this.assertStored(row, await this.context(tx, userId, row.mandateId, false, false)); items.push(this.wire(row));
     }
     return { items, truncated: ids.length > 100 };
   }

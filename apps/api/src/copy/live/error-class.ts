@@ -3,7 +3,7 @@ import { HyperliquidBudgetWait, sharedCapacityWait } from '../../hyperliquid/hyp
 import { sharedRestRetryAfterMs } from '../../hyperliquid/hyperliquid-capacity-error.js';
 import { LiveBoundaryError } from './wallet-authorization.js';
 import { SHARED_CAPACITY_RETRY_MS } from '../../config/constants/hyperliquid.js';
-import { LIVE_LEG_RETRY_BASE_MS, LIVE_RISK_BUSY_RETRY_MS, PROVIDER_READ_RETRY_MS, SETUP_RETRY_BACKOFF_BASE_MS, SETUP_RETRY_BACKOFF_MAX_MS, SETUP_RETRY_NEEDS_OWNER_MS, SETUP_RETRY_PENDING_MS, WAIT_FLOOR_MS } from '../../config/constants/timings.js';
+import { LIVE_LEG_RETRY_BASE_MS, LIVE_RISK_BUSY_RETRY_MS, PROVIDER_READ_RETRY_MS, SETTLEMENT_RETRY_ATTEMPTS, SETTLEMENT_RETRY_MS, SETUP_RETRY_BACKOFF_BASE_MS, SETUP_RETRY_BACKOFF_MAX_MS, SETUP_RETRY_NEEDS_OWNER_MS, SETUP_RETRY_PENDING_MS, WAIT_FLOOR_MS } from '../../config/constants/timings.js';
 
 /**
  * THE classification of a live step's failure (architecture review
@@ -206,6 +206,13 @@ export interface RetryPolicy {
  * (legs and stops have their own limits: the signal's age, CLOSE_ATTEMPT_LIMIT);
  * a wait without a time is back in a second. */
 export const LIVE_LEG_RETRY_POLICY: RetryPolicy = Object.freeze({ baseMs: LIVE_LEG_RETRY_BASE_MS, maxMs: LIVE_LEG_RETRY_BASE_MS, attempts: Number.MAX_SAFE_INTEGER, needsOwnerMs: LIVE_LEG_RETRY_BASE_MS, waitDefaultMs: WAIT_FLOOR_MS });
+/** A terminal settlement's policy: a failed pass is tried again after
+ * SETTLEMENT_RETRY_MS (flat), a meter wait when the meter says (never an
+ * attempt), and at SETTLEMENT_RETRY_ATTEMPTS failed passes it ends: its
+ * order goes to its owner (quarantine + ALERT). A settlement that could not
+ * prove its order retried every 3 s at live priority for as long as the
+ * process ran (gate 11, 2026-10-16: 50+ min, starving the next orders). */
+export const SETTLEMENT_RETRY_POLICY: RetryPolicy = Object.freeze({ baseMs: SETTLEMENT_RETRY_MS, maxMs: SETTLEMENT_RETRY_MS, attempts: SETTLEMENT_RETRY_ATTEMPTS, needsOwnerMs: SETTLEMENT_RETRY_MS, waitDefaultMs: LIVE_LEG_RETRY_BASE_MS });
 /** A funding confirmation's and a setup abort's policy: their rows back off
  * by their own failure count whatever the class (every failed pass, the
  * explorer unreachable included, doubles the wait: 3 s to 60 s), and have

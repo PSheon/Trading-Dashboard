@@ -121,7 +121,7 @@ export const liveEngineProvider: FactoryProvider<CopyLiveEngine | null> = {
       runtime: hooks => new LiveExecutionRuntime(network, pool, walletConfig, walletGlobal, walletBudget, options, Date.now, { ...hooks, reference }),
       settler: new CopyLiveSettler(network, pool, walletGlobal, walletBudget, scanner),
       settlementObservation: key => snapshots.saveSettlement(key),
-      log: message => logger.warn(message),
+      log: message => logger.warn(message), alert: message => logger.error(message),
       trace: message => logger.log(message),
       // Cached leader capital (paper copier's), for holding too-small opens.
       leaderEquity: async leader => { const equity = await market.leaderEquity(leader); return equity.state === 'known' ? equity.value.toString() : null; },

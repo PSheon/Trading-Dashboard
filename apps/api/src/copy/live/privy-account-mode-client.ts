@@ -8,6 +8,7 @@ import { readInfoJson } from '../../hyperliquid/response-validation.js';
 import { userAbstractionSchema, type UserAbstraction } from '../../hyperliquid/info-schemas.js';
 import { boundedLiveRead } from './live-market-resolver.js';
 import {HyperliquidGlobalTransport} from '../../hyperliquid/hyperliquid-global-transport.js';
+import { SETUP_OWNER } from '../../hyperliquid/hyperliquid-global-quota.js';
 import { LiveBoundaryError } from './wallet-authorization.js';
 import { sharedCapacityWait, type LiveBudget, type LiveReserveOptions, type LiveBudgetReservation } from '../../hyperliquid/hyperliquid-budget-wait.js';
 import { LIVE_RESERVE_WAIT_MS } from '../../config/constants/hyperliquid.js';
@@ -115,7 +116,7 @@ export class PrivyAccountModeClient {
       const remaining = () => { const now = this.now(); validTime(now); if (now < started || now >= deadline) throw new Error(); return deadline - now; };
       const request: RequestInit = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, redirect: 'error', signal: AbortSignal.timeout(timeout) };
       if(this.global&&typeof assertFreshProof!=='function')throw new Error();
-      const permit=this.global?await this.global.acquireExchange(Math.min(this.now()+5000,intent.consentExpiresAt)):undefined;
+      const permit=this.global?await this.global.runDefaultOwner(SETUP_OWNER,()=>this.global!.acquireExchange(Math.min(this.now()+5000,intent.consentExpiresAt))):undefined;
       live(intent, this.now()); remaining();
       // Complete request construction first, then check captured caller proof.
       // No await or further clock-dependent preparation precedes actual POST.
@@ -162,7 +163,7 @@ export class PrivyAccountModeClient {
       const t1 = this.now();
       const global = this.global;
       const responses = await boundedLiveRead(() => global
-        ? global.fetchInfoBatch(WALLET_NETWORKS[intent.network].infoUrl, bodies, { maxWaitMs: meterWaitMs, signal, onDispatch: startClock })
+        ? global.runDefaultOwner(SETUP_OWNER, () => global.fetchInfoBatch(WALLET_NETWORKS[intent.network].infoUrl, bodies, { maxWaitMs: meterWaitMs, signal, onDispatch: startClock }))
         : (() => { const bound = startClock(); return Promise.all(bodies.map(body => this.fetcher(WALLET_NETWORKS[intent.network].infoUrl, { method: 'POST',
           headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), redirect: 'error', signal: bound }))); })(), meterWaitMs + liveEvidenceMaxAgeMs(intent.network));
       const remaining = () => { fresh(started, this.now(), intent.network); return Math.max(1, liveEvidenceMaxAgeMs(intent.network) - (this.now() - started)); };

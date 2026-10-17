@@ -8,6 +8,7 @@ import { adminResolveCopyFundingSchema, copyFundingInputSchema, usdSendTypedData
 import { AppConfig } from "../config/app-config.js";
 import { HyperliquidInfoClient, MAX_LIST_ITEMS } from "../hyperliquid/hyperliquid-info.client.js";
 import { PAGE_RANK } from "../hyperliquid/request-budgeter.service.js";
+import { runAsDefaultRestOwner } from "../hyperliquid/postgres-hyperliquid-quota.js";
 import { BusyException } from "../traders/busy.js";
 import { isBusyError } from '../traders/traders.controller.js';
 import type { RequestUser } from "../common/auth/current-user.js";
@@ -16,7 +17,7 @@ import type { HlLedgerUpdate } from "../hyperliquid/types.js";
 import { TtlCache } from "../traders/ttl-cache.js";
 import { CopyWalletService } from "./copy-wallet.service.js";
 import { CopyFundingRepository, type FundingRow, type FundingSender } from "./copy-funding.repository.js";
-import { CopyFundingExchangeClient } from "./copy-funding-exchange.client.js";
+import { CopyFundingExchangeClient, FUNDING_OWNER } from "./copy-funding-exchange.client.js";
 import { fundingCreditEvidence, fundingOtherOperation } from "./copy-funding-evidence.js";
 import { classify } from "./live/error-class.js";
 import { privyIdentityFresh } from "./live/privy-identity-freshness.js";
@@ -249,11 +250,16 @@ export class CopyFundingService {
           if (scan.receipts.length === 1) return wire(await this.repository.credit(userId, id, scan.receipts[0]!, digest(scan.receipts[0]), operation.scanRevision));
           return wire(await this.repository.find(userId, id)); // Ambiguous evidence stays pending.
         }
+        // The reads are live on the shared meter while someone waits on them (an owner's own
+        // lookup, or a copy setup waiting for its deposit's credit); the monitor's pass over other
+        // transfers is background / page work, so it never takes an order's room.
+        const waited = !background || operation.liveSetupId ? "live" : "background";
         if (!scan.pendingDetails?.length) {
           const window = scan.windows[0]!, url = WALLET_NETWORKS[operation.network].infoUrl;
           // Wallet-network budget, so a testnet 429 never halves the mainnet budget.
           const info = operation.network === this.config.value.hyperliquid.wallet.network ? this.walletNetwork?.info ?? this.info : this.info;
-          const rows = await read(() => info.userNonFundingLedgerUpdates(operation.destination, window.start, window.end, "live", PAGE_RANK.fills, url));
+          // Live (owned `funding`) while someone waits on it, as the explorer read below; the monitor's own pass is page work.
+          const rows = await read(() => runAsDefaultRestOwner(FUNDING_OWNER, () => info.userNonFundingLedgerUpdates(operation.destination, window.start, window.end, waited, PAGE_RANK.fills, url)));
           // A read answered: whatever this pass saves next ends the backoff.
           delete scan.backoff;
           if (rows.length >= MAX_LIST_ITEMS) {
@@ -279,10 +285,6 @@ export class CopyFundingService {
           if (!checkpoint) return wire(await this.repository.find(userId, id));
           current = checkpoint;
         }
-        // The explorer read is live on the shared meter while someone waits on it (an owner's own
-        // lookup, or a copy setup waiting for its deposit's credit); the monitor's pass over other
-        // transfers is background, so it never takes an order's room.
-        const waited = !background || operation.liveSetupId ? "live" : "background";
         while (scan.pendingDetails?.length) {
           const pending = scan.pendingDetails[0]!;
           const details = await read(() => this.exchange.txDetails(operation.network, pending.hash, waited));

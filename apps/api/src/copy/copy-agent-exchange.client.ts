@@ -1,5 +1,10 @@
 import {HyperliquidGlobalTransport} from '../hyperliquid/hyperliquid-global-transport.js';
+import {runAsDefaultRestOwner} from '../hyperliquid/postgres-hyperliquid-quota.js';
 import {boundedLiveRead} from './live/live-market-resolver.js';
+
+/** The owner an agent approval's charges carry on the shared meter (`live:agent:`): the
+ * approval POST and the evidence read behind it, unless the work has an owner of its own. */
+export const AGENT_OWNER = 'agent';
 import { sharedCapacityWait, type LiveBudget, type LiveBudgetReservation } from '../hyperliquid/hyperliquid-budget-wait.js';
 import { WALLET_NETWORKS, splitSignature } from "@trading-dashboard/shared/contracts";
 import { readInfoJson } from "../hyperliquid/response-validation.js";
@@ -50,7 +55,7 @@ export class PrivyAgentApprovalClient implements AgentApprovalClient {
       const network=WALLET_NETWORKS[intent.network];
       const request:RequestInit={method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:{type:'approveAgent',signatureChainId:network.signatureChainId,...data.message},nonce:intent.nonce,signature:splitSignature(signature)}),redirect:'error',signal:AbortSignal.timeout(10000)};
       if(this.global&&typeof assertFreshProof!=='function')throw new Error();
-      const permit=this.global?await this.global.acquireExchange(Math.min(this.now()+5000,intent.consentExpiresAt)):undefined;
+      const permit=this.global?await runAsDefaultRestOwner(AGENT_OWNER,()=>this.global!.acquireExchange(Math.min(this.now()+5000,intent.consentExpiresAt))):undefined;
       const dispatch=()=>{
         const result:unknown=assertFreshProof?.();if(result!==undefined){void Promise.resolve(result).catch(()=>{});throw new Error();}
         permit?.assertFresh();if(this.now()<intent.nonce||this.now()>=intent.consentExpiresAt)throw new Error();
@@ -79,7 +84,7 @@ export class PrivyAgentApprovalClient implements AgentApprovalClient {
       const start = () => { checkedAt = this.now(); return AbortSignal.timeout(liveEvidenceMaxAgeMs(intent.network)); };
       const global = this.global, infoUrl = WALLET_NETWORKS[intent.network].infoUrl;
       const responses = await boundedLiveRead(() => global
-        ? global.fetchInfoBatch(infoUrl, bodies, { maxWaitMs: LIVE_RESERVE_WAIT_MS, onDispatch: start })
+        ? runAsDefaultRestOwner(AGENT_OWNER, () => global.fetchInfoBatch(infoUrl, bodies, { maxWaitMs: LIVE_RESERVE_WAIT_MS, onDispatch: start }))
         : (() => { const signal = start(); return Promise.all(bodies.map(body => this.fetcher(infoUrl, { method: "POST",
           headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), redirect: "error", signal }))); })(), LIVE_RESERVE_WAIT_MS + liveEvidenceMaxAgeMs(intent.network));
       const [role, listed] = await Promise.all(responses.map(async response => {

@@ -57,7 +57,7 @@ describe('real-money meter requests beside a full background lane (2026-10-12 li
           const meter = live.quota.bindOriginal(session, { egressKey, ownerId: 'api' }), started = performance.now();
           for (let i = 0; i < ORDER_METER_REQUESTS; i++) {
             const before = live.sent.count;
-            await meter.acquireRest(2, Date.now() + 5000);
+            await meter.acquireRest(2, Date.now() + 5000, undefined, { owner: 'order' });
             perRequest.push(live.sent.count - before);
           }
           elapsed = performance.now() - started;
@@ -102,7 +102,7 @@ describe('real-money meter requests beside a full background lane (2026-10-12 li
       expect(background.sent.count).toBeGreaterThan(before);
       // Live and page requests are never refused in-process.
       before = background.sent.count;
-      await lane.acquireRest(20, Date.now() + 5000, 'live');
+      await lane.acquireRest(20, Date.now() + 5000, 'live', { owner: 'order' });
       expect(background.sent.count).toBeGreaterThan(before);
     } finally {
       await db.delete(schema.hyperliquidEgressQuota).where(eq(schema.hyperliquidEgressQuota.egressKey, egressKey));

@@ -1,6 +1,8 @@
 import { Injectable, Logger } from "@nestjs/common";
 
 import { HyperliquidInfoClient } from "../hyperliquid/hyperliquid-info.client.js";
+import { currentRestOwner } from "../hyperliquid/postgres-hyperliquid-quota.js";
+import { PAGE_RANK, type RequestPriority } from "../hyperliquid/request-budgeter.service.js";
 import type { HlAllMidsResponse, HlClearinghouseStateResponse } from "../hyperliquid/types.js";
 import { buildSpotPriceBook, hypePrice, stakedHype, toAccountMode, totalAccountValue, valueSpotBalances, type SpotPriceBook } from "../traders/spot-prices.js";
 import { activePerpDexes, portfolioSeries, summarizeAccount } from "../traders/traders.mappers.js";
@@ -56,9 +58,14 @@ export function maintenanceMargin(notional: Dec, maxLeverage: number): Dec {
  * missing mids, never a reason to reject. */
 export type LeaderEquity = { state: "known"; value: Dec } | { state: "none" } | { state: "failed" };
 
-/** Copy reads are time-critical, so they use the `live` lane ahead of background jobs (as
- * background calls they starved and approved orders never filled). Volume is cache-bounded. */
-const LANE = "live" as const;
+/** The priority and rank of one copy read. Inside an order's or a settlement's work
+ * (runAsRestOwner: the live engine's reference read) it is live, the owner's. Any other
+ * (the paper copier's mids every tick, a strategy's adoption snapshot, the engine's hold
+ * check on a leader's equity) is page work: on the shared meter the `page` lane, which
+ * waits for room behind orders and ahead of background, never the live lane (H-R11); on
+ * the local budget ahead of background jobs (as plain background calls they starved and
+ * approved paper orders never filled). Volume is cache-bounded. */
+const lane = (): [RequestPriority, number | undefined] => currentRestOwner() !== undefined ? ["live", undefined] : ["background", PAGE_RANK.fills];
 
 /** Hyperliquid reads for copy trading, each behind a TTL cache with in-flight dedupe. Failures
  * return null (or `failed` for leader equity); nothing is priced at 0, failures are not cached. */
@@ -89,7 +96,7 @@ export class CopyMarketService {
     if (!flight) {
       flight = (async () => {
         try {
-          const raw = await this.info.allMids(LANE, undefined, dex || undefined);
+          const raw = await this.info.allMids(...lane(), dex || undefined);
           const px = new Map<string, Dec>();
           for (const [coin, v] of Object.entries(raw)) {
             const mid = Dec.parse(v);
@@ -138,7 +145,7 @@ export class CopyMarketService {
     if (!flight) {
       flight = (async () => {
         try {
-          const [meta, ctxs] = await this.info.metaAndAssetCtxs(LANE, undefined, dex || undefined);
+          const [meta, ctxs] = await this.info.metaAndAssetCtxs(...lane(), dex || undefined);
           const byCoin = new Map<string, AssetInfo>();
           meta.universe.forEach((a, i) => {
             const ctx = ctxs[i];
@@ -216,25 +223,25 @@ export class CopyMarketService {
    */
   private async readAccountValue(address: string): Promise<number> {
     if (await this.repository.isVault(address)) {
-      const tvl = portfolioSeries(await this.info.portfolio(address, LANE), "allTime", "all").accountValue.at(-1)?.[1];
+      const tvl = portfolioSeries(await this.info.portfolio(address, ...lane()), "allTime", "all").accountValue.at(-1)?.[1];
       if (tvl === undefined) throw new Error("vault portfolio has no account value");
       return tvl;
     }
     const [spot, abstraction, staked, book] = await Promise.all([
-      this.info.spotClearinghouseState(address, LANE),
-      this.abstractionCache.get(address, () => this.info.userAbstraction(address, LANE)),
-      this.stakingCache.get(address, async () => stakedHype(await this.info.delegatorSummary(address, LANE))),
+      this.info.spotClearinghouseState(address, ...lane()),
+      this.abstractionCache.get(address, () => this.info.userAbstraction(address, ...lane())),
+      this.stakingCache.get(address, async () => stakedHype(await this.info.delegatorSummary(address, ...lane()))),
       this.spotBookCache.get("book", async () => buildSpotPriceBook(
-        await this.info.spotMetaAndAssetCtxs(LANE),
+        await this.info.spotMetaAndAssetCtxs(...lane()),
         // Only outcome tokens need it; without it they count as 0.
-        await this.info.allMids(LANE).catch((): HlAllMidsResponse => ({})),
+        await this.info.allMids(...lane()).catch((): HlAllMidsResponse => ({})),
       )),
     ]);
     const mode = toAccountMode(abstraction, spot.portfolioMarginEnabled ?? false);
     let perpEquity = 0;
     if (mode === "standard") {
-      const dexes = await this.dexCache.get("dexes", async () => activePerpDexes(await this.info.perpDexs(LANE)));
-      perpEquity = summarizeAccount(await Promise.all(dexes.map((dex) => this.info.clearinghouseState(address, dex || undefined, LANE)))).perpEquity;
+      const dexes = await this.dexCache.get("dexes", async () => activePerpDexes(await this.info.perpDexs(...lane())));
+      perpEquity = summarizeAccount(await Promise.all(dexes.map((dex) => this.info.clearinghouseState(address, dex || undefined, ...lane())))).perpEquity;
     }
     return totalAccountValue(mode, perpEquity, valueSpotBalances(spot.balances ?? [], book).spotValue, staked * hypePrice(book));
   }
@@ -245,8 +252,8 @@ export class CopyMarketService {
    * reads is still after the cursor. Throws on any failed read: a partial list is never adopted.
    */
   async leaderSnapshot(address: string): Promise<{ time: number; assetPositions: HlClearinghouseStateResponse["assetPositions"] }> {
-    const dexes = await this.dexCache.get("dexes", async () => activePerpDexes(await this.info.perpDexs(LANE)));
-    const states = await Promise.all(dexes.map((dex) => this.info.clearinghouseState(address, dex || undefined, LANE)));
+    const dexes = await this.dexCache.get("dexes", async () => activePerpDexes(await this.info.perpDexs(...lane())));
+    const states = await Promise.all(dexes.map((dex) => this.info.clearinghouseState(address, dex || undefined, ...lane())));
     return { time: Math.min(...states.map((s) => s.time)), assetPositions: states.flatMap((s) => s.assetPositions) };
   }
 }

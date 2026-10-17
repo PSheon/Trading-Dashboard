@@ -8,6 +8,7 @@ import { asc } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
+import { currentSourceLane, inBackgroundLane } from "../src/hyperliquid/postgres-hyperliquid-quota.js";
 import type { HlUserFill } from "../src/hyperliquid/types.js";
 import { AccountStateService } from "../src/watcher/account-state.service.js";
 import { classifyFills } from "../src/watcher/action-classifier.js";
@@ -96,6 +97,21 @@ describe("FeedActionsService (fast path) — real Postgres, fake Hyperliquid", (
     expect(info.clearinghouseState).toHaveBeenCalledTimes(1);
     expect(info.clearinghouseState).toHaveBeenCalledWith(A, undefined, "live", 5);
     expect(info.userFillsByTime).not.toHaveBeenCalled();
+  });
+
+  it("a copied leader's state reads run in its source lane on the shared meter, another watched leader's in the background lane (H-R11)", async () => {
+    const t = Date.now() - 30_000;
+    const lanes: Array<{ source: string | undefined; background: boolean }> = [];
+    info.clearinghouseState.mockImplementation(async (_address: string, dex?: string) => { lanes.push({ source: currentSourceLane(), background: inBackgroundLane() }); return exchange.stateAt(dex, stateTime); });
+    stateTime = t + 50;
+    await fast.process(A, exchange.order("ETH", "A", ["1"], t).trades, 0, true);
+    accounts.dropBooks();
+    await fast.process(A, exchange.order("ETH", "A", ["1"], t + 1000).trades, 0, false);
+    expect(lanes.length).toBeGreaterThanOrEqual(2);
+    expect(lanes[0]).toMatchObject({ source: expect.stringMatching(/^[0-9a-f]{8}$/), background: false });
+    expect(A.includes(lanes[0]!.source!)).toBe(false);
+    expect(lanes.at(-1)).toEqual({ source: undefined, background: true });
+    expect(info.clearinghouseState.mock.calls.every((call) => call[2] === "live")).toBe(true);
   });
 
   it("gets its start from the book even when a restart missed earlier trades (add, not open)", async () => {

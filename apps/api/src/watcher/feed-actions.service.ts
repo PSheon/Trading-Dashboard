@@ -4,6 +4,7 @@ import { EventEmitter2 } from "@nestjs/event-emitter";
 import { AppConfig } from "../config/app-config.js";
 import { UnitOfWork } from "../db/unit-of-work.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
+import { runInBackgroundLane, runInLeaderSourceLane } from "../hyperliquid/postgres-hyperliquid-quota.js";
 import { FeedActionsRepository } from "./feed-actions.repository.js";
 import type { HlUserFill, HlWsTrade } from "../hyperliquid/types.js";
 import { AccountStateService } from "./account-state.service.js";
@@ -42,9 +43,17 @@ export class FeedActionsService {
    * Returns the number of actions created. A trade that already has an
    * action (replayed, or stored by a sweep first) gets none.
    */
-  async process(address: string, trades: HlWsTrade[], rank?: number): Promise<number> {
+  /**
+   * `copied`: the leader is a copy source. Its state reads (live on the local
+   * budget) are the leader's `source:` charges on the shared meter, as its
+   * fills' are (they serve copying); another watched leader's are background
+   * charges (alerts), refused at once when that lane is full: the confirm
+   * that follows (essential, waits for room) stores its fills and actions.
+   */
+  async process(address: string, trades: HlWsTrade[], rank?: number, copied = false): Promise<number> {
     if (this.jobs.stopping) return 0;
-    return this.jobs.run(() => this.processBurst(address, trades, rank));
+    const lane = <T>(work: () => Promise<T>) => copied ? runInLeaderSourceLane(address, work) : runInBackgroundLane(work);
+    return this.jobs.run(() => lane(() => this.processBurst(address, trades, rank)));
   }
 
   private async processBurst(address: string, trades: HlWsTrade[], rank?: number): Promise<number> {

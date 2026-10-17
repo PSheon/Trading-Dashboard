@@ -11,6 +11,10 @@ import { explorerHealth } from './explorer-health.js';
 import type { FundingRow } from "./copy-funding.repository.js";
 import { BUILDER_FEE_READ_WEIGHT } from '../config/constants/weights.js';
 
+/** The owner the funding work's charges carry on the shared meter (`live:funding:`): deposits, returns,
+ * refunds and the evidence reads behind them, unless the work has an owner of its own (a stop's). */
+export const FUNDING_OWNER = 'funding';
+
 /** Process-local evidence only: the exact error object bound to the exact attempt. Never inferred
  * from a serialized code, balance, quota charge or history. */
 const notDispatched = new WeakMap<object, string>();
@@ -40,7 +44,9 @@ export class CopyFundingExchangeClient {
     if (!takeReserved(prepaid, weight)) await reserveLive(this.budget, weight, { maxWaitMs });
     // On the shared meter an explorer read someone waits on (a setup's deposit, an owner's lookup)
     // is live; one nobody waits on (the monitor's pass) is background, so it never takes an order's room.
-    const fetcher=this.global?(url.endsWith("/explorer")?priority==="background"?this.global.fetchBackgroundExplorer:this.global.fetchExplorer:this.global.fetchInfo):fetch;
+    // An info read of funding evidence (a balance, a receipt) is the funding work's charge (`funding`) unless
+    // the work it runs in has an owner (a stop's auto-return); an explorer read names itself (`explorer`).
+    const fetcher=this.global?(url.endsWith("/explorer")?priority==="background"?this.global.fetchBackgroundExplorer:this.global.fetchExplorer:this.global.fetchInfoOwned(FUNDING_OWNER)):fetch;
     const response = await fetcher(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), redirect: "error", signal: AbortSignal.timeout(10_000) });
     if (!response.ok) { await response.body?.cancel().catch(() => undefined); throw new Error("Funding evidence unavailable"); }
     return readInfoJson(response, "copy funding evidence", 1024 * 1024);
@@ -87,7 +93,7 @@ export class CopyFundingExchangeClient {
     let dispatched = false;
     try {
       const request: RequestInit = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(20000) };
-      const permit = this.global ? await this.global.acquireExchange(Date.now() + 5000) : undefined;
+      const permit = this.global ? await this.global.runDefaultOwner(FUNDING_OWNER, () => this.global!.acquireExchange(Date.now() + 5000)) : undefined;
       const dispatch = () => { const result: unknown = assertFreshProof(); if (result !== undefined) { void Promise.resolve(result).catch(() => {}); throw new Error(); } permit?.assertFresh(); request.signal?.throwIfAborted(); dispatched = true; onDispatch?.(); return fetch(WALLET_NETWORKS[network].exchangeUrl, request); };
       const response = await (permit ? permit.dispatch(dispatch) : dispatch()); if (!response.ok) { await response.body?.cancel().catch(() => {}); throw new Error(); }
       return await readInfoJson(response, 'copy account action', 64 * 1024);
@@ -108,7 +114,7 @@ export class CopyFundingExchangeClient {
     try{
       const request:RequestInit={method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(usdSendRequest(WALLET_NETWORKS[operation.network],operation.destination,operation.amount,operation.nonce,signature)),redirect:'error',signal:AbortSignal.timeout(20000)};
       if(this.global&&typeof assertFreshProof!=='function')throw new Error();
-      const permit=this.global?await this.global.acquireExchange(Date.now()+5000):undefined;
+      const permit=this.global?await this.global.runDefaultOwner(FUNDING_OWNER,()=>this.global!.acquireExchange(Date.now()+5000)):undefined;
       const dispatch=()=>{const result:unknown=assertFreshProof?.();if(result!==undefined){void Promise.resolve(result).catch(()=>{});throw new Error();}permit?.assertFresh();request.signal?.throwIfAborted();dispatched=true;onDispatch?.();return fetch(WALLET_NETWORKS[operation.network].exchangeUrl,request);};
       const response=await (permit?permit.dispatch(dispatch):dispatch());if(!response.ok){await response.body?.cancel().catch(()=>{});throw new Error();}return await readInfoJson(response,'copy funding',64*1024);
     }catch{

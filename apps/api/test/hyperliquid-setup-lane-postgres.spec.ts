@@ -62,7 +62,7 @@ describe('a copy setup on the shared Postgres meter beside a full background lan
       const orders = (async () => {
         const bound = quota.bindUnscoped({ egressKey, ownerId: 'live' });
         while (!stop.signal.aborted) {
-          try { await bound.acquireRest(20, Date.now() + 5000, 'live'); live.sent++; } catch { live.refused++; }
+          try { await bound.acquireRest(20, Date.now() + 5000, 'live', { owner: 'order' }); live.sent++; } catch { live.refused++; }
           await wait(2_000);
         }
       })();

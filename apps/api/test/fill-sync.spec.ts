@@ -8,6 +8,7 @@ import { eq } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
+import { currentSourceLane } from "../src/hyperliquid/postgres-hyperliquid-quota.js";
 import type { HlClearinghouseStateResponse, HlTwapSliceFill, HlUserFill } from "../src/hyperliquid/types.js";
 import { AccountStateService } from "../src/watcher/account-state.service.js";
 import { ACTION_CREATED_EVENT } from "../src/watcher/action-created.event.js";
@@ -107,6 +108,21 @@ describe("FillSyncService — real Postgres, fake Hyperliquid", () => {
     expect(second).toMatchObject({ fetched: 2, inserted: 0, actions: 0 });
     expect(await db.select().from(actions)).toHaveLength(1);
     expect(emitted).toHaveLength(1);
+  });
+
+  it("a copied leader's reads run in its source lane on the shared meter (its hash, never its address); another address's in none (H-R11)", async () => {
+    const lanes: Array<string | undefined> = [];
+    const seen = async () => { lanes.push(currentSourceLane()); return []; };
+    info.userFillsByTime.mockImplementation(seen);
+    info.userTwapSliceFillsByTime.mockImplementation(seen);
+    await sync.sync(A, "live", Date.now() - 10_000);
+    await sync.sync(B, "confirm", Date.now() - 10_000);
+    expect(lanes).toHaveLength(2);
+    expect(lanes[0]).toMatch(/^[0-9a-f]{8}$/);
+    expect(A.includes(lanes[0]!)).toBe(false);
+    expect(lanes[1]).toBeUndefined();
+    // The local budget's priority is unchanged: live for the copied leader, background for the other.
+    expect(info.userFillsByTime.mock.calls.map((call) => call[3])).toEqual(["live", "background"]);
   });
 
   it("keeps both counterparties' fills of one trade (shared tid)", async () => {

@@ -11,6 +11,8 @@ import { copyRiskPolicies } from '@trading-dashboard/shared/database';
 import { copyRiskLimitsSchema } from '@trading-dashboard/shared/contracts';
 import { WALLET_NETWORK_HL, type WalletNetworkHyperliquid } from '../../hyperliquid/wallet-network-hyperliquid.js';
 import { liveBudget } from '../../hyperliquid/hyperliquid-budget-wait.js';
+/** The settlement scanner's receipt reads outside a settlement pass (a manual close's): `live:receipt:`. */
+const RECEIPT_OWNER = 'receipt';
 import { assertLiveEvidenceCapacity } from '../live/live-shared-reads.js';
 import { CopyMarketService } from '../copy-market.service.js';
 import { HyperliquidLiveSourceClient } from '../copy-live-source.client.js';
@@ -85,7 +87,7 @@ export const liveEngineProvider: FactoryProvider<CopyLiveEngine | null> = {
     const options = { slippageBps: String(live.slippageBps), extraRiskBufferBps: EXTRA_RISK_BUFFER_BPS,
       restingOrderBuilderFeeCapTenthsBps: RESTING_BUILDER_FEE_CAP_TENTHS_BPS, maxSourceDeviationBps: String(live.maxSourceDeviationBps) };
     const scanner = new CopyFollowerReconciler(scans, ledger,
-      new HyperliquidFollowerReceiptReader(network, weight => reserve(weight), walletGlobal.fetchInfo,
+      new HyperliquidFollowerReceiptReader(network, weight => reserve(weight), walletGlobal.fetchInfoOwned(RECEIPT_OWNER),
         Date.now, weight => { if (weight > 0) walletBudget.adjust(-weight); },
         { acquire: liveBudget(walletBudget, { maxWaitMs: Math.min(180_000, walletBudget.refillMs()) }), maxWaitMs: Math.min(180_000, walletBudget.refillMs()) + 2000 }));
     const closer = new ReduceOnlyCloser(network, pool, db, uow, walletConfig, walletGlobal, walletBudget, Math.max(100, live.slippageBps * 3));
@@ -125,7 +127,7 @@ export const liveEngineProvider: FactoryProvider<CopyLiveEngine | null> = {
       },
       repository, sources, uow, watched: new WatchedMainnetSource(db, Date.now, message => logger.warn(message)),
       // Testnet leaders (testnet deployment only).
-      testnetSource: new HyperliquidLiveSourceClient('testnet', weight => reserve(weight), walletGlobal.fetchInfo,
+      testnetSource: new HyperliquidLiveSourceClient('testnet', weight => reserve(weight), walletGlobal.fetchInfoOwned('testnet-source'),
         Date.now, weight => { if (weight > 0) walletBudget.adjust(-weight); }),
       runtime: hooks => new LiveExecutionRuntime(network, pool, walletConfig, walletGlobal, walletBudget, options, Date.now, { ...hooks, reference }),
       settler: new CopyLiveSettler(network, pool, walletGlobal, walletBudget, scanner),

@@ -29,6 +29,7 @@ import { CopyFundingController } from "./copy-funding.controller.js";
 import { CopyFundingRepository } from "./copy-funding.repository.js";
 import { CopyFundingService } from "./copy-funding.service.js";
 import { WALLET_NETWORK_HL, type WalletNetworkHyperliquid } from "../hyperliquid/wallet-network-hyperliquid.js";
+import { SETUP_OWNER } from "../hyperliquid/hyperliquid-global-quota.js";
 import { CopyFundingExchangeClient } from "./copy-funding-exchange.client.js";
 import { AppConfig } from "../config/app-config.js";
 import { HyperliquidAgentApprovalVerifier } from "./live/hyperliquid-agent-approval.js";
@@ -103,7 +104,7 @@ const setupReserve = (config: AppConfig, { network, dedicated }: Pick<WalletNetw
     PostgresLiveExecutionJournal, PostgresWalletAuthorizationSource,
     { provide: HyperliquidAgentApprovalVerifier, inject: [AppConfig, WALLET_NETWORK_HL],
       useFactory: (config: AppConfig, { budget, transport }: WalletNetworkHyperliquid) => new HyperliquidAgentApprovalVerifier(
-        config.value.hyperliquid.wallet.network, liveBudget(budget, { maxWaitMs: 5_000 }), transport.fetchInfo) },
+        config.value.hyperliquid.wallet.network, liveBudget(budget, { maxWaitMs: 5_000 }), transport.fetchInfoOwned('auth')) },
     { provide: WalletAuthorizationService, inject: [PostgresWalletAuthorizationSource, HyperliquidAgentApprovalVerifier],
       useFactory: (source: PostgresWalletAuthorizationSource, exchange: HyperliquidAgentApprovalVerifier) => new WalletAuthorizationService(source, exchange) },
     CopyWalletService, CopyWalletRepository, { provide: USER_WALLET_PROVISIONER, useClass: PrivyUserWalletProvisioner },
@@ -125,7 +126,7 @@ const setupReserve = (config: AppConfig, { network, dedicated }: Pick<WalletNetw
       // on the setup bucket: never ahead of an order on the order bucket.
       return new PrivyAccountModeClient(config.value.auth, liveBudget(wallet.setupBudget, setupReserve(config, wallet)),undefined,Date.now,wallet.transport); } },
     { provide: ACCOUNT_MODE_ABSENCE_READER, inject: [AppConfig, WALLET_NETWORK_HL], useFactory: (config: AppConfig, { setupBudget, transport, network, dedicated }: WalletNetworkHyperliquid) =>
-      new HyperliquidAccountModeAbsenceReader(network, liveBudget(setupBudget, setupReserve(config, { network, dedicated })), transport.fetchInfo, Date.now,
+      new HyperliquidAccountModeAbsenceReader(network, liveBudget(setupBudget, setupReserve(config, { network, dedicated })), transport.fetchInfoOwned(SETUP_OWNER), Date.now,
         new HyperliquidAllDexsAccountSource(Date.now, undefined, network, transport, { closeAfterRead: true }), transport) },
     CopyFollowerStatementService, CopyFollowerStatementRepository,
     CopyFollowerActivityRepository, CopyFollowerActivityService,
@@ -135,7 +136,7 @@ const setupReserve = (config: AppConfig, { network, dedicated }: Pick<WalletNetw
     { provide: SETUP_ABORT_OBSERVER, inject: [WALLET_NETWORK_HL], useFactory: ({ budget, transport, network }: WalletNetworkHyperliquid) =>
       // Original refund proofs may queue before their evidence clock, within the
       // existing 120s abort lease. This preserves the live reserve and 5s proof.
-      new HyperliquidLiveAccountObserver(network, liveBudget(budget, { maxWaitMs: 50_000 }), transport.fetchInfo, Date.now, liveEvidenceMaxAgeMs(network),
+      new HyperliquidLiveAccountObserver(network, liveBudget(budget, { maxWaitMs: 50_000 }), transport.fetchInfoOwned(SETUP_OWNER), Date.now, liveEvidenceMaxAgeMs(network),
         new HyperliquidAllDexsAccountSource(Date.now, undefined, network, transport, { closeAfterRead: true }), 52_000) },
     { provide: WORKER_MASTER_SIGNER, inject: [AppConfig], useFactory: (config: AppConfig) => new PrivyPolicyMasterSigner({ appId: config.value.auth.appId, appSecret: config.value.auth.appSecret,
       workerQuorumId: config.value.copy.agent?.workerQuorumId, authorizationPrivateKey: config.value.copy.agent?.authorizationPrivateKey }) },

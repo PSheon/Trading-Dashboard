@@ -42,7 +42,10 @@ export interface BoundHyperliquidQuota {
   /** `lane`: the charge's class, whatever runs it. Without one, an original
    * session's or a live order's charge is live, a setup step's is the
    * setup's, else `options.fallback` (none: background). `options.heldMs`: a
-   * page read's wait so far (HYPERLIQUID_PAGE_HOLD_MS). */
+   * page read's wait so far (HYPERLIQUID_PAGE_HOLD_MS). A live charge names
+   * its owner (`options.owner`, else the work's: runAsRestOwner) or is
+   * refused (`hyperliquid_quota_live_unowned`); a `live` fallback with no
+   * owner is a background charge: the live lane is never a default. */
   acquireRest(weight:number,deadline:number,lane?:HyperliquidRestLane,options?:HyperliquidRestOptions):Promise<HyperliquidSendPermit>;
   /** A copy setup about to run a step of `weight`: records its demand (background
    * leaves the setups' share free for the next minute) and answers in how many
@@ -89,6 +92,13 @@ export function runAsRestOwner<T>(owner:string,work:()=>Promise<T>):Promise<T>{
 }
 /** The owner the current work's charges carry, or undefined (runAsRestOwner). */
 export function currentRestOwner():string|undefined{return restOwner.getStore();}
+/** Runs work under `owner` unless it already runs under one (an order's, a
+ * stop's), which it keeps: a client shared by several kinds of work (the
+ * funding exchange client, the closer, a setup's readers) names its own
+ * charges without renaming the work it was called from. */
+export function runAsDefaultRestOwner<T>(owner:string,work:()=>Promise<T>):Promise<T>{
+  return restOwner.getStore()===undefined?runAsRestOwner(owner,work):work();
+}
 const sourceLane=new AsyncLocalStorage<string>();
 /** Runs the fast leader source's reads of one leader (`owner`:
  * sourceLaneOwner): their charges go in the `source` lane under that owner
@@ -104,7 +114,17 @@ export function currentSourceLane():string|undefined{return sourceLane.getStore(
  * every process; never the address itself. */
 export function sourceLaneOwner(leaderAddress:string):string{
   if(typeof leaderAddress!=='string'||!/^0x[0-9a-fA-F]{40}$/.test(leaderAddress))fail('hyperliquid_quota_invalid');
-  return createHash('sha256').update(`source-lane:${leaderAddress.toLowerCase()}`).digest('hex').slice(0,8);
+  return leaderHash(leaderAddress);
+}
+const leaderHash=(leader:string)=>createHash('sha256').update(`source-lane:${leader.toLowerCase()}`).digest('hex').slice(0,8);
+/** Runs reads of one leader that serve copying but no order (the watcher's
+ * confirms, sweeps and audits of a copied leader, its fast path's state
+ * reads) in the leader's source lane, as the fast source's kicks
+ * (runInSourceLane): `leader` is whatever names it (its address, in
+ * production); the lane carries only its hash, never the name. */
+export function runInLeaderSourceLane<T>(leader:string,work:()=>Promise<T>):Promise<T>{
+  if(typeof leader!=='string'||leader.length<1||leader.length>200)fail('hyperliquid_quota_invalid');
+  return runInSourceLane(leaderHash(leader),work);
 }
 const setupLane=new AsyncLocalStorage<{readonly token?:string}>();
 /** Runs a copy setup's step: its unlabelled REST charges (outside an original
@@ -121,6 +141,8 @@ const backgroundLane=new AsyncLocalStorage<true>();
  * approval client): they are background charges. A live or setup context
  * and an explicit lane still win. */
 export function runInBackgroundLane<T>(work:()=>Promise<T>):Promise<T>{return backgroundLane.run(true,work);}
+/** Whether the current work runs in the background lane (runInBackgroundLane). */
+export function inBackgroundLane():boolean{return backgroundLane.getStore()===true;}
 const liveLane=new AsyncLocalStorage<string>();
 /** Runs a live order under its demand `token` (claimLiveRest): its charges
  * are the live lane's and carry the token, so what they take is no longer
@@ -315,10 +337,18 @@ export class PostgresHyperliquidQuota {
       // (runInSourceLane) the source lane's; else the caller's fallback; else
       // background (the meter treats a charge without a lane as background).
       const live=liveLane.getStore(),setup=session||live!==undefined?undefined:setupLane.getStore(),source=session||live!==undefined||setup?undefined:sourceLane.getStore();
-      const lane=requested??(session||live!==undefined?'live':setup?'setup':source!==undefined?'source':backgroundLane.getStore()?'background':options.fallback);
-      // A source charge names its leader; a live one its owner (an explicit one, else the work's).
-      if(lane==='source'&&source===undefined)fail('hyperliquid_quota_invalid');
       const owner=options.owner??restOwner.getStore();
+      // The live lane is never a default (H-R11: Stage's live lane held 313 p50 units of
+      // `live:<id>` nobody could attribute): a charge is live by its original session, its
+      // order's token (runInLiveLane), an explicit lane, or a `live` fallback under an owner
+      // (runAsRestOwner). A `live` fallback with no owner — a read nobody labelled — is a
+      // background charge instead.
+      const fallback=options.fallback==='live'&&owner===undefined?'background':options.fallback;
+      const lane=requested??(session||live!==undefined?'live':setup?'setup':source!==undefined?'source':backgroundLane.getStore()?'background':fallback);
+      // A source charge names its leader; a live one its owner: the meter's composition
+      // attributes every unit of the live lane, so one without is refused before any round trip.
+      if(lane==='source'&&source===undefined)fail('hyperliquid_quota_invalid');
+      if(lane==='live'&&owner===undefined)fail('hyperliquid_quota_live_unowned');
       // Settlements ride on the next charge (no transaction of their own);
       // they are dropped once that charge commits, kept if it fails.
       const settle=session?[]:this.pendingSettlements(binding.egressKey);

@@ -5,7 +5,7 @@ import { WebSocket } from "ws";
 import { HyperliquidInfoClient } from "../hyperliquid/hyperliquid-info.client.js";
 import { HyperliquidGlobalTransport } from '../hyperliquid/hyperliquid-global-transport.js';
 import { quotaSubscription } from '../hyperliquid/hyperliquid-global-quota.js';
-import type { HyperliquidSocketQuota } from '../hyperliquid/postgres-hyperliquid-quota.js';
+import { runAsRestOwner, type HyperliquidSocketQuota } from '../hyperliquid/postgres-hyperliquid-quota.js';
 import { LiveBoundaryError } from '../copy/live/wallet-authorization.js';
 import { ReconnectBackoff } from '../runtime/reconnect-backoff.js';
 import { LIVE_PERP_COIN, MAX_LIVE_PERP_DEXES } from '../copy/live/live-market-resolver.js';
@@ -96,8 +96,9 @@ export class TradeFeedService {
   /** Every listed perp market on every dex. */
   async listMarkets(): Promise<string[]> {
     // The live feed cannot start until this catalog is loaded. Keep its
-    // bounded metadata calls ahead of historical fills and cache warming.
-    const [dexes,metas]=await Promise.all([this.info.perpDexs("live"),this.info.allPerpMetas("live")]);
+    // bounded metadata calls ahead of historical fills and cache warming:
+    // live (the copy signal source's setup, once per start), owned `feed`.
+    const [dexes,metas]=await runAsRestOwner('feed',()=>Promise.all([this.info.perpDexs("live"),this.info.allPerpMetas("live")]));
     if(dexes.length<1||dexes.length>MAX_LIVE_PERP_DEXES||metas.length!==dexes.length)throw new LiveBoundaryError('trade_feed_market_identity_invalid');
     const names=new Set<string>(),coins:string[]=[];
     for(let i=0;i<dexes.length;i++){

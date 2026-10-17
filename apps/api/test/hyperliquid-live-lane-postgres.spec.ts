@@ -97,7 +97,7 @@ describe('a cold live order beside a setup on the shared Postgres meter', () => 
       const send = async () => {
         for (const weight of ORDER) {
           // As originalLiveInfoBatch sends a wave: no wait for room (maxWaitMs 0).
-          try { (await transport.currentQuota().acquireRest(weight, Date.now() + 5000)).dispatch(() => undefined); }
+          try { (await transport.currentQuota().acquireRest(weight, Date.now() + 5000, undefined, { owner: 'order' })).dispatch(() => undefined); }
           catch (error) { refused.push(error); }
           await wait(1_000);
         }

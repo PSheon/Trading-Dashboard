@@ -2,7 +2,7 @@ import {AsyncLocalStorage} from 'node:async_hooks';
 import {setTimeout as wait} from 'node:timers/promises';
 import { HyperliquidRestCapacityError, sharedRestRetryAfterMs } from './hyperliquid-capacity-error.js';
 import { HYPERLIQUID_MAX_LIVE_DEMAND, type HyperliquidMeterComposition, type HyperliquidRestLane } from './hyperliquid-global-quota.js';
-import {PostgresHyperliquidQuota,currentRestOwner,liveLaneTokenFor,newLiveLaneToken,runAsRestOwner,runInBackgroundLane,runInLiveLane,runInSetupLane,runInSourceLane,setupLaneToken,sourceLaneOwner,type BoundHyperliquidQuota,type HyperliquidMeterSnapshot,type HyperliquidSendPermit} from './postgres-hyperliquid-quota.js';
+import {PostgresHyperliquidQuota,currentRestOwner,liveLaneTokenFor,newLiveLaneToken,runAsDefaultRestOwner,runAsRestOwner,runInBackgroundLane,runInLiveLane,runInSetupLane,runInSourceLane,setupLaneToken,sourceLaneOwner,type BoundHyperliquidQuota,type HyperliquidMeterSnapshot,type HyperliquidSendPermit} from './postgres-hyperliquid-quota.js';
 import {assertOriginalLiveRiskSession,type LiveRiskDatabaseSession} from '../copy/live/postgres-live-risk-scope.js';
 import {LiveBoundaryError} from '../copy/live/wallet-authorization.js';
 import {infoListSurcharge,infoPrepaidWeight,infoWeight} from './info-weights.js';
@@ -94,6 +94,13 @@ export class HyperliquidGlobalTransport {
  /** Runs work whose REST charges name `owner` in their tickets (`order`,
   * `settle`, `stop`): the meter's composition tells them apart. */
  runOwned<T>(owner:string,work:()=>Promise<T>):Promise<T>{return runAsRestOwner(owner,work);}
+ /** Names the owner of work that has none yet (runAsDefaultRestOwner): a
+  * client several kinds of work share keeps the owner it was called under. */
+ runDefaultOwner<T>(owner:string,work:()=>Promise<T>):Promise<T>{return runAsDefaultRestOwner(owner,work);}
+ /** `fetchInfo` for a reader several kinds of work share (a setup's, an
+  * authorization check's, the settlement scanner's): its charges are
+  * `owner`'s unless the work it runs in has one (runDefaultOwner). */
+ fetchInfoOwned(owner:string):typeof fetch{return (input,init)=>runAsDefaultRestOwner(owner,()=>this.fetchInfo(input,init));}
  /**
   * A live order's need (`weight`: its evidence reads, risk gates, transport
   * check and POST), announced on the shared meter before its SQL locks:
@@ -213,7 +220,10 @@ export class HyperliquidGlobalTransport {
   * withdraw3), an account-mode or agent approval. Real money or an account
   * action: the live lane (a setup step's stays its setup's), so a full
   * background lane or a waiting setup never leaves it not dispatched. Its
-  * ticket names the work it runs in (an order's, a stop's: runOwned), if any.
+  * ticket names the work it runs in (an order's, a stop's: runOwned; a
+  * client's own name otherwise: runDefaultOwner); without one it is a
+  * background charge (the live lane is never a default), refused at once
+  * when that lane is full.
   */
  async acquireExchange(deadline:number):Promise<HyperliquidSendPermit>{
   const permit=await this.currentQuota().acquireRest(1,deadline,undefined,{fallback:'live'});
@@ -224,7 +234,14 @@ export class HyperliquidGlobalTransport {
   * settlement and receipts that release its reservation, closes and stops,
   * the testnet leader source, funding evidence, wallet authorization checks
   * (a setup step's reads stay the setup's). The live lane: the whole window,
-  * ahead of setups, pages and background; refused at once when it is full. */
+  * ahead of setups, pages and background; refused at once when it is full.
+  * Its ticket names the work's owner (runOwned / runDefaultOwner, or the
+  * order's token under runLive); a read nobody labelled is a background
+  * charge, never a live one (the live lane is never a default; H-R11);
+  * under runSource it is the leader's source charge, under
+  * runInBackgroundLane a background one. Leader-fill reads that serve
+  * copying (the watcher's confirms, sweeps and audits of a copied leader)
+  * run under runSource. */
  readonly fetchInfo:typeof fetch=(input,init)=>this.#info(input,init,undefined,false,PAGE_CAPACITY_WAIT_MS,'live');
  /** The fast leader source's info request (a kick's `userFillsByTime`, its
   * TWAP slices; runSource names the leader): the `source` lane, which

@@ -69,9 +69,10 @@ export const MAX_LIST_ITEMS = MAX_INFO_LIST_ITEMS;
 /** Items a recent-window fills read prepays (`userFillsSince`). */
 const RECENT_FILLS_ITEMS = 200;
 /** Budget consumers whose calls wait for room in the shared background lane
- * instead of failing at once: snapshots and sweeps of watched leaders, and
- * the confirms that store the fills the trade feed alerted on. */
-const ESSENTIAL_LANE_CONSUMERS = new Set(["snapshots", "confirm", "sweep"]);
+ * instead of failing at once: snapshots and sweeps of watched leaders, the
+ * confirms that store the fills the trade feed alerted on, and the market
+ * catalog (a dozen small reads an hour the feed's rules and pages consult). */
+const ESSENTIAL_LANE_CONSUMERS = new Set(["snapshots", "confirm", "sweep", "catalog"]);
 /** The budget consumer of a trade-analytics job a request started. */
 export const ANALYTICS_CONSUMER = CONSUMER_ANALYTICS;
 

@@ -32,7 +32,8 @@ export const apiSettlementProvider: FactoryProvider<CopyLiveApiSettlementService
       const reserve = liveBudget(budget, { maxWaitMs: 5000, signal: claim.signal });
       const fetcher: typeof fetch = async (input, init) => {
         await claim.assertHeld();
-        const result = await transport.fetchInfo(input, { ...init, signal: init?.signal ? AbortSignal.any([claim.signal, init.signal]) : claim.signal });
+        // The settlement's charge on the shared meter (`live:settle:`), as the worker's settler names its pass.
+        const result = await transport.fetchInfoOwned('settle')(input, { ...init, signal: init?.signal ? AbortSignal.any([claim.signal, init.signal]) : claim.signal });
         await claim.assertHeld(); return result;
       };
       const scanner = new CopyFollowerReconciler(new CopyFollowerScanRepository(db, config), new CopyFollowerLedger(db, new UnitOfWork(db)),

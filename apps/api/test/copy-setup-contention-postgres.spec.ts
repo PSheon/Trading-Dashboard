@@ -112,7 +112,7 @@ describe('a copy setup beside contention.mjs on the real Postgres meter (gate 20
         while (!stop.signal.aborted) {
           await wait(10_000);
           for (const weight of [21, 22, 1]) {
-            try { (await bound.acquireRest(weight, Date.now() + 5000, 'live')).dispatch(() => undefined); live.sent++; } catch { live.refused++; }
+            try { (await bound.acquireRest(weight, Date.now() + 5000, 'live', { owner: 'order' })).dispatch(() => undefined); live.sent++; } catch { live.refused++; }
           }
         }
       })();

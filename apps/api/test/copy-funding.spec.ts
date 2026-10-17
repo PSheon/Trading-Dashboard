@@ -301,7 +301,8 @@ describe("durable strategy funding", () => {
   it("credits only exact nonce proof plus recipient ledger, preserving actual fee", async () => {
     const op = await attempted(); receipt(op);
     expect(await service.reconcile(userId, op.id)).toMatchObject({ status: "credited", transactionHash: HASH, fee: "1", creditedAmount: "11.5", canCancel: false });
-    expect(exchange.txDetails).toHaveBeenCalledWith("testnet", HASH);
+    // The owner waits on this lookup: the explorer read is live on the shared meter (H-R6).
+    expect(exchange.txDetails).toHaveBeenCalledWith("testnet", HASH, "live");
     expect(info.userNonFundingLedgerUpdates).toHaveBeenCalledWith(DEST, op.nonce - 86_400_000, expect.any(Number), "live", expect.any(Number), "https://api.hyperliquid-testnet.xyz/info");
     expect((await db.select().from(copyStrategies))[0]).toMatchObject({ mode: "paper", cash: "100" });
     expect((await reserve()).id).not.toBe(op.id);
@@ -332,6 +333,8 @@ describe("durable strategy funding", () => {
     const restarted = new CopyFundingService(testConfig(), repository, {} as never, exchange as never, info as never);
     expect(await restarted.reconcilePending()).toBe(1);
     expect((await repository.find(userId, op.id)).status).toBe("credited");
+    // Nobody waits on the monitor's lookup of a transfer with no setup behind it: background on the shared meter (H-R6).
+    expect(exchange.txDetails).toHaveBeenCalledWith("testnet", HASH, "background");
     expect(exchange.send).toHaveBeenCalledTimes(1); expect(provider.create).not.toHaveBeenCalled();
   });
   it("persists the recipient ledger before an explorer quota failure and resumes only the original receipt after restart", async () => {
@@ -369,7 +372,7 @@ describe("durable strategy funding", () => {
     const wallets = new CopyWalletService(new CopyWalletRepository(db), new UnitOfWork(db), testConfig(), provider);
     for (let i = 0; i < 3; i++) await new CopyFundingService(testConfig(), repository, wallets, exchange as never, info as never).reconcile(userId, op.id);
     expect(await repository.find(userId, op.id)).toMatchObject({ status: "credited", transactionHash: rows[0]!.hash });
-    expect(exchange.txDetails).toHaveBeenCalledWith("testnet", rows[0]!.hash); expect(exchange.send).toHaveBeenCalledTimes(1);
+    expect(exchange.txDetails).toHaveBeenCalledWith("testnet", rows[0]!.hash, "live"); expect(exchange.send).toHaveBeenCalledTimes(1);
     expect(exchange.txDetails).toHaveBeenCalledTimes(6);
   });
   it("splits capped ledger windows rather than permanently abandoning a full page", async () => {

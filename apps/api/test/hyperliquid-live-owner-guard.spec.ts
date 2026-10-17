@@ -23,6 +23,11 @@ import type {DrizzleDb} from '../src/db/drizzle.provider.js';
  * one (runOwned, runDefaultOwner, fetchInfoOwned, the explorer's own) the
  * ticket carries it. Against the release before, the ownerless charges go
  * through as `live:<id>`.
+ *
+ * The source scan below covers src/ only: a DB harness that simulates an
+ * order's live charge must name its owner too (`{ owner: 'order' }` or
+ * runOwned), or the quota refuses it and only running that spec shows it
+ * (copy-setup-live-order-capacity, H-R11 verification 2026-10-17).
  */
 const now=1790000000000,egressKey='owner-guard',TOKEN='aaaaaaaaaaaaaaaa',LEADER='0x'+'44'.repeat(20);
 const uuid=()=>`${String(++tickets).padStart(8,'0')}-0000-4000-8000-000000000000`;let tickets=0;

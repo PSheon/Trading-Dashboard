@@ -9,9 +9,9 @@ import { followerSign, legsOf, openNotional, reduceWithCarry, tradeKeyOf, type L
 import { CopyOrderPlanner, marketDataGap, strategyValue, type CopyDataGap } from "./copy-planner.service.js";
 import { pricedCoins, symbolRefusal } from "./copy-risk.js";
 import { CopyRiskPolicyService } from "./copy-risk-policy.service.js";
-import { CopyRepository, legKey, type OutboxRow } from "./copy.repository.js";
+import { CopyRepository, legKey, type OutboxRow, type StrategyRow } from "./copy.repository.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
-import { MAX_SIGNAL_ATTEMPTS, PAPER_SIGNAL_FILLS_PER_LOCK_LIMIT } from '../config/constants/limits.js';
+import { MAX_SIGNAL_ATTEMPTS, PAPER_SIGNAL_GROUPS_PER_LOCK_LIMIT } from '../config/constants/limits.js';
 import { LIVE_RISK_LOCK_POLL_MS } from '../config/constants/timings.js';
 
 /** Outbox rows per consumer pass. */
@@ -36,6 +36,21 @@ interface SignalContext {
   pacing: Map<number, number>;
 }
 
+/** A leg to record: its key in copy_signal_legs and where it came from. */
+type LegRef = { tid: bigint; leg: "open" | "close"; coin: string; fillTime: Date };
+
+/** One strategy's pass, planned from unlocked reads: the legs it will record (those not seen
+ * yet), grouped into orders exactly as the locked transaction will decide them. */
+interface StrategyPlan {
+  strategy: StrategyRow;
+  settings: CopyStrategySettings;
+  /** Fresh legs of fills that could not be classified: recorded as `unclassifiable`. */
+  unclassifiable: LegRef[];
+  groups: Group[];
+  /** Every fresh leg's tid: only legs of an earlier pass can supersede an open of this one. */
+  passTids: bigint[];
+}
+
 /** Hyperliquid's decimal strings, taken as they are (no float in between). */
 function toLeaderFill(f: HlUserFill): LeaderFill {
   return { tid: BigInt(f.tid), coin: f.coin, px: Dec.from(f.px), sz: Dec.from(f.sz), side: f.side, time: f.time, startPosition: Dec.parse(f.startPosition), tradeKey: tradeKeyOf(f) };
@@ -55,6 +70,8 @@ function groupLegs(legs: SignalLeg[], perTrade: boolean): Group[] {
   return out;
 }
 
+const legRef = (l: SignalLeg): LegRef => ({ tid: l.tid, leg: l.leg, coin: l.coin, fillTime: new Date(l.time) });
+
 /**
  * Turns verified leader fills (the execution outbox) into paper orders.
  *
@@ -71,9 +88,11 @@ function groupLegs(legs: SignalLeg[], perTrade: boolean): Group[] {
  * A leader's rows are one unit; if it throws they are retried one at a time so only the bad row
  * fails (parked after MAX_SIGNAL_ATTEMPTS) (review 42).
  *
- * Locks (H-R5, gate 12): an owner's copy user lock (7404) is the live order path's lock too, so a
- * strategy copies at most PAPER_SIGNAL_FILLS_PER_LOCK_LIMIT fills per locked transaction, never
- * another owner's work, and the drain leaves a live poll's gap before locking that owner again.
+ * Locks (H-R5, gate 12): an owner's copy user lock (7404) is the live order path's lock too. A
+ * strategy's pass is planned from unlocked reads (fills, legs already seen, grouping into orders);
+ * each locked transaction then records its legs in one insert and decides at most
+ * PAPER_SIGNAL_GROUPS_PER_LOCK_LIMIT orders (the statement budget), never another owner's work,
+ * and the drain leaves a live poll's gap before locking that owner again.
  */
 @Injectable()
 export class CopySignalService {
@@ -144,13 +163,14 @@ export class CopySignalService {
     await this.repository.failOutbox([row.id], message, MAX_SIGNAL_ATTEMPTS);
   }
 
-  /** One leader's rows: the fills and strategies are read first (no lock); then each strategy
-   * copies them in its owner's own short locked transactions (see {@link processStrategy});
-   * last, one transaction without any owner lock marks the rows done or deferred and advances
-   * the checkpoint. A row is retried (idempotently: its legs are already claimed) if the
-   * process stops between the two. */
+  /** One leader's rows: the fills and strategies are read and each strategy's pass planned
+   * first (no lock); then each strategy's orders are decided in its owner's own short locked
+   * transactions (see {@link processGroups}); last, one transaction without any owner lock
+   * marks the rows done or deferred and advances the checkpoint. A row is retried
+   * (idempotently: its legs are already claimed) if the process stops between the two. */
   private async processRows(address: string, rows: OutboxRow[], ctx: SignalContext): Promise<{ processed: number; orders: number; deferred: number }> {
-    const raw = await this.repository.leaderFills(this.repository.reader, address, rows.map((r) => r.tid));
+    const reader = this.repository.reader;
+    const raw = await this.repository.leaderFills(reader, address, rows.map((r) => r.tid));
     if (raw.length < rows.length) this.logger.warn(`${rows.length - raw.length} outbox fills of ${address} are not stored; skipped`);
     const fills = raw.map(toLeaderFill).sort((a, b) => a.time - b.time || (a.tid < b.tid ? -1 : a.tid > b.tid ? 1 : 0));
     // One owner's lock per transaction; owners in ascending order, then strategy (a stable order, as before).
@@ -159,10 +179,13 @@ export class CopySignalService {
     const deferred = new Map<bigint, string>();
     let orders = 0;
     for (const s of strategies) {
-      for (let from = 0; from < fills.length; from += PAPER_SIGNAL_FILLS_PER_LOCK_LIMIT) {
+      const plan = await this.plan(s, fills);
+      if (plan === null) continue;
+      // Each locked transaction decides a budget's worth of orders; the first also records the unclassifiable legs.
+      for (let from = 0; from < plan.groups.length || (from === 0 && plan.unclassifiable.length); from += PAPER_SIGNAL_GROUPS_PER_LOCK_LIMIT) {
         await this.pace(ctx.pacing, s.userId);
-        const chunk = fills.slice(from, from + PAPER_SIGNAL_FILLS_PER_LOCK_LIMIT);
-        const r = await this.uow.run((tx) => this.processStrategy(tx, s.id, s.userId, chunk, ctx));
+        const groups = plan.groups.slice(from, from + PAPER_SIGNAL_GROUPS_PER_LOCK_LIMIT);
+        const r = await this.uow.run((tx) => this.processGroups(tx, plan, from === 0 ? plan.unclassifiable : [], groups, ctx));
         ctx.pacing.set(s.userId, Date.now());
         if (r === null) break;
         orders += r.orders;
@@ -186,6 +209,30 @@ export class CopySignalService {
     });
   }
 
+  /** Plans one strategy's pass without a lock: which legs are new, and the orders they group
+   * into (the same grouping the locked transaction would make). Null when nothing is new. */
+  private async plan(strategy: StrategyRow, fills: LeaderFill[]): Promise<StrategyPlan | null> {
+    const reader = this.repository.reader;
+    const activated = strategy.activatedAt.getTime();
+    const after = fills.filter((f) => f.time > activated); // the activation cursor
+    if (after.length === 0) return null;
+    const settings = (await this.repository.settingsOf(reader, strategy.id, strategy.version)) as CopyStrategySettings;
+    const seen = await this.repository.seenLegs(reader, strategy.id, after.map((f) => f.tid));
+    const unclassifiable: LegRef[] = [];
+    const legs: SignalLeg[] = [];
+    for (const f of after) {
+      const fillLegs = legsOf(f);
+      if (fillLegs === null) {
+        const ref: LegRef = { tid: f.tid, leg: "open", coin: f.coin, fillTime: new Date(f.time) };
+        if (!seen.has(legKey(ref))) unclassifiable.push(ref);
+        continue;
+      }
+      for (const l of fillLegs) if (!seen.has(legKey(l))) legs.push(l);
+    }
+    if (unclassifiable.length === 0 && legs.length === 0) return null;
+    return { strategy, settings, unclassifiable, groups: groupLegs(legs, settings.sizingMode === "fixed"), passTids: [...new Set(legs.map((l) => l.tid))] };
+  }
+
   /** A live order of the same owner polls its try-lock every LIVE_RISK_LOCK_POLL_MS for
    * LIVE_RISK_LOCK_WAIT_MS; a blocking re-acquisition right after a commit would always win
    * the lock back first. So between two locked transactions of one owner the drain leaves a
@@ -197,37 +244,30 @@ export class CopySignalService {
     if (wait > 0) await new Promise<void>((resolve) => setTimeout(resolve, wait));
   }
 
-  /** One strategy's copy of at most PAPER_SIGNAL_FILLS_PER_LOCK_LIMIT fills, in one transaction
-   * that holds the owner's lock (readControls "share") for its DB statements only: every
-   * upstream read happened before. Null when the strategy is gone or stopped. */
-  private async processStrategy(
-    tx: DbTransaction, strategyId: number, userId: number, fills: LeaderFill[], ctx: SignalContext,
+  /** One locked transaction of a strategy's pass: holds the owner's lock (readControls "share")
+   * for PAPER_SIGNAL_LOCK_STATEMENT_BUDGET statements at most — the legs of `groups` recorded in
+   * one insert, then each group decided as before. The plan was made from unlocked reads, so the
+   * transaction checks it: a strategy changed meanwhile, or a leg recorded meanwhile, throws and
+   * the rows are retried (the next pass plans again). Null when the strategy is gone or stopped. */
+  private async processGroups(
+    tx: DbTransaction, plan: StrategyPlan, unclassifiable: LegRef[], groups: Group[], ctx: SignalContext,
   ): Promise<{ orders: number; deferred: Map<bigint, string> } | null> {
     const policy = await this.policies.current(tx);
     // Lock order: controls (share), then the strategy (update); see CopyControlService.
-    const controls = await this.repository.readControls(userId, "share", tx);
-    const strategy = await this.repository.lockStrategy(tx, strategyId);
+    const controls = await this.repository.readControls(plan.strategy.userId, "share", tx);
+    const strategy = await this.repository.lockStrategy(tx, plan.strategy.id);
     if (!strategy || strategy.status === "stopped") return null;
-    const settings = (await this.repository.settingsOf(tx, strategy.id, strategy.version)) as CopyStrategySettings;
-    const activated = strategy.activatedAt.getTime();
+    if (strategy.version !== plan.strategy.version || strategy.activatedAt.getTime() !== plan.strategy.activatedAt.getTime()) throw new Error("paper_signal_plan_stale:strategy");
+    const { settings, passTids } = plan;
     const deferred = new Map<bigint, string>();
 
-    /** Legs to record, in fill order; a fill that cannot be classified is one `open` leg, resolved below. */
-    const candidates: { leg: SignalLeg | null; ref: { tid: bigint; leg: "open" | "close"; coin: string; fillTime: Date } }[] = [];
-    for (const f of fills) {
-      if (f.time <= activated) continue; // before the activation cursor
-      const fillLegs = legsOf(f);
-      if (fillLegs === null) candidates.push({ leg: null, ref: { tid: f.tid, leg: "open", coin: f.coin, fillTime: new Date(f.time) } });
-      else for (const l of fillLegs) candidates.push({ leg: l, ref: { tid: l.tid, leg: l.leg, coin: l.coin, fillTime: new Date(l.time) } });
-    }
-    const fresh = await this.repository.claimLegs(tx, strategy.id, strategy.version, candidates.map((c) => c.ref));
-    const unclassifiable = candidates.filter((c) => c.leg === null && fresh.has(legKey(c.ref))).map((c) => c.ref);
+    const refs: LegRef[] = [...unclassifiable, ...groups.flatMap((g) => g.legs.map(legRef))];
+    const fresh = await this.repository.claimLegs(tx, strategy.id, strategy.version, refs);
+    if (fresh.size !== refs.length) throw new Error("paper_signal_plan_stale:legs");
     if (unclassifiable.length) await this.repository.resolveLegs(tx, strategy.id, unclassifiable, "unclassifiable", null);
-    const legs: SignalLeg[] = candidates.flatMap((c) => (c.leg !== null && fresh.has(legKey(c.ref)) ? [c.leg] : []));
 
     let orders = 0;
-    const passTids = [...new Set(legs.map((l) => l.tid))];
-    for (const g of groupLegs(legs, settings.sizingMode === "fixed")) {
+    for (const g of groups) {
       const tids = g.legs.map((l) => l.tid);
       const refs = g.legs.map((l) => ({ tid: l.tid, leg: l.leg }));
       const first = g.legs[0]!;

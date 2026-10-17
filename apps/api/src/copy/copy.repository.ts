@@ -708,6 +708,15 @@ export class CopyRepository {
     return rows.map((r) => r.raw as unknown as HlUserFill);
   }
 
+  /** The legs of `tids` this strategy has already recorded (an unlocked read for planning a
+   * pass; the locked {@link claimLegs} is the authority). */
+  async seenLegs(ex: DbExecutor, strategyId: number, tids: bigint[]): Promise<Set<string>> {
+    if (tids.length === 0) return new Set();
+    const rows = await ex.select({ tid: copySignalLegs.tid, leg: copySignalLegs.leg }).from(copySignalLegs)
+      .where(and(eq(copySignalLegs.strategyId, strategyId), inArray(copySignalLegs.tid, tids)));
+    return new Set(rows.map((r) => legKey(r)));
+  }
+
   /** Records each leg once, in one statement (the caller holds the owner's lock: every
    * statement here is time under it). Returns the keys of the legs this call recorded; a
    * (strategy, tid, leg) already seen is left out. */

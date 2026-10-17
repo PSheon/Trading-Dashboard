@@ -749,13 +749,23 @@ describe('testnet copy execution engine', () => {
     expect((await dispatches()).find(r => r.sourceFillId === close)).toMatchObject({ state: 'submitted', executionKey: keyOf(close, 'close') });
   });
 
-  it('closes what the follower still holds once the leader is flat: a close settled owing part of it, or refused', async () => {
+  it.each([
+    ['refused on its own (below_min_notional)', 'below_min_notional'],
+    // Gate 12 (2026-10-17): the ETH close's order expired unattempted; the next pass requested the close of what the follower still held.
+    ['expired unattempted', 'unattempted_expired'],
+  ] as const)('closes what the follower still holds once the leader is flat: a close settled owing part of it, or one %s', async (_name, refusal) => {
     await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
     const btcOpen = await leaderFill(19, now + 100, 'B', '1', '0', 'BTC'), btcClose = await leaderFill(20, now + 200, 'A', '1', '1', 'BTC');
     const ethOpen = await leaderFill(21, now + 300, 'B', '1', '0', 'ETH'), ethClose = await leaderFill(22, now + 400, 'A', '1', '1', 'ETH');
     const solOpen = await leaderFill(23, now + 500, 'B', '1', '0', 'SOL'), solClose = await leaderFill(24, now + 600, 'A', '1', '1', 'SOL');
     runtimeImpl = async (request, hooks) => {
-      if (request.sourceFillId === ethClose) { runtimeCalls.push(request); throw new LiveBoundaryError('below_min_notional'); }
+      if (request.sourceFillId === ethClose) {
+        runtimeCalls.push(request);
+        if (refusal === 'below_min_notional') throw new LiveBoundaryError(refusal);
+        // The runtime's expiry recovery: the order's hold released and its journal rejected unattempted_expired.
+        const key = keyOf(request.sourceFillId, 'close'); await journal(key, 'rejected');
+        return { key, state: 'rejected', errorCode: refusal } as LiveExecutionRecord;
+      }
       clock++; return filled(request, hooks); // one nonce per journal
     };
     clock = now + 1000; await engine().tick(); clock += 3000; await engine().tick(); clock += 3000; await engine().tick();
@@ -765,6 +775,7 @@ describe('testnet copy execution engine', () => {
     const rows = await dispatches();
     for (const [fill, state] of [[btcOpen, 'settled'], [btcClose, 'settled'], [ethOpen, 'settled'], [ethClose, 'refused'], [solOpen, 'settled'], [solClose, 'settled']] as const)
       expect(rows.find(r => r.sourceFillId === fill)).toMatchObject({ state });
+    expect(rows.find(r => r.sourceFillId === ethClose)).toMatchObject({ state: 'refused', reason: refusal });
     clock += 3000; await engine().tick(); clock += 3000; await engine().tick();
     const closes = await db.select().from(schema.copyLiveManualCloses);
     expect(closes.map(c => c.coin).sort()).toEqual(['BTC', 'ETH']);

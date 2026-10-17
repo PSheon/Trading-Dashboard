@@ -35,6 +35,7 @@ import { PostgresLiveUnattemptedRecovery } from '../src/copy/live/postgres-live-
 import { CopyWalletRepository } from '../src/copy/copy-wallet.repository.js';
 import { CopyAgentRepository } from '../src/copy/copy-agent.repository.js';
 import { UNHELD_REJECTED } from '../src/copy/live/live-execution.js';
+import { errorCode } from '../src/runtime/safe-error-text.js';
 import { registerLiveDeployment } from '../src/copy/live-deployment.js';
 import { LiveBoundaryError, WalletAuthorizationService } from '../src/copy/live/wallet-authorization.js';
 import { HyperliquidBudgetWait } from '../src/hyperliquid/hyperliquid-budget-wait.js';
@@ -92,6 +93,11 @@ function configuration(extra: Record<string, string | undefined> = {}) {
 }
 const request = (): LiveExecutionRequest => ({ userId: 1, accountId: 'account', mandateId: 'mandate', sourceFillId: seed.fill.id, leg: 'open' });
 const runtime = (c = config, deployment = options) => new LiveExecutionRuntime('testnet', pool, c, global, budget, deployment, () => clock);
+/** The worker dies between a signing failure and its unsent marker's write: the order
+ * stays prepared with its hold, recovered only once both have expired. */
+const crashBeforeUnsentMarker = () => vi.spyOn(ScopedLiveExecutionJournal.prototype, 'save').mockRejectedValueOnce(Error('crashed before the unsent marker'));
+/** The exchange POSTs the fetch double saw (a fetch input's text, typed). */
+const exchangeCalls = () => raw.mock.calls.filter(([input]) => (typeof input === 'string' ? input : input instanceof URL ? input.href : input.url).endsWith('/exchange'));
 async function revokeHistoricalGrant() {
   const repository = new CopyWalletRepository(db);
   return db.transaction(async tx => {
@@ -454,10 +460,13 @@ describe('unregistered concrete testnet execution runtime', () => {
       if (String(url).endsWith('/rpc')) clock += 5001;
       return response;
     });
+    // A signing refusal now marks the order unsent (released at once); this test
+    // models a never-placed order without that marker, so the worker dies first.
+    crashBeforeUnsentMarker();
     await expect(runtime(config, { ...options, slippageBps: '0' }).execute(request())).rejects.toThrow(/live_risk_(serialization_)?stale/);
-    // Seed the terminal routing state from the real prepared journal in this
-    // isolated database; a signing refusal itself correctly leaves prepared.
+    // Seed the terminal routing state from the real prepared journal in this isolated database.
     const [prepared] = await db.select().from(schema.copyLiveExecutions);
+    expect(prepared!.state).toBe('prepared');
     const terminal = { ...prepared!.record, state: 'rejected' as const, errorCode: 'exchange_order_never_placed',
       outcome: { state: 'rejected' as const, reason: 'final_execution_check_failed' }, updatedAt: clock };
     await db.update(schema.copyLiveExecutions).set({ state: 'rejected', record: terminal, updatedAt: new Date(clock) });
@@ -674,6 +683,7 @@ describe('unregistered concrete testnet execution runtime', () => {
     await actualClockFixture(); const previous = raw.getMockImplementation()!;
     raw.mockImplementation((url, init) => String(url) === 'https://api.privy.io/v1/wallets/agent'
       ? Promise.reject(Error('Offline wallet failure')) : previous(url, init));
+    crashBeforeUnsentMarker();
     await expect(runtime(config, { ...options, slippageBps: '0' }).execute(request())).rejects.toThrow();
     const [prepared] = await db.select().from(schema.copyLiveExecutions); expect(prepared!.state).toBe('prepared');
     expect(await db.select().from(schema.copyLiveRiskReservations)).toHaveLength(1);
@@ -713,6 +723,7 @@ describe('unregistered concrete testnet execution runtime', () => {
   it('certifies an expired never-submitted hold after revocation and stop on the original session without provider or signing work', async () => {
     await actualClockFixture(); const previous = raw.getMockImplementation()!;
     raw.mockImplementation((url, init) => String(url) === 'https://api.privy.io/v1/wallets/agent' ? Promise.reject(Error('Pre-sign fault')) : previous(url, init));
+    crashBeforeUnsentMarker();
     await expect(runtime(config, { ...options, slippageBps: '0' }).execute(request())).rejects.toThrow();
     const [prepared] = await db.select().from(schema.copyLiveExecutions), [held] = await db.select().from(schema.copyLiveRiskReservations);
     const [originalCarry] = await db.select().from(schema.copyLiveReductionCarry);
@@ -783,6 +794,7 @@ describe('unregistered concrete testnet execution runtime', () => {
   it('allows only zero-effect expired cleanup after legitimate account verification advances its revision with stable identity', async () => {
     await actualClockFixture(); const previous = raw.getMockImplementation()!;
     raw.mockImplementation((url, init) => String(url) === 'https://api.privy.io/v1/wallets/agent' ? Promise.reject(Error('Pre-sign fault')) : previous(url, init));
+    crashBeforeUnsentMarker();
     await expect(runtime(config, { ...options, slippageBps: '0' }).execute(request())).rejects.toThrow();
     await db.update(schema.copyExecutionAccounts).set({ revision: 2, state: 'unknown' });
     clock += 60001; raw.mockClear(); const sign = vi.spyOn(BoundaryPrivyOrderSigningClient.prototype, 'signTypedData');
@@ -794,6 +806,7 @@ describe('unregistered concrete testnet execution runtime', () => {
   it('refuses expiry cleanup if an advanced account revision changed the immutable master wallet', async () => {
     await actualClockFixture(); const previous = raw.getMockImplementation()!;
     raw.mockImplementation((url, init) => String(url) === 'https://api.privy.io/v1/wallets/agent' ? Promise.reject(Error('Pre-sign fault')) : previous(url, init));
+    crashBeforeUnsentMarker();
     await expect(runtime(config, { ...options, slippageBps: '0' }).execute(request())).rejects.toThrow();
     await db.update(schema.copyExecutionAccounts).set({ revision: 2, privyWalletId: 'foreign-master' });
     clock += 60001; raw.mockClear();
@@ -803,6 +816,7 @@ describe('unregistered concrete testnet execution runtime', () => {
   it('does not apply a historical revision exception to unexpired held financial admission', async () => {
     await actualClockFixture(); const previous = raw.getMockImplementation()!;
     raw.mockImplementation((url, init) => String(url) === 'https://api.privy.io/v1/wallets/agent' ? Promise.reject(Error('Pre-sign fault')) : previous(url, init));
+    crashBeforeUnsentMarker();
     await expect(runtime(config, { ...options, slippageBps: '0' }).execute(request())).rejects.toThrow();
     await db.update(schema.copyExecutionAccounts).set({ revision: 2 }); raw.mockClear();
     await expect(runtime().execute(request())).rejects.toThrow('live_runtime_historical_identity'); expect(raw).not.toHaveBeenCalled();
@@ -811,6 +825,7 @@ describe('unregistered concrete testnet execution runtime', () => {
   it('rejects a regressed account revision during zero-effect expiry cleanup', async () => {
     await actualClockFixture(10, 2); const previous = raw.getMockImplementation()!;
     raw.mockImplementation((url, init) => String(url) === 'https://api.privy.io/v1/wallets/agent' ? Promise.reject(Error('Pre-sign fault')) : previous(url, init));
+    crashBeforeUnsentMarker();
     await expect(runtime(config, { ...options, slippageBps: '0' }).execute(request())).rejects.toThrow();
     const [held] = await db.select().from(schema.copyLiveRiskReservations); expect(held!.state).toBe('held');
     await db.update(schema.copyExecutionAccounts).set({ revision: 1 }); clock += 60001; raw.mockClear();
@@ -1193,6 +1208,31 @@ describe('an order whose final check refused before its POST began (definite uns
     while (Date.now() < clock) await new Promise(resolve => setTimeout(resolve, 100));
     clock = Date.now();
   }
+  it('a failure inside signing (gate 12, 2026-10-17: live_risk_stale wrapped by the wallet library) is marked unsent at once, surfaces its own code, and the leg goes on the next attempt', async () => {
+    await actualClockFixture();
+    // What our signer's guard threw inside `signTypedData` (an 8.9 s attempt against a 7 s window); signL1Action wraps it.
+    vi.spyOn(BoundaryPrivyOrderSigningClient.prototype, 'signTypedData').mockRejectedValueOnce(new LiveBoundaryError('live_risk_stale'));
+    let caught: unknown;
+    try { await runtime(config, { ...options, slippageBps: '0' }).execute(request()); } catch (error) { caught = error; }
+    expect((caught as Error).name).toBe('AbstractWalletError'); expect(errorCode(caught)).toBe('live_risk_stale');
+    expect(exchangeCalls()).toHaveLength(0);
+    const [first] = await db.select().from(schema.copyLiveExecutions);
+    // Before: left `prepared` with its hold; every pass until both had expired threw
+    // live_runtime_reservation_recovery_required, then the leg was refused unattempted_expired.
+    expect(first).toMatchObject({ state: 'rejected', record: { errorCode: 'exchange_order_never_placed', unsent: 'request_never_began', outcome: { state: 'rejected', reason: 'signing_failed' } } });
+    expect((await db.select().from(schema.copyLiveRiskReservations))[0]).toMatchObject({ state: 'held', attemptedAt: null });
+    raw.mockClear(); const recovery = vi.spyOn(PostgresLiveUnattemptedRecovery.prototype, 'releaseExpired');
+    expect(await runtime().execute(request())).toMatchObject({ key: first!.key, state: 'rejected', errorCode: 'exchange_order_never_placed' });
+    expect(recovery).not.toHaveBeenCalled(); expect(raw).not.toHaveBeenCalled();
+    // Settlement releases the hold at once (no grace), and attempt 1 is placed within the order's own life.
+    expect(await settle(first!.key, new CopyLiveSettler('testnet', pool, global, budget, { runFor: async () => {} }, () => clock))).toEqual({ kind: 'unplaced', unsent: true });
+    expect((await db.select().from(schema.copyLiveRiskReservations))[0]).toMatchObject({ state: 'released', releaseReason: 'expired_unplaced', exchangeOrderId: null });
+    raw.mockClear();
+    const retried = await runtime(config, { ...options, slippageBps: '0' }).execute({ ...request(), attempt: 1 });
+    expect(retried.state).toBe('filled'); expect(retried.key).not.toBe(first!.key);
+    expect(exchangeCalls()).toHaveLength(1);
+    expect(clock).toBeLessThan((first!.record as { expiresAfter: number }).expiresAfter);
+  }, 20_000);
   it('is placed on the next attempt under a new cloid and key, the released attempt kept rejected', async () => {
     const first = await unsentOrder();
     await catchUp();

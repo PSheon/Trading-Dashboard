@@ -2,28 +2,42 @@ import { HttpException } from '@nestjs/common';
 import { LiveBoundaryError } from '../copy/live/wallet-authorization.js';
 import { HyperliquidBudgetWait } from '../hyperliquid/hyperliquid-budget-wait.js';
 
-/** An error that is no boundary code (a TypeError, a timeout): its name and
- * where it came from, for the log only. Never its message, which may echo
- * provider data or key material (security review 2026-10-06): the stack
- * frames are code locations only. */
+/** Whether the error itself carries a code: a LiveBoundaryError, a
+ * HyperliquidBudgetWait, or a message that is a code. */
+const coded = (error: unknown): boolean =>
+  error instanceof LiveBoundaryError || error instanceof HyperliquidBudgetWait || error instanceof Error && /^[a-z][a-z0-9_]{0,79}$/.test(error.message);
+/**
+ * THE boundary error an error wraps: the first LiveBoundaryError or
+ * HyperliquidBudgetWait found walking `cause` (and an AggregateError's
+ * errors) to depth 4, else null. A wrapper (the wallet library around our
+ * signer's `signTypedData`, viem, fetch, an AbortSignal) is not what failed:
+ * gate 12 (2026-10-17) logged a `live_risk_stale` thrown inside signing as
+ * an unexpected `AbstractWalletError` and retried it as such. The error's
+ * own code, when it has one, always wins (`errorCode`, error-class.ts).
+ */
+export const boundaryErrorOf = (error: unknown, depth = 0): LiveBoundaryError | HyperliquidBudgetWait | null => {
+  if (!error || typeof error !== 'object' || depth > 4) return null;
+  if (error instanceof LiveBoundaryError || error instanceof HyperliquidBudgetWait) return error;
+  if (error instanceof AggregateError) for (const inner of error.errors) { const found = boundaryErrorOf(inner, depth + 1); if (found) return found; }
+  return boundaryErrorOf(Object.getOwnPropertyDescriptor(error, 'cause')?.value, depth + 1);
+};
+/** An error that is no boundary code and wraps none (a TypeError, a
+ * timeout): its name and where it came from, for the log only. Never its
+ * message, which may echo provider data or key material (security review
+ * 2026-10-06): the stack frames are code locations only. */
 export const describeUnexpected = (error: unknown): string | null => {
-  if (error instanceof LiveBoundaryError || error instanceof HyperliquidBudgetWait || error instanceof Error && /^[a-z][a-z0-9_]{0,79}$/.test(error.message)) return null;
+  if (coded(error) || boundaryErrorOf(error)) return null;
   if (!(error instanceof Error)) return `non-error ${typeof error}`;
   const frames = (error.stack ?? '').split('\n').slice(1).map(line => line.trim()).filter(line => line.startsWith('at '))
     .map(line => line.replace(/^at\s+/, '').replace(/\(?(?:file:\/\/)?[^()]*\/(apps|node_modules|node:internal)\//, '($1/')).slice(0, 4);
-  let cause: unknown = Object.getOwnPropertyDescriptor(error, 'cause')?.value;
-  const seen = new Set<unknown>([error]); let boundary = '';
-  for (let depth = 0; depth < 8 && cause && typeof cause === 'object' && !seen.has(cause); depth++) {
-    seen.add(cause);
-    if (cause instanceof LiveBoundaryError || cause instanceof HyperliquidBudgetWait) { boundary = ` [cause: ${errorCode(cause)}]`; break; }
-    cause = Object.getOwnPropertyDescriptor(cause, 'cause')?.value;
-  }
-  return `${/^[A-Za-z]{1,40}$/.test(error.name) ? error.name : 'Error'}${frames.length ? ` @ ${frames.join(' | ').slice(0, 400)}` : ''}${boundary}`;
+  return `${/^[A-Za-z]{1,40}$/.test(error.name) ? error.name : 'Error'}${frames.length ? ` @ ${frames.join(' | ').slice(0, 400)}` : ''}`;
 };
 /** An error's boundary code (a LiveBoundaryError's, `live_budget_wait` for a
- * HyperliquidBudgetWait, or a message that is one), else `fallback`. */
+ * HyperliquidBudgetWait, or a message that is one), else the code of the
+ * boundary error it wraps (boundaryErrorOf), else `fallback`. */
 export const errorCode = (error: unknown, fallback = 'live_execution_failed'): string => {
-  const code = error instanceof LiveBoundaryError ? error.code : error instanceof HyperliquidBudgetWait ? 'live_budget_wait' : error instanceof Error && /^[a-z][a-z0-9_]{0,79}$/.test(error.message) ? error.message : fallback;
+  const own = coded(error) ? error : boundaryErrorOf(error) ?? error;
+  const code = own instanceof LiveBoundaryError ? own.code : own instanceof HyperliquidBudgetWait ? 'live_budget_wait' : own instanceof Error && /^[a-z][a-z0-9_]{0,79}$/.test(own.message) ? own.message : fallback;
   return code.replace(/[^a-z0-9_]/g, '_').slice(0, 80);
 };
 /** What a log may say about any error: its boundary code, or its name and

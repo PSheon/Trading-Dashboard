@@ -5,7 +5,7 @@ import { LiveBoundaryError, type LiveNetwork } from './wallet-authorization.js';
 
 export type LiveDiagnosticStage = 'transport_local_budget' | 'transport_shared_quota' | 'transport_final_check' |
   'transport_risk_check' | 'transport_market_check' | 'transport_builder_check' | 'transport_approval_check' | 'transport_lease_check' |
-  'transport_dispatch' | 'executor_final_check' | 'executor_submit';
+  'transport_dispatch' | 'executor_sign' | 'executor_final_check' | 'executor_submit';
 interface LiveExecutionDiagnostic {
   readonly network: LiveNetwork;
   readonly stage: LiveDiagnosticStage;

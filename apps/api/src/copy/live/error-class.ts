@@ -2,6 +2,7 @@ import { HttpException } from '@nestjs/common';
 import { HyperliquidBudgetWait, sharedCapacityWait } from '../../hyperliquid/hyperliquid-budget-wait.js';
 import { sharedRestRetryAfterMs } from '../../hyperliquid/hyperliquid-capacity-error.js';
 import { LiveBoundaryError } from './wallet-authorization.js';
+import { boundaryErrorOf } from '../../runtime/safe-error-text.js';
 import { SHARED_CAPACITY_RETRY_MS } from '../../config/constants/hyperliquid.js';
 import { LIVE_LEG_RETRY_BASE_MS, LIVE_RISK_BUSY_RETRY_MS, PROVIDER_READ_RETRY_MS, SETTLEMENT_RETRY_ATTEMPTS, SETTLEMENT_RETRY_MS, SETUP_RETRY_BACKOFF_BASE_MS, SETUP_RETRY_BACKOFF_MAX_MS, SETUP_RETRY_NEEDS_OWNER_MS, SETUP_RETRY_PENDING_MS, WAIT_FLOOR_MS } from '../../config/constants/timings.js';
 
@@ -155,6 +156,10 @@ function own(error: unknown): Pick<ErrorClassification, 'code' | 'source'> {
 }
 
 export function classify(error: unknown, depth = 0): ErrorClassification {
+  // An error with no code of its own is classified by the boundary error it
+  // wraps (boundaryErrorOf: `cause`, an AggregateError's errors, depth 4),
+  // whatever wrapped it; only one that wraps none is unexpected (gate 12).
+  if (own(error).code === null) { const inner = boundaryErrorOf(error); if (inner) return classify(inner, depth); }
   const { code, source } = own(error);
   if (code !== null && WRAPPING_CODES.has(code) && depth < 3 && error instanceof Error && error.cause !== undefined) {
     const inner = classify(error.cause, depth + 1);

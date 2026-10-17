@@ -2,7 +2,9 @@ import { exchangeApprovalFixture, executionGateFixture } from "./copy-live-test-
 import { describe, expect, it, vi } from "vitest";
 import { privateKeyToAccount } from 'viem/accounts';
 import { splitSignature } from '@trading-dashboard/shared/contracts';
-import { createL1ActionHash, signL1Action } from "@nktkas/hyperliquid/signing";
+import { AbstractWalletError, createL1ActionHash, signL1Action } from "@nktkas/hyperliquid/signing";
+import { errorCode } from '../src/runtime/safe-error-text.js';
+import { classify } from '../src/copy/live/error-class.js';
 import { HyperliquidLiveTransport } from "../src/copy/live/hyperliquid-live-transport.js";
 import { PrivyOrderSigner, type PrivyOrderSigningClient } from "../src/copy/live/privy-order-signer.js";
 import { buildOrderAction, executionKey, intentFingerprint, type LiveOrderIntent } from "../src/copy/live/live-order.js";
@@ -11,7 +13,7 @@ import { HyperliquidBudgetWait } from '../src/hyperliquid/hyperliquid-budget-wai
 import type { LiveExecutionDiagnosticHook } from '../src/copy/live/live-execution-diagnostics.js';
 import { HyperliquidAgentApprovalVerifier } from "../src/copy/live/hyperliquid-agent-approval.js";
 import type { ExchangeApprovalVerifier } from "../src/copy/live/wallet-authorization.js";
-import { assertLiveUnsentTransition, isDefinitelyUnsent, LIVE_REQUEST_NEVER_BEGAN, LiveOrderExecutor, type LiveExecutionJournal } from "../src/copy/live/live-execution.js";
+import { assertLiveUnsentTransition, isDefinitelyUnsent, LIVE_REQUEST_NEVER_BEGAN, LiveOrderExecutor, NEVER_PLACED, type LiveExecutionJournal } from "../src/copy/live/live-execution.js";
 import type { LiveExecutionRecord } from "../src/copy/live/live-execution.js";
 import type { LiveExecutionGate } from '../src/copy/live/live-execution-gate.js';
 import { HyperliquidGlobalTransport } from '../src/hyperliquid/hyperliquid-global-transport.js';
@@ -310,11 +312,29 @@ describe('global quota at the actual financial POST boundary', () => {
     expect(result).toMatchObject({ state: 'rejected', errorCode: 'exchange_order_never_placed', unsent: LIVE_REQUEST_NEVER_BEGAN });
     expect(isDefinitelyUnsent(run.stored()!)).toBe(true);
   });
-  it('a journal refuses the marker on any transition but submitting -> rejected, and never drops it', () => {
+  it('a failure inside signing (gate 12, 2026-10-17: live_risk_stale wrapped by the wallet library) is marked unsent at once and surfaces its own code', async () => {
+    const s = metered(), run = markerExecutor(s);
+    // What our signer's guard threw inside `signTypedData` during an 8.9 s attempt; signL1Action wraps it.
+    s.signTypedData.mockRejectedValueOnce(new LiveBoundaryError('live_risk_stale'));
+    let caught: unknown;
+    try { await run.executor.execute(intent); } catch (error) { caught = error; }
+    expect(caught).toBeInstanceOf(AbstractWalletError);
+    expect(errorCode(caught)).toBe('live_risk_stale'); expect(classify(caught)).toMatchObject({ class: 'transient', code: 'live_risk_stale' });
+    expect(s.fetcher).not.toHaveBeenCalled();
+    // Before: left `prepared` with its hold, recovered only once the hold and the order had expired (60 s).
+    expect(run.stored()).toMatchObject({ state: 'rejected', errorCode: NEVER_PLACED, unsent: LIVE_REQUEST_NEVER_BEGAN, outcome: { state: 'rejected', reason: 'signing_failed' } });
+    expect(isDefinitelyUnsent(run.stored()!)).toBe(true);
+  });
+  it('a journal refuses the marker on any transition but prepared (signing) or submitting (final check) -> rejected, and never drops it', () => {
     const submitting: LiveExecutionRecord = { ...record, state: 'submitting' };
     const unsent: LiveExecutionRecord & { outcome: NonNullable<LiveExecutionRecord['outcome']> } = { ...submitting, state: 'rejected' as const, errorCode: 'exchange_order_never_placed',
       outcome: { state: 'rejected' as const, reason: 'final_execution_check_failed' }, unsent: LIVE_REQUEST_NEVER_BEGAN };
+    const signingUnsent = { ...unsent, outcome: { state: 'rejected' as const, reason: 'signing_failed' } };
     expect(() => assertLiveUnsentTransition(submitting, unsent)).not.toThrow();
+    expect(() => assertLiveUnsentTransition(record, signingUnsent)).not.toThrow();
+    expect(() => assertLiveUnsentTransition(record, unsent)).toThrow('execution_record_invalid');
+    expect(() => assertLiveUnsentTransition(submitting, signingUnsent)).toThrow('execution_record_invalid');
+    expect(() => assertLiveUnsentTransition(record, { ...signingUnsent, outcome: { ...signingUnsent.outcome, reason: 'signing_refused' } })).toThrow('execution_record_invalid');
     expect(() => assertLiveUnsentTransition({ ...record, state: 'unknown' }, unsent)).toThrow('execution_record_invalid');
     expect(() => assertLiveUnsentTransition(submitting, { ...unsent, state: 'unknown', outcome: undefined })).toThrow('execution_record_invalid');
     expect(() => assertLiveUnsentTransition(submitting, { ...unsent, outcome: { ...unsent.outcome, exchangeOrderId: '7' } })).toThrow('execution_record_invalid');

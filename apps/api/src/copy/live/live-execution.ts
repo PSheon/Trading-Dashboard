@@ -113,17 +113,37 @@ export class LiveOrderExecutor {
       if (record.expiresAfter <= this.now()) {
         return this.persist({ ...record, state: "rejected", errorCode: "prepared_order_expired", updatedAt: this.now() }, lease);
       }
-      // Signing failures are definitely before submission and leave the order prepared.
       mark('executor_prepare');
-      const signingPermit = await assertLiveExecutionReady(this.gate, lease, "sign", intent, record);
-      assertLiveExecutionPermit(signingPermit, 'sign', intent, record);
-      mark('executor_sign_gate');
-      const signed = structuredClone(await this.transport.sign(structuredClone(record), structuredClone(intent), lease));
-      mark('executor_sign');
-      assertSignedOrderMatches(signed, record);
-      const fresh = await this.authorizations.authorizeLocal(intent);
-      assertSameAuthorization(authorization, fresh);
-      if (record.expiresAfter <= this.now()) throw new LiveBoundaryError("signed_order_expired");
+      // Nothing before `submit` reaches the exchange: the signing gate, the
+      // signature (a Privy RPC) or the checks after it failing is a definite
+      // non-submission. It is recorded as never placed and marked unsent at
+      // once (prepared -> rejected), so settlement releases its hold
+      // (releaseUnsent) and the leg's next attempt goes within the signal's
+      // life. Left prepared with its hold, it waited until the hold and the
+      // order had both expired (gate 12, 2026-10-17: an ETH close that failed
+      // inside signing was refused unattempted_expired 60 s and 53 passes
+      // later, the follower still holding what the leader had closed).
+      let signed: SignedLiveOrder;
+      const signStartedAt = this.now();
+      try {
+        const signingPermit = await assertLiveExecutionReady(this.gate, lease, "sign", intent, record);
+        assertLiveExecutionPermit(signingPermit, 'sign', intent, record);
+        mark('executor_sign_gate');
+        signed = structuredClone(await this.transport.sign(structuredClone(record), structuredClone(intent), lease));
+        mark('executor_sign');
+        assertSignedOrderMatches(signed, record);
+        const fresh = await this.authorizations.authorizeLocal(intent);
+        assertSameAuthorization(authorization, fresh);
+        if (record.expiresAfter <= this.now()) throw new LiveBoundaryError("signed_order_expired");
+      } catch (error) {
+        observeLiveExecutionFailure(this.onDiagnostic, intent.network, 'executor_sign', signStartedAt, this.now, error);
+        // A lost session may have a successor owner: then nothing is written
+        // from this worker and the hold is recovered at expiry as before. The
+        // caller always sees the signing failure, never the marker's write.
+        try { await lease.assertHeld(); await this.persist(this.unsent(record, 'signing_failed'), lease); }
+        catch { /* left prepared: live-execution-runtime.ts recovers it once expired */ }
+        throw error;
+      }
       await lease.assertHeld();
       record = await this.persist({ ...record, state: "submitting", updatedAt: this.now(), errorCode: undefined }, lease);
       mark('executor_persist_submitting');
@@ -189,17 +209,17 @@ export class LiveOrderExecutor {
     return this.persist({ ...record, state: outcome.state, outcome, errorCode: undefined, updatedAt: this.now() }, lease);
   }
 
-  /** A definite non-submission after `submitting` (a final check refused
-   * before the POST began): recorded as never placed and marked unsent
-   * (LIVE_REQUEST_NEVER_BEGAN), so settlement releases its reservation at
-   * once (releaseUnsent) instead of after expiresAfter and the grace. Called
-   * only where no request began: the executor's own final check, and a
-   * transport LiveSubmissionBlockedError. Every other submit failure is
-   * `unknown`, never marked. */
-  private unsent(record: LiveExecutionRecord): LiveExecutionRecord {
-    if (record.state !== "submitting") throw new LiveBoundaryError("execution_state_transition_denied");
-    return { ...record, state: "rejected", errorCode: NEVER_PLACED, outcome: { state: "rejected", reason: "final_execution_check_failed" },
-      unsent: LIVE_REQUEST_NEVER_BEGAN, updatedAt: this.now() };
+  /** A definite non-submission: a failure before the signature existed
+   * (`signing_failed`, from `prepared`) or a final check refused after
+   * `submitting` before the POST began. Recorded as never placed and marked
+   * unsent (LIVE_REQUEST_NEVER_BEGAN), so settlement releases its reservation
+   * at once (releaseUnsent) instead of after expiresAfter and the grace.
+   * Called only where no request began: the executor's signing step and its
+   * own final check, and a transport LiveSubmissionBlockedError. Every other
+   * submit failure is `unknown`, never marked. */
+  private unsent(record: LiveExecutionRecord, reason: UnsentReason = "final_execution_check_failed"): LiveExecutionRecord {
+    if (record.state !== (reason === "signing_failed" ? "prepared" : "submitting")) throw new LiveBoundaryError("execution_state_transition_denied");
+    return { ...record, state: "rejected", errorCode: NEVER_PLACED, outcome: { state: "rejected", reason }, unsent: LIVE_REQUEST_NEVER_BEGAN, updatedAt: this.now() };
   }
 
   private async persist(record: LiveExecutionRecord, lease: LiveExecutionLease): Promise<LiveExecutionRecord> {
@@ -209,18 +229,25 @@ export class LiveOrderExecutor {
   }
 }
 
+/** Why an order was never sent: its signature never existed (a signing gate,
+ * the Privy RPC or a check after it refused, from `prepared`), or a final
+ * check refused the signed order before its POST began (from `submitting`). */
+export type UnsentReason = "signing_failed" | "final_execution_check_failed";
+const UNSENT_REASONS: ReadonlySet<string> = new Set<UnsentReason>(["signing_failed", "final_execution_check_failed"]);
 /** A never-placed order whose exchange request provably never began: the
  * executor's unsent marker, rejected as never placed, with no exchange order
  * id and no fill. Anything else that is never placed keeps the grace. */
 export function isDefinitelyUnsent(record: LiveExecutionRecord): boolean {
   return record.state === "rejected" && record.errorCode === NEVER_PLACED && record.unsent === LIVE_REQUEST_NEVER_BEGAN &&
-    record.outcome?.state === "rejected" && record.outcome.reason === "final_execution_check_failed" &&
+    record.outcome?.state === "rejected" && UNSENT_REASONS.has(record.outcome.reason ?? "") &&
     record.outcome.exchangeOrderId === undefined && (record.outcome.filledSize === undefined || record.outcome.filledSize === "0");
 }
-/** A journal write may add the unsent marker only on submitting -> rejected
+/** A journal write may add the unsent marker only on prepared -> rejected
+ * (signing_failed) or submitting -> rejected (final_execution_check_failed)
  * as never placed, and never change or drop it afterwards. */
 export function assertLiveUnsentTransition(current: LiveExecutionRecord, next: LiveExecutionRecord): void {
   if (current.unsent === next.unsent) return;
-  if (current.unsent === undefined && current.state === "submitting" && isDefinitelyUnsent(next)) return;
+  if (current.unsent === undefined && isDefinitelyUnsent(next) &&
+    current.state === (next.outcome?.reason === "signing_failed" ? "prepared" : "submitting")) return;
   throw new LiveBoundaryError("execution_record_invalid");
 }

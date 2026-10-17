@@ -47,8 +47,8 @@ export interface HyperliquidRestSettlement {readonly id:string;readonly units:nu
 /** Settlements one REST request may carry. */
 export const HYPERLIQUID_MAX_SETTLEMENTS=64;
 /** Every REST charge has a class; the meter arbitrates between them as a
- * queue: live first, then the fast leader source, then setups (the oldest
- * waiting one first), then pages, then background.
+ * queue: live first, then setups (the oldest waiting one first), then the
+ * fast leader source, then pages, then background.
  * `background`: work nobody is waiting for (pool loops, warm-ups, sweeps of
  * uncopied leaders, follower snapshots and receipts). It may fill the shared
  * per-IP REST window only up to HYPERLIQUID_BACKGROUND_REST_CAP, so a page or
@@ -71,8 +71,9 @@ export const HYPERLIQUID_MAX_SETTLEMENTS=64;
  * `source`: the fast leader source's reads (`source:<leader>:` tickets: a
  * kick's `userFillsByTime` and TWAP slices of one watched mainnet leader):
  * the whole window less what live orders and the standby still need (as a
- * page yields to them), ahead of setups and background, and never more than
- * HYPERLIQUID_SOURCE_REST_CAP together; while a worker with fast-source
+ * page yields to them), ahead of background, never more than
+ * HYPERLIQUID_SOURCE_REST_CAP together, and while a setup waits leaving the
+ * oldest one's need free below the live reserve (as background does); while a worker with fast-source
  * copies keeps a source standby alive (`source_standby`), background leaves
  * that reserve free for it (HYPERLIQUID_SOURCE_REST_RESERVE). Until 2026-10-17 these
  * reads were the live lane's, with an order's standing (Stage: one active
@@ -512,12 +513,18 @@ export function planHyperliquidQuota(raw:{readonly now:number;readonly state:Hyp
       else if(lane==='source'){
         // The fast leader source: the whole window less what live orders
         // and the standby still need (as a page: it yields to live demand,
-        // and is asked again once that claim ends), ahead of setups and
-        // background; the lane holds at most HYPERLIQUID_SOURCE_REST_CAP
-        // together, so a flood of leaders never takes pages' room.
+        // and is asked again once that claim ends), ahead of background;
+        // the lane holds at most HYPERLIQUID_SOURCE_REST_CAP together, so a
+        // flood of leaders never takes pages' room. While a setup waits it
+        // leaves the oldest one's need free below the live reserve, as
+        // background does (a lane near its cap beside pages' floor and the
+        // live reserve is the whole window, and refills at 630 a minute: the
+        // setup's need would free up only as fast as the lane let it; review
+        // 2026-10-17). A leader's read is delayed at most G by it.
         const open=beside(rest,units,HYPERLIQUID_REST_CAP,ahead,[ahead>0?live.until():undefined]);
         const own=fitsIn(rest.filter(e=>e.id.startsWith(SOURCE_REST_ID_PREFIX)),units,HYPERLIQUID_SOURCE_REST_CAP);
-        wait=open===undefined||own===undefined?undefined:Math.max(open,own);
+        const behind=head?fitsIn(rest,units,HYPERLIQUID_REST_CAP-HYPERLIQUID_LIVE_REST_RESERVE-head.need):0;
+        wait=open===undefined||own===undefined||behind===undefined?undefined:Math.max(open,own,behind);
       }
       else if(lane==='setup'){
         // Within its granted claim: the charge replaces weight its grant

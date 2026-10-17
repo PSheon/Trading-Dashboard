@@ -12831,6 +12831,36 @@
                               ],
                               "additionalProperties": false
                             },
+                            "sourceLane": {
+                              "type": "object",
+                              "properties": {
+                                "count": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "held": {
+                                  "type": "number",
+                                  "minimum": 0
+                                },
+                                "until": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "count",
+                                "held",
+                                "until"
+                              ],
+                              "additionalProperties": false
+                            },
                             "egressIdentity": {
                               "type": "object",
                               "properties": {
@@ -13698,6 +13728,36 @@
                                               "additionalProperties": false
                                             },
                                             "pageLane": {
+                                              "type": "object",
+                                              "properties": {
+                                                "count": {
+                                                  "type": "integer",
+                                                  "minimum": 0
+                                                },
+                                                "held": {
+                                                  "type": "number",
+                                                  "minimum": 0
+                                                },
+                                                "until": {
+                                                  "anyOf": [
+                                                    {
+                                                      "type": "string",
+                                                      "format": "date-time"
+                                                    },
+                                                    {
+                                                      "type": "null"
+                                                    }
+                                                  ]
+                                                }
+                                              },
+                                              "required": [
+                                                "count",
+                                                "held",
+                                                "until"
+                                              ],
+                                              "additionalProperties": false
+                                            },
+                                            "sourceLane": {
                                               "type": "object",
                                               "properties": {
                                                 "count": {
@@ -14832,6 +14892,36 @@
                                               "additionalProperties": false
                                             },
                                             "pageLane": {
+                                              "type": "object",
+                                              "properties": {
+                                                "count": {
+                                                  "type": "integer",
+                                                  "minimum": 0
+                                                },
+                                                "held": {
+                                                  "type": "number",
+                                                  "minimum": 0
+                                                },
+                                                "until": {
+                                                  "anyOf": [
+                                                    {
+                                                      "type": "string",
+                                                      "format": "date-time"
+                                                    },
+                                                    {
+                                                      "type": "null"
+                                                    }
+                                                  ]
+                                                }
+                                              },
+                                              "required": [
+                                                "count",
+                                                "held",
+                                                "until"
+                                              ],
+                                              "additionalProperties": false
+                                            },
+                                            "sourceLane": {
                                               "type": "object",
                                               "properties": {
                                                 "count": {

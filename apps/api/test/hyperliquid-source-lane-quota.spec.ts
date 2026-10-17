@@ -142,6 +142,28 @@ describe('the fast leader source has a lane of its own on the shared window', ()
     expect(total(state)).toBeLessThanOrEqual(HYPERLIQUID_REST_CAP+2);
   });
 
+  it('while a setup waits, the lane leaves the oldest one\'s need free below the live reserve (as background does): the next read waits, the setup is granted as the lane\'s charges expire', () => {
+    const SETUP='0123456789abcdef',claim=(s:HyperliquidQuotaState,at:number)=>plan({kind:'setup_demand',id:`setup-demand:300:${SETUP}:${id()}`,weight:300,sendUntil:at+5000},s,at);
+    // One busy leader's lane at 690 (expiring in 10 s) and pages at their floor: 930 of the window.
+    let state=S([...Array.from({length:23},(_,i)=>({id:`source:${LEADER}:${i}`,kind:'rest' as const,units:30,reservedAt:now-55_000,expiresAt:now+10_000})),
+      ...Array.from({length:12},(_,i)=>({id:`page:${i}`,kind:'rest' as const,units:20,reservedAt:now-5_000,expiresAt:now+60_000}))]);
+    // A setup's mode-step claim of 300 does not fit under the setups' ceiling (960): it waits, the oldest in the queue.
+    const claimed=claim(state,now);
+    expect(claimed.waitMs).toBeGreaterThan(0);
+    state=claimed.state;
+    expect(hyperliquidMeterComposition(state.events,now).pending).toEqual([{token:SETUP.slice(0,8),need:300,waitingMs:0}]);
+    // The lane is under its cap and the window has room, but the setup's 300 below the live reserve are left free: the kick's read waits (on 56208d9e it was served).
+    const refused=refusal(()=>source(30,state,now+1));
+    expect(refused).toBeInstanceOf(HyperliquidRestCapacityError);
+    expect((refused as HyperliquidRestCapacityError).retryAfterMs).toBeGreaterThan(0);
+    // The lane's charges expire: the setup claims again and is granted at once; the lane then reads beside its hold.
+    const later=now+10_001,granted=claim(state,later);
+    expect(granted.waitMs).toBe(0);
+    state=granted.state;
+    expect(hyperliquidMeterComposition(state.events,later).granted).toEqual([{token:SETUP.slice(0,8),left:300}]);
+    expect(source(30,state,later).charged).toBe(30);
+  });
+
   it('the composition and the lane status tell kicks, orders, settlement passes and explorer reads apart by ticket, never by address', () => {
     const T='0123456789abcdef';
     const events:HyperliquidQuotaEvent[]=[

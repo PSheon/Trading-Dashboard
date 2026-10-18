@@ -9,7 +9,7 @@ import type { DrizzleDb } from '../db/drizzle.provider.js';
 import { UnitOfWork, type DbExecutor, type DbTransaction } from '../db/unit-of-work.js';
 import { CopyLiveStopRepository } from './copy-live-stop.repository.js';
 import { deploymentNetwork, liveExecutionEnabled } from './live-deployment.js';
-import { CLOSE_ALL_RESUME_AFTER_MS } from '../config/constants/timings.js';
+import { CLOSE_ALL_RESUME_AFTER_MS, NEVER_PLACED_GRACE_MS } from '../config/constants/timings.js';
 
 /** A running actual copy that a system stop can end: its account, owner and
  * the account's newest activated generation that has not stopped. */
@@ -87,7 +87,7 @@ export class CopyLiveSystemStops {
   /**
    * Liabilities of closed copies (mainnet 2026-10-18, strategy 12): a reservation left
    * quarantined on a copy that is stopped, whose stop proved it flat after the order ended (its
-   * journal terminal, or past its exchange expiry, before the flat certificate), with no money
+   * journal terminal, or past its exchange expiry plus NEVER_PLACED_GRACE_MS, before the flat certificate), with no money
    * moving, no generation running and no other order of the account in flight, bounds no
    * exposure; nothing else can release it once settlement gave up on it. Released
    * 'closed_account', its evidence the flat certificate; an open copy's is never touched.
@@ -104,7 +104,7 @@ export class CopyLiveSystemStops {
         join copy_live_executions j on j.key = q.key
         join copy_live_stop_operations s on s.account_id = q.account_id and s.state = 'stopped' and s.flat_digest is not null and s.flat_verified_at is not null
           and s.flat_verified_at >= j.updated_at
-          and (j.state in ('filled', 'partial', 'cancelled', 'rejected') or (j.record->>'expiresAfter')::bigint < extract(epoch from s.flat_verified_at) * 1000)
+          and (j.state in ('filled', 'partial', 'cancelled', 'rejected') or (j.record->>'expiresAfter')::bigint + ${NEVER_PLACED_GRACE_MS} < extract(epoch from s.flat_verified_at) * 1000)
         where q.state = 'quarantined' and q.network = ${network} and a.network = ${network} and st.status = 'stopped'
           and not exists (select 1 from copy_funding_operations f where f.account_id = q.account_id and f.status in ('prepared', 'unknown', 'accepted'))
           and not exists (select 1 from copy_live_mandates m where m.account_id = q.account_id and m.state in ('active', 'paused', 'stopping'))

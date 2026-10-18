@@ -67,6 +67,10 @@ export class CopyFollowerLedger {
       if (kind === "fill") {
         const fill = receipt as ParsedFollowerFill;
         const attribution = await this.executionAttribution(tx, account, fill);
+        // Our order is still in flight (its ACK or outcome not yet stored): the fill is
+        // left for the next pass, which books it once the order names its OID. Nothing is
+        // written; the scan keeps its window.
+        if (attribution.reason === 'follower_attribution_pending') throw new LiveBoundaryError('follower_attribution_pending');
         executionKey = attribution.key;
         // Hyperliquid liquidated this account (its own fill marker, CP-EXE-16):
         // still outside the worker's books, so the account stays quarantined, but
@@ -110,7 +114,19 @@ export class CopyFollowerLedger {
         eq(copyLiveExecutionEvidence.accountAddress,account.address!),eq(copyLiveExecutionEvidence.exchangeOrderId,fill.oid))).limit(2);
     const mismatch = {key:null,reason:'follower_execution_identity_mismatch'};
     const keys = new Set([...direct.map(r=>r.key),...observed.map(r=>r.evidence.key)]);
-    if (keys.size === 0) return {key:null,reason:'follower_unattributed_trade'};
+    if (keys.size === 0) {
+      // A fill scanned in the moment between the exchange filling our order and our
+      // journal storing its OID (mainnet 2026-10-18 review): an order of this account
+      // still in flight, until it expires on the exchange, could be its source.
+      const now = Date.now();
+      const inFlight = await tx.select({record:copyLiveExecutions.record}).from(copyLiveExecutions).where(and(eq(copyLiveExecutions.network,account.network),
+        eq(copyLiveExecutions.accountAddress,account.address!),sql`${copyLiveExecutions.state} in ('prepared','submitting','unknown')`,
+        sql`(${copyLiveExecutions.record}->>'expiresAfter')::bigint >= ${now - PROVIDER_CLOCK_SKEW_MS}`)).limit(20);
+      if (inFlight.some(({record}) => { const r = record as unknown as LiveExecutionRecord;
+        return r.market?.coin === fill.coin && now <= r.expiresAfter + PROVIDER_CLOCK_SKEW_MS && fill.time >= r.createdAt - PROVIDER_CLOCK_SKEW_MS; }))
+        return {key:null,reason:'follower_attribution_pending'};
+      return {key:null,reason:'follower_unattributed_trade'};
+    }
     if (keys.size !== 1 || direct.length > 1 || observed.length > 1) return mismatch;
     const row = direct[0] ?? observed[0]?.journal;
     if (!row) return mismatch;
@@ -145,7 +161,10 @@ export class CopyFollowerLedger {
             !isDeepStrictEqual(liveOrderIdentityBinding(ack.identity),liveOrderIdentityBinding(identity)) || Dec.from(fill.size).gt(ack.totalSz)) return mismatch;
           bound = true;
         }
-        if (e.statusObservation) {
+        // A status read that has not found the order yet ("unknownOid": Hyperliquid had not
+        // indexed it, mainnet 2026-10-18) proves nothing either way: it neither binds the OID nor
+        // refuses it. The acknowledgement, or a later read that finds the order, binds the fill.
+        if (e.statusObservation && (e.statusObservation as unknown as LiveOrderEvidence).kind !== 'missing') {
           const saved = e.statusObservation as unknown as LiveOrderEvidence;
           // Historical mapping only: revalidate the original source at its
           // captured completion, never treat it as current risk/release proof.

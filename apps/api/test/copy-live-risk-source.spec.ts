@@ -2,7 +2,7 @@ import { Pool } from 'pg';
 import { beforeAll,beforeEach,afterAll,describe,it,expect,vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { liveCopyMandateIntentSchema } from '@trading-dashboard/shared/contracts';
-import { copyExecutionAccounts,copyStrategies,copyLiveExecutions,copyAgentSetups,copyExecutionWallets,copyWalletAuthorizations,copyLiveMandates,copyLiveStrategyConfigs,copyStrategyVersions,copyLiveIntentProvenance,copyLiveSignalLegs,copyLiveSourceStreams,copyLiveSourceFills,copyLivePositionBaselines,copyLiveReductionCarry,copyLiveRiskReservations,copyRiskPolicies,copyControls,users,appSettings,copyFundingOperations } from '@trading-dashboard/shared/database';
+import { copyExecutionAccounts,copyStrategies,copyLiveExecutions,copyAgentSetups,copyExecutionWallets,copyWalletAuthorizations,copyLiveMandates,copyLiveStrategyConfigs,copyStrategyVersions,copyLiveIntentProvenance,copyLiveSignalLegs,copyLiveSourceStreams,copyLiveSourceFills,copyLivePositionBaselines,copyLiveReductionCarry,copyLiveRiskReservations,copyRiskPolicies,copyControls,users,appSettings,copyFundingOperations,copyFollowerAccountState } from '@trading-dashboard/shared/database';
 import { PostgresLiveRiskSource } from '../src/copy/live/postgres-live-risk-source.js';
 import type { LiveExecutionTiming, LiveExecutionTimingHook } from '../src/copy/live/live-execution-diagnostics.js';
 import { PostgresLiveRiskScope } from '../src/copy/live/postgres-live-risk-scope.js';
@@ -456,6 +456,22 @@ describe('durable local actual source authority before remote reads',()=>{
     // Nine copies still running are more than one user's coverage.
     for(let n=20;n<28;n++)await db.update(copyStrategies).set({status:'paused',stoppedAt:null}).where(eq(copyStrategies.id,n));
     await scopes.run(id(),async(_scope,session)=>{await expect(source.bind(session,{accountId:'account',key:f.reservations.own.key}).forHold()).rejects.toThrow('live_risk_user_coverage_unproven');});
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+  it('a closed copy\'s quarantine no longer refuses the owner\'s orders; a counted copy\'s, or this account\'s, still does (mainnet 2026-10-18, strategy 12)',async()=>{
+    const hex=(n:number)=>`0x${n.toString(16).padStart(40,'0')}`;
+    await db.insert(copyStrategies).values({id:40,userId:1,mode:'testnet',leaderAddress:hex(4000),allocated:'0',cash:'0',status:'stopped',activatedAt:new Date(now),stoppedAt:new Date(now)});
+    await db.insert(copyExecutionAccounts).values({id:'closed',userId:1,strategyId:40,network:'testnet',state:'ready',address:hex(40),privyUserId:'did:privy:risk-source',externalId:'closed',privyWalletId:'closed-master',ownerQuorumId:'owner'});
+    await db.insert(copyFollowerAccountState).values({accountId:'closed',quarantined:true,reason:'live_settlement_receipt_identity_conflict'});
+    // Closed (stopped, nothing open): past the quarantine, the next proof missing is the baseline.
+    await scopes.run(id(),async(_scope,session)=>{await expect(source.bind(session,{accountId:'account',key:f.reservations.own.key}).forHold()).rejects.toThrow('live_risk_baseline_unproven');});
+    // Still counted (paused, not stopped): its quarantine refuses the owner's orders, as before.
+    await db.update(copyStrategies).set({status:'paused',stoppedAt:null}).where(eq(copyStrategies.id,40));
+    await scopes.run(id(),async(_scope,session)=>{await expect(source.bind(session,{accountId:'account',key:f.reservations.own.key}).forHold()).rejects.toThrow('live_risk_quarantined');});
+    // This account's own quarantine always refuses.
+    await db.update(copyStrategies).set({status:'stopped',stoppedAt:new Date(now)}).where(eq(copyStrategies.id,40));
+    await db.insert(copyFollowerAccountState).values({accountId:'account',quarantined:true,reason:'follower_unattributed_trade'});
+    await scopes.run(id(),async(_scope,session)=>{await expect(source.bind(session,{accountId:'account',key:f.reservations.own.key}).forHold()).rejects.toThrow('live_risk_quarantined');});
     expect(fetcher).not.toHaveBeenCalled();
   });
   it('enforces the deployment caps and allowlist at order time, even where the risk policy allows the order (security review)',async()=>{

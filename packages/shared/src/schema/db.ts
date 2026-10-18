@@ -1742,7 +1742,7 @@ export const copyLiveRiskReservations = pgTable("copy_live_risk_reservations", {
   state: text("state").$type<"held" | "unknown" | "resting" | "released" | "quarantined">().notNull().default("held"),
   exchangeOrderId: text("exchange_order_id"), attemptedAt: timestamp("attempted_at", { withTimezone: true }),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-  releaseReason: text("release_reason").$type<"unattempted_expired" | "verified_settlement" | "expired_unplaced">(), releaseEvidenceDigest: text("release_evidence_digest"),
+  releaseReason: text("release_reason").$type<"unattempted_expired" | "verified_settlement" | "expired_unplaced" | "closed_account">(), releaseEvidenceDigest: text("release_evidence_digest"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
 }, (t) => [
   uniqueIndex("copy_live_risk_reservations_cloid_uq").on(t.network, t.accountAddress, t.cloid),
@@ -1755,7 +1755,7 @@ export const copyLiveRiskReservations = pgTable("copy_live_risk_reservations", {
   check("copy_live_risk_reservations_time_check", sql`${t.expiresAt} > ${t.createdAt} and ${t.updatedAt} >= ${t.createdAt}`),
   check("copy_live_risk_reservations_state_check", oneOf(t.state, ["held", "unknown", "resting", "released", "quarantined"])),
   check("copy_live_risk_reservations_order_check", sql`(${t.exchangeOrderId} is null or ${t.exchangeOrderId} ~ '^[1-9][0-9]*$') and (${t.state} <> 'held' or (${t.attemptedAt} is null and ${t.exchangeOrderId} is null)) and (${t.state} not in ('unknown', 'resting') or ${t.attemptedAt} is not null) and (${t.state} <> 'resting' or ${t.exchangeOrderId} is not null)`),
-  check("copy_live_risk_reservations_release_check", sql`(${t.state} <> 'released' and ${t.releaseReason} is null and ${t.releaseEvidenceDigest} is null) or (${t.state} = 'released' and ${t.releaseReason} is not null and ${t.releaseEvidenceDigest} is not null and ${t.releaseEvidenceDigest} ~ '^[0-9a-f]{64}$' and ((${t.releaseReason} = 'unattempted_expired' and ${t.attemptedAt} is null and ${t.exchangeOrderId} is null) or (${t.releaseReason} = 'verified_settlement' and ${t.attemptedAt} is not null) or (${t.releaseReason} = 'expired_unplaced' and ${t.attemptedAt} is not null and ${t.exchangeOrderId} is null)))`),
+  check("copy_live_risk_reservations_release_check", sql`(${t.state} <> 'released' and ${t.releaseReason} is null and ${t.releaseEvidenceDigest} is null) or (${t.state} = 'released' and ${t.releaseReason} is not null and ${t.releaseEvidenceDigest} is not null and ${t.releaseEvidenceDigest} ~ '^[0-9a-f]{64}$' and ((${t.releaseReason} = 'unattempted_expired' and ${t.attemptedAt} is null and ${t.exchangeOrderId} is null) or (${t.releaseReason} = 'verified_settlement' and ${t.attemptedAt} is not null) or (${t.releaseReason} = 'expired_unplaced' and ${t.attemptedAt} is not null and ${t.exchangeOrderId} is null) or ${t.releaseReason} = 'closed_account'))`),
 ]);
 
 /** Immutable execution bindings plus validated provider evidence. The latest

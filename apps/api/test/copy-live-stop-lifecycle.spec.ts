@@ -2,9 +2,11 @@ import { testConfig } from './config-test-utils.js';
 import { afterAll, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 import { eq } from 'drizzle-orm';
-import { copyLiveStopOperations, copyLiveMandates, copyStrategies, copyLiveExecutions, copyLiveIntentProvenance, copyLiveRiskReservations, copyExecutionAccounts, users, paperAccounts } from '@trading-dashboard/shared/database';
+import { copyLiveStopOperations, copyLiveMandates, copyStrategies, copyLiveExecutions, copyLiveIntentProvenance, copyLiveRiskReservations, copyExecutionAccounts, copyFundingOperations, users, paperAccounts } from '@trading-dashboard/shared/database';
+import { NEVER_PLACED_GRACE_MS } from '../src/config/constants/timings.js';
 import { liveCopyStopSchema } from '@trading-dashboard/shared/contracts';
 import { CopyLiveStopRepository } from '../src/copy/copy-live-stop.repository.js';
+import { CopyLiveSystemStops } from '../src/copy/copy-live-stop-system.js';
 import { CopyLiveStopService } from '../src/copy/copy-live-stop.service.js';
 import { CopyLiveMandateRepository } from '../src/copy/copy-live-mandate.repository.js';
 import { UnitOfWork } from '../src/db/unit-of-work.js';
@@ -170,6 +172,52 @@ it('waits for the original execution user fence and rechecks the observed revisi
   });
   await expect(work).rejects.toMatchObject({ status: 409 });
   expect(await db.select().from(copyLiveStopOperations)).toHaveLength(0);
+});
+it('a quarantined reservation of a closed copy is released closed_account, its evidence the flat certificate; an open copy\'s never (mainnet 2026-10-18, strategy 12)', async () => {
+  const prepared = await prepareActualJournal(); await retainUnknownReservation(prepared);
+  const { record } = prepared, flatDigest = 'b'.repeat(64);
+  await db.update(copyLiveRiskReservations).set({ state: 'quarantined', updatedAt: new Date(clock + 1) });
+  const stop = await service.request(1, 'mandate', body());
+  const live = testConfig(), config = { get value() { return { ...live.value, copy: { ...live.value.copy, live: { network: 'testnet' } } }; } } as unknown as typeof live;
+  const system = new CopyLiveSystemStops(db, new UnitOfWork(db), new CopyLiveStopRepository(new CopyLiveMandateRepository(db, config)), config);
+  const released = () => system.releaseClosedLiabilities();
+  const close = async (flatAt: number) => db.update(copyLiveStopOperations).set({ state: 'stopped', flatCertificate: { flat: true }, flatDigest, flatVerifiedAt: new Date(flatAt), updatedAt: new Date(flatAt + 1) })
+    .where(eq(copyLiveStopOperations.id, stop.id));
+  // The order is still unknown on the exchange and not past its expiry: nothing proves it over.
+  await close(clock + 2000);
+  await db.update(copyStrategies).set({ status: 'stopped', stoppedAt: new Date(clock + 3000) }).where(eq(copyStrategies.id, 9));
+  await db.update(copyLiveMandates).set({ state: 'stopped' }).where(eq(copyLiveMandates.id, 'mandate'));
+  expect(await released()).toEqual([]);
+  // Its journal terminal, but the copy not stopped: never.
+  await db.update(copyLiveExecutions).set({ state: 'filled', record: { ...record, state: 'filled', updatedAt: clock } }).where(eq(copyLiveExecutions.key, record.key));
+  await db.update(copyStrategies).set({ status: 'paused', stoppedAt: null }).where(eq(copyStrategies.id, 9));
+  expect(await released()).toEqual([]);
+  // Stopped, but its flat certificate older than the order's end: never.
+  await db.update(copyStrategies).set({ status: 'stopped', stoppedAt: new Date(clock + 3000) }).where(eq(copyStrategies.id, 9));
+  await db.update(copyLiveExecutions).set({ updatedAt: new Date(clock + 5000) }).where(eq(copyLiveExecutions.key, record.key));
+  expect(await released()).toEqual([]);
+  await db.update(copyLiveExecutions).set({ updatedAt: new Date(clock) }).where(eq(copyLiveExecutions.key, record.key));
+  // Each remaining condition holds the release back on its own.
+  await db.insert(copyFundingOperations).values({ id: 'closing-funding', userId: 1, accountId: 'account', strategyId: 9, idempotencyKey: 'closing-funding-0001', network: 'testnet',
+    address: `0x${'55'.repeat(20)}`, destination: seed.consent.accountAddress, amount: '10', nonce: clock, status: 'unknown' });
+  expect(await released()).toEqual([]);
+  await db.delete(copyFundingOperations).where(eq(copyFundingOperations.id, 'closing-funding'));
+  await db.update(copyLiveMandates).set({ state: 'paused' }).where(eq(copyLiveMandates.id, 'mandate'));
+  expect(await released()).toEqual([]);
+  await db.update(copyLiveMandates).set({ state: 'stopped' }).where(eq(copyLiveMandates.id, 'mandate'));
+  const [journal] = await db.select().from(copyLiveExecutions).where(eq(copyLiveExecutions.key, record.key));
+  await db.insert(copyLiveExecutions).values({ ...journal!, key: `${record.key}-other`, cloid: `0x${'9'.repeat(32)}`, nonce: journal!.nonce + 1, state: 'submitting' });
+  expect(await released()).toEqual([]);
+  await db.delete(copyLiveExecutions).where(eq(copyLiveExecutions.key, `${record.key}-other`));
+  // A journal never terminal is over only past its exchange expiry plus NEVER_PLACED_GRACE_MS.
+  await db.update(copyLiveExecutions).set({ state: 'unknown', record: { ...record, state: 'unknown', updatedAt: clock } }).where(eq(copyLiveExecutions.key, record.key));
+  await close(record.expiresAfter + NEVER_PLACED_GRACE_MS);
+  expect(await released()).toEqual([]);
+  await close(record.expiresAfter + NEVER_PLACED_GRACE_MS + 1);
+  // Closed after the order ended: released, once.
+  expect(await released()).toEqual([{ key: record.key, accountId: 'account', stopId: stop.id }]);
+  expect((await db.select().from(copyLiveRiskReservations))[0]).toMatchObject({ state: 'released', releaseReason: 'closed_account', releaseEvidenceDigest: flatDigest });
+  expect(await released()).toEqual([]);
 });
 it('database constraints refuse stopped without an actual flat certificate', async () => {
   const stop = await service.request(1, 'mandate', body());

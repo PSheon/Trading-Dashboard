@@ -279,6 +279,22 @@ describe('authoritative dedicated standard account observations', () => {
     expect([main.exposureUsd, main.marginUsed, main.crossExposureUsd, main.crossMarginUsed]).toEqual(['660', '66', '660', '66']);
     expect(snapshot.exposureUsd).toBe('660');
   });
+  it('takes a size Hyperliquid printed through a float as its grid value, and still refuses one off the grid', async () => {
+    // Mainnet 2026-10-18: a FARTCOIN leader (szDecimals 1) came back as szi "-3311064.8999999999",
+    // and every leg of the copy was refused live_account_invalid_position.
+    const sized = (szi: string, leader: boolean) => setup((body, value) => body.type === 'meta' && !body.dex
+      ? { ...value as object, universe: [{ name: 'BTC', szDecimals: 1, maxLeverage: 40 }] }
+      : body.type === 'clearinghouseState' && !body.dex
+        ? { ...state(), assetPositions: [{ ...mainPosition, position: { ...mainPosition.position, szi } }] }
+        : body.type === 'frontendOpenOrders' && !body.dex ? [] : value)
+      .observer.observe(account, leader ? { leader: true } : undefined);
+    for (const leader of [true, false]) {
+      expect((await sized('-3311064.8999999999', leader)).positions[0]).toMatchObject({ coin: 'BTC', size: '-3311064.9' });
+      expect((await sized('68.50000000000001', leader)).positions[0]).toMatchObject({ size: '68.5' });
+      for (const off of ['-68.55', '-3311064.899', '0.04'])
+        await expect(sized(off, leader)).rejects.toThrow('live_account_invalid_position');
+    }
+  });
   it('refuses unseen coin/dex identities and duplicate positions/orders', async () => {
     for (const patch of [
       { assetPositions: [{ ...mainPosition, position: { ...mainPosition.position, coin: 'xyz:TSLA' } }] },

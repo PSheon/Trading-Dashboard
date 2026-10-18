@@ -167,6 +167,24 @@ describe('realtime copy signal (fast mainnet source)', () => {
     expect(result!.fills.map(f => [f.tid, f.tradeKey])).toEqual([['5', 'twap:77']]); expect(result!.requestsUsed).toBe(2);
   });
 
+  it('a zero-hash maker fill is an ordinary fill on both paths and in the audit, never a TWAP slice (mainnet 2026-10-18 15:36/15:42: two maker adds were never copied)', async () => {
+    // As Hyperliquid answered: hash 0x0…0, twapId null, crossed false (a resting order filled), own cloid; absent from the TWAP endpoint.
+    const maker = rest(9, now + 1000, { hash: ZERO, crossed: false, twapId: null, fee: '-0.000259', cloid: `0x${'53'.repeat(16)}` } as Partial<HlUserFill>);
+    const { read, calls } = reader(() => [maker]);
+    clock = now + 5000;
+    const fastRead = await new FastMainnetSource(read, G, () => clock).read(leader, now);
+    expect(fastRead!.fills.map(f => f.tid)).toEqual(['9']);
+    expect(calls.map(c => c.kind)).toEqual(['fills']); // no TWAP read for it
+    await watcherFill(maker); await verified(now - 10_000, now + 2000);
+    const watched = await new WatchedMainnetSource(db, () => clock).read(leader, now, now + 2000);
+    expect(watched!.fills.map(f => f.tid)).toEqual(['9']);
+    // Missed by a stream that covered its time: the audit names it.
+    const sources = new CopyLiveSourceRepository(db), uow = new UnitOfWork(db);
+    const blind = await new FastMainnetSource(reader(() => []).read, G, () => clock).read(leader, now);
+    await uow.run(async tx => sources.apply(tx, (await sources.ensure(tx, leader, 'mainnet')).revision, blind!, clock));
+    expect((await new CopyLiveWorkerRepository(db, new UnitOfWork(db), testConfig()).unmirroredFills(leader)).map(f => f.tid)).toEqual(['9']);
+  });
+
   it('the same tid from both paths is one source fill and no quarantine', async () => {
     // A TWAP slice and an ordinary fill, as the watcher stored them over REST.
     const slice = rest(7, now + 1000, { hash: ZERO, twapId: 77 } as Partial<HlUserFill>), ordinary = rest(8, now + 1100);

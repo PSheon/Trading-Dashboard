@@ -241,7 +241,7 @@ export class CopyLiveWorkerRepository {
       .orderBy(fresh, asc(copyLiveDispatches.leaderTime), asc(copyLiveDispatches.id)).limit(limit);
   }
   /** Watcher-verified fills inside the stream's coverage that the stream lacks
-   * (zero-hash non-TWAP fills excluded, as on both ingest paths). */
+   * (presumed TWAP slices excluded, as on both ingest paths: presumedTwapSlice). */
   async unmirroredFills(leader: string, limit = 100): Promise<{ tid: string; time: number; coin: string; streamFrom: number; streamThrough: number; verifiedFrom: number; verifiedThrough: number }[]> {
     const id = `mainnet:${leader}`;
     const rows = await this.db.select({ tid: fills.tid, ts: fills.ts, coin: fills.coin, streamFrom: copyLiveSourceStreams.coverageFrom, streamThrough: copyLiveSourceStreams.coverageThrough,
@@ -254,7 +254,8 @@ export class CopyLiveWorkerRepository {
         isNotNull(fillCoverage.verifiedFrom), isNotNull(fillCoverage.verifiedThrough),
         sql`${fills.ts} >= greatest(${copyLiveSourceStreams.coverageFrom}, ${fillCoverage.verifiedFrom})`,
         sql`${fills.ts} <= least(${copyLiveSourceStreams.coverageThrough}, ${fillCoverage.verifiedThrough})`,
-        sql`not (coalesce(${fills.raw}->>'hash', '') ~ '^0x0{64}$' and coalesce(jsonb_typeof(${fills.raw}->'twapId'), 'null') = 'null')`,
+        // presumedTwapSlice: zero hash, no twapId, a taker fill (a maker fill is never a TWAP slice).
+        sql`not (coalesce(${fills.raw}->>'hash', '') ~ '^0x0{64}$' and coalesce(jsonb_typeof(${fills.raw}->'twapId'), 'null') = 'null' and coalesce(${fills.raw}->>'crossed', '') <> 'false')`,
         sql`not exists (select 1 from ${copyLiveSourceFills} s where s.stream_id = ${id} and s.tid = ${fills.tid}::text)`))
       .orderBy(asc(fills.ts), asc(fills.tid)).limit(limit);
     return rows.map(row => ({ tid: row.tid.toString(), time: row.ts.getTime(), coin: row.coin, streamFrom: row.streamFrom!.getTime(), streamThrough: row.streamThrough!.getTime(),

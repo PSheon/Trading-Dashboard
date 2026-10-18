@@ -1,7 +1,7 @@
 import type { HlUserFill } from '../../hyperliquid/types.js';
 import { isOutOfScopeSpotFill } from '../../watcher/action-classifier.js';
 import type { LiveSourceReadResult } from '../copy-live-source.client.js';
-import { liveSourceDigest, parseLiveSourceFill, type LiveSourceFillEvidence } from '../live/copy-live-source-evidence.js';
+import { liveSourceDigest, parseLiveSourceFill, presumedTwapSlice, type LiveSourceFillEvidence } from '../live/copy-live-source-evidence.js';
 import { address, LiveBoundaryError } from '../live/wallet-authorization.js';
 import { FOLLOW_UP_MAX_MS, FOLLOW_UP_MIN_MS, WITNESS_EXPIRY_MS } from '../../config/constants/timings.js';
 import { liveEvidenceMaxAgeMs } from '../../config/live-evidence-window.js';
@@ -21,10 +21,8 @@ export interface FastSourceReader {
 const FAST_SOURCE_WINDOW_ROWS = 500;
 /** Hyperliquid's per-call row cap: a full page may have more after it. */
 const PAGE_ROWS = 2000;
-const ZERO_HASH = /^0x0{64}$/;
 /** Normalised as the `fills.raw` jsonb column holds it (JSON round trip). */
 const stored = (fill: HlUserFill): HlUserFill => JSON.parse(JSON.stringify(fill)) as HlUserFill;
-const untaggedZeroHash = (fill: HlUserFill) => (fill.twapId === undefined || fill.twapId === null) && typeof fill.hash === 'string' && ZERO_HASH.test(fill.hash);
 /** Weight Hyperliquid counts for one list answer: base 20, plus 1 per 20 items. */
 export const listWeight = (items: number) => 20 + Math.ceil(items / 20);
 
@@ -126,7 +124,7 @@ export class FastMainnetSource {
     // A witnessed trade older than G that REST lacks may be a TWAP slice.
     const missingOld = [...state.witnessed].some(([tid, time]) => time >= from && !byTid.has(tid) && observedAt - time > this.graceMs);
     let requests = 1;
-    if (regular.some(untaggedZeroHash) || missingOld) {
+    if (regular.some(presumedTwapSlice) || missingOld) {
       const slices = (await this.reader.twapSlices(leaderAddress, from)).map(stored);
       requests = 2; counter.reads++; counter.twapReads++; counter.weight += listWeight(slices.length); counter.rows += slices.length;
       for (const slice of slices) byTid.set(String(slice.tid), slice);
@@ -156,7 +154,7 @@ export class FastMainnetSource {
       if (at > from) to = Math.min(to, at - 1);
       else { to = from; sealed = true; }
     }
-    const kept = inWindow(), past = rows.filter(row => row.time > to && !isOutOfScopeSpotFill(row) && !untaggedZeroHash(row));
+    const kept = inWindow(), past = rows.filter(row => row.time > to && !isOutOfScopeSpotFill(row) && !presumedTwapSlice(row));
     state.beyond = past.length ? past[0]!.time : null;
     state.misses = [...state.witnessed.values()].some(time => observedAt - time > this.graceMs) ? state.misses + 1 : 0;
     // `from`'s millisecond exceeds one page: it cannot be read whole, so the
@@ -166,7 +164,7 @@ export class FastMainnetSource {
     if (to < from) return null;
     const receivedAt = this.now(), parsed = new Map<string, LiveSourceFillEvidence>();
     for (const row of kept) {
-      if (isOutOfScopeSpotFill(row) || untaggedZeroHash(row)) continue;
+      if (isOutOfScopeSpotFill(row) || presumedTwapSlice(row)) continue;
       const fill = parseLiveSourceFill(row, { network: 'mainnet', leaderAddress, from, to, receivedAt, kind: 'fills' });
       parsed.set(fill.id, fill);
     }

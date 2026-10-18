@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { parseLiveSourceFill, liveSourceDigest, reconcileLiveSourceFills, type LiveSourceFillEvidence, type LiveSourceNetwork } from './live/copy-live-source-evidence.js';
+import { parseLiveSourceFill, liveSourceDigest, presumedTwapSlice, reconcileLiveSourceFills, type LiveSourceFillEvidence, type LiveSourceNetwork } from './live/copy-live-source-evidence.js';
 import { address, LiveBoundaryError } from './live/wallet-authorization.js';
 import { boundedLiveRead } from './live/live-market-resolver.js';
 import { settleListAnswer } from '../hyperliquid/hyperliquid-global-transport.js';
@@ -149,7 +149,8 @@ export class HyperliquidLiveSourceClient {
           queue.push({ kind: window.kind, from: window.from, to: mid, depth: window.depth + 1 }, { kind: window.kind, from: mid + 1, to: window.to, depth: window.depth + 1 });
         }
       }
-      for(const [id,fill]of fills)if(fill.normalized.kind==='fills'&&fill.normalized.twapId===null&&fill.raw.hash===`0x${'00'.repeat(32)}`){
+      // A presumed TWAP slice (presumedTwapSlice: zero hash, no twapId, a taker) without its tagged copy stays unresolved; a zero-hash maker fill is an ordinary fill.
+      for(const [id,fill]of fills)if(fill.normalized.kind==='fills'&&fill.normalized.twapId===null&&presumedTwapSlice(fill.raw as {hash?:unknown;twapId?:unknown;crossed?:unknown})){
         fills.delete(id);unresolved.push({kind:'fills',from:fill.providerTime,to:fill.providerTime,depth:0,reason:'twap_identity_unproven'});
       }
       const completedAt = this.now(), result = { network: this.network, leaderAddress: request.leaderAddress, from: request.from, to: request.to,

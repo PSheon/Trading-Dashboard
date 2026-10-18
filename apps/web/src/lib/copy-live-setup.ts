@@ -176,8 +176,14 @@ export function useLiveCopySetupActions() {
   /** The attempt names a setup was made under (exact names only). */
   const startName = (leader: string, budgetUsd: string, settings: unknown, sourceNetwork: 'testnet' | 'mainnet' = 'mainnet') => `start:${leader}:${termsFingerprint({ budgetUsd, settings, sourceNetwork })}`;
   const editName = (strategyId: number, budgetUsd: string, settings: unknown) => `edit:${strategyId}:${termsFingerprint({ budgetUsd, settings })}`;
-  const namesOf = (setup: Pick<LiveCopySetup, 'kind' | 'strategyId' | 'leaderAddress' | 'budgetUsd' | 'settings' | 'sourceNetwork'>) => setup.kind === 'start' ? [startName(setup.leaderAddress, setup.budgetUsd, setup.settings, setup.sourceNetwork)]
-    : [editName(setup.strategyId, setup.budgetUsd, setup.settings), `renew:${setup.strategyId}`];
+  // The api stores a request's unset maxLeverage as the deployment's cap (CopyLiveSetupService.liveSettings),
+  // so a setup is also named by its terms with maxLeverage unset: the name its start or edit was made under.
+  // Without it, a confirmed start's key was never forgotten, and the next start of the same leader and budget
+  // replayed the stopped copy's setup (Stage 2026-10-18: 出現錯誤, setup_identity_mismatch).
+  const asRequested = (settings: LiveCopySetup['settings']) => settings.maxLeverage === null ? [settings] : [settings, { ...settings, maxLeverage: null }];
+  const namesOf = (setup: Pick<LiveCopySetup, 'kind' | 'strategyId' | 'leaderAddress' | 'budgetUsd' | 'settings' | 'sourceNetwork'>) => setup.kind === 'start'
+    ? asRequested(setup.settings).map(settings => startName(setup.leaderAddress, setup.budgetUsd, settings, setup.sourceNetwork))
+    : [...asRequested(setup.settings).map(settings => editName(setup.strategyId, setup.budgetUsd, settings)), `renew:${setup.strategyId}`];
   const refresh = () => { void client.invalidateQueries({ queryKey: [...queryKeys.copy.all] }); };
   /** The progress dialog opens on what the server just answered: a first
    * poll that fails in passing still shows the stages (never an empty list). */

@@ -123,7 +123,13 @@ export class CopyFollowerLedger {
         eq(copyLiveExecutions.accountAddress,account.address!),sql`${copyLiveExecutions.state} in ('prepared','submitting','unknown')`,
         sql`(${copyLiveExecutions.record}->>'expiresAfter')::bigint >= ${now - PROVIDER_CLOCK_SKEW_MS}`)).limit(20);
       if (inFlight.some(({record}) => { const r = record as unknown as LiveExecutionRecord;
-        return r.market?.coin === fill.coin && now <= r.expiresAfter + PROVIDER_CLOCK_SKEW_MS && fill.time >= r.createdAt - PROVIDER_CLOCK_SKEW_MS; }))
+        const order = r.action?.orders?.[0];
+        // Only an order that could be the fill's source: its coin and side, at least its size,
+        // and no other exchange order named. Created no later than the fill (+ skew) and expiring
+        // within 60 s, it holds the fill back at most ~62 s, whatever orders follow.
+        return !!order && r.market?.coin === fill.coin && (order.b ? 'B' : 'A') === fill.side && Dec.from(fill.size).lte(order.s) &&
+          (!r.outcome?.exchangeOrderId || r.outcome.exchangeOrderId === fill.oid) &&
+          now <= r.expiresAfter + PROVIDER_CLOCK_SKEW_MS && fill.time >= r.createdAt - PROVIDER_CLOCK_SKEW_MS; }))
         return {key:null,reason:'follower_attribution_pending'};
       return {key:null,reason:'follower_unattributed_trade'};
     }

@@ -103,10 +103,11 @@ describe("actual follower receipt ledger", () => {
     expect(await ledger.bookFill(accountId,fill({sz:'0.005'}))).toMatchObject({inserted:true,quarantined:true});
     expect((await db.select().from(copyFollowerAccountState))[0].reason).toBe('follower_unattributed_trade');
   });
-  it('an in-flight order on another coin does not hold back a fill of this one', async () => {
-    const record = await execution('ETH','44'); delete record.outcome; record.state = 'submitting';
+  it.each([['another coin', {}, 'ETH'], ['the other side', {side:'A'}, 'BTC'], ['a larger size', {sz:'0.02'}, 'BTC']] as const)(
+    'an in-flight order that cannot be its source (%s) does not hold an unmatched fill back', async (_name, patch, coin) => {
+    const record = await execution(coin,'44'); delete record.outcome; record.state = 'submitting';
     await db.update(copyLiveExecutions).set({state:record.state,record:record as unknown as Record<string,unknown>}).where(eq(copyLiveExecutions.key,record.key));
-    expect(await ledger.bookFill(accountId,fill({sz:'0.005'}))).toMatchObject({inserted:true,quarantined:true});
+    expect(await ledger.bookFill(accountId,fill({sz:'0.005',...patch}))).toMatchObject({inserted:true,quarantined:true});
   });
   it.each(['digest','nonce','owner','cloid','wallet','coin','side','master'])('quarantines invalid evidence-backed %s identity rather than guessing attribution',async mismatch=>{
     const {record,acknowledgement} = await evidenceOnly();

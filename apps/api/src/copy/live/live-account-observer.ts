@@ -100,6 +100,17 @@ const positive = decimal.refine((v) => Dec.from(v).gt(0));
 const coin = z.string().regex(LIVE_PERP_COIN).max(80);
 /** The float rounding a provider total may carry: 1e-9 of it, at least 1e-6 USD. */
 const PROVIDER_FLOAT_RELATIVE = Dec.from('0.000000001'), PROVIDER_FLOAT_ABSOLUTE = Dec.from('0.000001');
+/**
+ * A provider size on its coin's grid, or null when it is off the grid. Hyperliquid prints a
+ * size through a float (mainnet 2026-10-18, a FARTCOIN leader: szi "-3311064.8999999999",
+ * szDecimals 1), so a size within float rounding of a grid value (1e-9 of it, at most a
+ * thousandth of a step) is that value; anything further off is still refused.
+ */
+function onGrid(size: string, sizeDecimals: number): string | null {
+  const exact = Dec.from(size), grid = exact.round(sizeDecimals);
+  const noise = Dec.min(grid.abs().mul(PROVIDER_FLOAT_RELATIVE), Dec.from(`1e-${sizeDecimals + 3}`));
+  return exact.sub(grid).abs().lte(noise) ? grid.toString() : null;
+}
 const summary = z.object({ accountValue: nonnegative, totalNtlPos: nonnegative, totalRawUsd: decimal, totalMarginUsed: nonnegative });
 const stateSchema = z.object({ marginSummary: summary, crossMarginSummary: summary,
   crossMaintenanceMarginUsed: nonnegative, withdrawable: nonnegative, time: integer,
@@ -384,10 +395,11 @@ export class HyperliquidLiveAccountObserver {
           // A leverage above the coin's maximum is kept (the exchange lowered the
           // maximum after the position opened): reductions and closes of the
           // account must still go; the risk gate refuses opens above it.
-          if (!Dec.from(p.szi).isZero && (!Dec.from(p.entryPx).gt(0) || !Dec.from(p.positionValue).gt(0)) ||
-              !Number.isSafeInteger(p.leverage.value) || p.leverage.value < 1 || !Dec.from(p.szi).eq(Dec.from(p.szi).floor(identity.sizeDecimals)))
+          const size = onGrid(p.szi, identity.sizeDecimals);
+          if (size === null || !Dec.from(size).isZero && (!Dec.from(p.entryPx).gt(0) || !Dec.from(p.positionValue).gt(0)) ||
+              !Number.isSafeInteger(p.leverage.value) || p.leverage.value < 1)
             fail('live_account_invalid_position');
-          positions.push({ ...identity, size: p.szi, entryPrice: p.entryPx, positionValue: p.positionValue,
+          positions.push({ ...identity, size, entryPrice: p.entryPx, positionValue: p.positionValue,
             unrealizedPnl: p.unrealizedPnl, marginUsed: p.marginUsed, leverage: p.leverage.value,
             leverageType: p.leverage.type, maxLeverage: p.maxLeverage,
             fundingSinceOpen: p.cumFunding.sinceOpen, fundingSinceChange: p.cumFunding.sinceChange });

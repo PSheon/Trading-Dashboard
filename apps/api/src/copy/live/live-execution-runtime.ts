@@ -424,6 +424,9 @@ export class LiveExecutionRuntime {
       }
     })))); } finally {
       credit.weight += pools.evidence + pools.boundary;
+      // The order's work is over (sent, refused or failed): its claim keeps
+      // nothing free, so its settlement is not quoted behind its leftover.
+      if (liveToken !== undefined) await this.global.releaseLiveClaim(liveToken);
       // The original scope has closed before any unused read drains. A slow
       // provider cancellation cannot keep financial SQL locks or sign later.
       await metadataClient?.disposeWalletPrefetch();

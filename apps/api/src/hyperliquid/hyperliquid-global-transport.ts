@@ -136,6 +136,14 @@ export class HyperliquidGlobalTransport {
   * so it keeps nothing free. Never throws (best effort: the claim lapses
   * after HYPERLIQUID_LIVE_DEMAND_HOLD_MS anyway). */
  async releaseLive(key:string):Promise<void>{await this.releaseLiveToken(liveLaneTokenFor(key));}
+ /** An unkeyed live claim (claimLive's token) whose work is over: an order
+  * that sent (or gave up on) its evidence and POST. Its need is spent, so
+  * its demand markers go; without this, what it claimed and did not send
+  * (its prepay less its charges) stayed reserved for
+  * HYPERLIQUID_LIVE_DEMAND_HOLD_MS, and the order's own settlement was
+  * quoted behind it (Stage mainnet 2026-10-18 08:05Z: 290 left of 600).
+  * Never throws. */
+ async releaseLiveClaim(token:string):Promise<void>{await this.releaseLiveToken(token);}
  private async releaseLiveToken(token:string):Promise<void>{
   try{await this.currentQuota().releaseLiveRest?.(token,this.now()+5000);}catch{/* lapses on its own */}
  }

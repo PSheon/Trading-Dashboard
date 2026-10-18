@@ -475,6 +475,22 @@ export function planHyperliquidQuota(raw:{readonly now:number;readonly state:Hyp
       const after=fitsIn(pool,units,cap),end=Math.max(0,...ends.filter((e):e is number=>e!==undefined));
       return after===undefined||end<=now?after:Math.max(after,end-now);
     };
+    /** A live claim's quote: `units` beside what other live claims still
+     * need, or once those claims end, whichever comes first. beside() quotes
+     * the first whenever it is defined, however far off: a claim that ends in
+     * 7 s then had a settlement wait ~30 s for the window's oldest charges to
+     * expire, though the room it needed was free once that claim ended (Stage
+     * mainnet 2026-10-18 08:05Z: need 266 quoted 36.6 s behind its own
+     * order's leftover 290; the replay, hyperliquid-settlement-window-quota.spec.ts,
+     * quotes 29.5 s where the 266 fit the whole window in ~5 s and the
+     * order's claim ended in 6.5 s). A claim
+     * that is renewed meanwhile (an order still waiting) is quoted again at
+     * the claimant's next renewal; nothing is admitted here. */
+    const besideOrAfter=(pool:readonly HyperliquidQuotaEvent[],units:number,reserved:number,end:number|undefined)=>{
+      const fits=fitsIn(pool,units,HYPERLIQUID_REST_CAP-reserved);if(reserved<=0)return fits;
+      const after=fitsIn(pool,units,HYPERLIQUID_REST_CAP),then=after===undefined?undefined:end===undefined||end<=now?after:Math.max(after,end-now);
+      return fits===undefined?then:then===undefined?fits:Math.min(fits,then);
+    };
     /** A setup's `units` more (`token`: that setup's): the window below the
      * live reserve and the setups' share, and only once what live orders
      * announced fits too (setups come after live). Other setups' grants are
@@ -668,7 +684,7 @@ export function planHyperliquidQuota(raw:{readonly now:number;readonly state:Hyp
       // 2026-10-14). It replaces the order's earlier markers: its latest is its claim.
       recordDemandMarker(request.id,request.sendUntil,e=>LIVE_DEMAND_TICKET.exec(e.id)?.[2]===ticket[2]);
       const rest=events.filter(e=>e.kind==='rest'),live=liveClaims(rest,now),token=ticket[2]!,need=live.left(token);
-      waitMs=Math.min(65000,preempting(pool=>beside(pool,need,HYPERLIQUID_REST_CAP,live.outstanding(token),[live.until(token)]))??65000);
+      waitMs=Math.min(65000,preempting(pool=>besideOrAfter(pool,need,live.outstanding(token),live.until(token)))??65000);
     }
     else if(request.kind==='live_release'){
       // A claim that is over keeps nothing free: without this, one that gave

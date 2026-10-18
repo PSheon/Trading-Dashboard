@@ -4,7 +4,9 @@ import { liveEvidenceWeight } from '../live/live-shared-reads.js';
 import { liveReadCache, type LiveReadCache } from '../live/live-read-cache.js';
 import { mirrorsLeader } from './copy-live-engine.js';
 import type { LiveMandateWork } from './copy-live-worker.repository.js';
-import { LIVE_ORDER_BOUNDARY_WEIGHT } from '../../config/constants/weights.js';
+import { observerRestWeight } from '../live/live-account-observer.js';
+import { HYPERLIQUID_MAX_LIVE_DEMAND } from '../../hyperliquid/hyperliquid-global-quota.js';
+import { LIVE_ORDER_BOUNDARY_WEIGHT, LIVE_SETTLEMENT_WEIGHT } from '../../config/constants/weights.js';
 
 /**
  * What the shared meter's live standby keeps free (design §8 I-14): the
@@ -28,6 +30,14 @@ import { LIVE_ORDER_BOUNDARY_WEIGHT } from '../../config/constants/weights.js';
  * account); the runtime counts every account with live exposure, which an
  * account without a current generation adds to (its order then announces
  * the rest).
+ *
+ * Plus that order's settlement (LIVE_SETTLEMENT_WEIGHT and the account's
+ * observation less what the cache holds): the order's evidence spends the
+ * standby's room, and its settlement then found none (Stage mainnet
+ * 2026-10-18 08:05Z: the first real order's 310 took it, and its
+ * settlement's 266 waited 26.7 s after the ack for background's, pages'
+ * and the source's charges to expire). The order's part stays within the
+ * startup bound (`cap`); the whole within what a live claim may announce.
  */
 export function liveStandbyNeed(mandates: readonly LiveMandateWork[], network: HyperliquidNetwork, cap: number, cache: LiveReadCache = liveReadCache(network)): number {
   const accounts = new Map<number, Set<string>>();
@@ -41,7 +51,9 @@ export function liveStandbyNeed(mandates: readonly LiveMandateWork[], network: H
     if (!mirrorsLeader(m)) continue;
     const others = Math.max(0, (accounts.get(m.userId)?.size ?? 1) - 1);
     const leader = m.sourceNetwork === network && m.sizingMode === 'ratio';
-    need = Math.max(need, liveEvidenceWeight([m.accountAddress.toLowerCase()], others, cache, leader ? [m.leaderAddress.toLowerCase()] : []) + LIVE_ORDER_BOUNDARY_WEIGHT);
+    const account = m.accountAddress.toLowerCase();
+    const order = liveEvidenceWeight([account], others, cache, leader ? [m.leaderAddress.toLowerCase()] : []) + LIVE_ORDER_BOUNDARY_WEIGHT;
+    need = Math.max(need, Math.min(cap, order) + LIVE_SETTLEMENT_WEIGHT + observerRestWeight(account, cache));
   }
-  return Math.min(cap, need);
+  return Math.min(HYPERLIQUID_MAX_LIVE_DEMAND, need);
 }

@@ -127,8 +127,11 @@ describe('a demand marker is recorded on a full window: the claim is never starv
     const behind=claim(OTHER,abandoned).waitMs!,released=plan({kind:'live_release',token:ORDER},abandoned,at);
     expect(released.state.events.some(e=>e.id.includes(`:${ORDER}:`))).toBe(false);
     const alone=claim(OTHER,released.state).waitMs!;
-    // Alone, its 500 and its marker's unit free up in 26 expiries of 20 (one a second); behind the abandoned 500, later.
-    expect(alone).toBe(25_990);expect(behind).toBeGreaterThan(alone);
+    // Alone, its 500 and its marker's unit free up in 26 expiries of 20 (one a second). Behind the abandoned 500
+    // it was quoted beside it, ~51 s; that claim ends in 15 s, before the 26, so it is quoted no later
+    // (besideOrAfter, Stage mainnet 2026-10-18): what the release still changes is the room other lanes leave.
+    expect(alone).toBe(25_990);expect(behind).toBe(alone);
+    expect(claim(OTHER,abandoned,100).waitMs).toBeGreaterThan(claim(OTHER,released.state,100).waitMs!);
     // Its own charges stay (they were sent); another token's release takes nothing.
     expect(plan({kind:'live_release',token:OTHER},abandoned,at).state.events).toHaveLength(abandoned.events.length);
   });

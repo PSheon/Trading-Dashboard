@@ -610,6 +610,13 @@
       "when": 1792151112668,
       "tag": "0086_testnet_evidence_window",
       "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1792324160378,
+      "tag": "0087_closed_account_release",
+      "breakpoints": true
     }
   ]
 }

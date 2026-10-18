@@ -84,6 +84,39 @@ export class CopyLiveSystemStops {
     return { copies, stopping, unhandled };
   }
 
+  /**
+   * Liabilities of closed copies (mainnet 2026-10-18, strategy 12): a reservation left
+   * quarantined on a copy that is stopped, whose stop proved it flat after the order ended (its
+   * journal terminal, or past its exchange expiry, before the flat certificate), with no money
+   * moving, no generation running and no other order of the account in flight, bounds no
+   * exposure; nothing else can release it once settlement gave up on it. Released
+   * 'closed_account', its evidence the flat certificate; an open copy's is never touched.
+   */
+  async releaseClosedLiabilities(): Promise<Array<{ key: string; accountId: string; stopId: string }>> {
+    const network = deploymentNetwork(this.config);
+    const rows = await this.db.execute<{ key: string; account_id: string; stop_id: string }>(sql`
+      update copy_live_risk_reservations r set state = 'released', release_reason = 'closed_account', release_evidence_digest = c.flat_digest,
+        revision = r.revision + 1, updated_at = greatest(clock_timestamp(), r.updated_at)
+      from (
+        select distinct on (q.key) q.key, s.id as stop_id, s.flat_digest from copy_live_risk_reservations q
+        join copy_execution_accounts a on a.id = q.account_id
+        join copy_strategies st on st.id = a.strategy_id
+        join copy_live_executions j on j.key = q.key
+        join copy_live_stop_operations s on s.account_id = q.account_id and s.state = 'stopped' and s.flat_digest is not null and s.flat_verified_at is not null
+          and s.flat_verified_at >= j.updated_at
+          and (j.state in ('filled', 'partial', 'cancelled', 'rejected') or (j.record->>'expiresAfter')::bigint < extract(epoch from s.flat_verified_at) * 1000)
+        where q.state = 'quarantined' and q.network = ${network} and a.network = ${network} and st.status = 'stopped'
+          and not exists (select 1 from copy_funding_operations f where f.account_id = q.account_id and f.status in ('prepared', 'unknown', 'accepted'))
+          and not exists (select 1 from copy_live_mandates m where m.account_id = q.account_id and m.state in ('active', 'paused', 'stopping'))
+          and not exists (select 1 from copy_live_executions o where o.network = q.network and o.account_address = q.account_address and o.key <> q.key
+            and o.state in ('prepared', 'submitting', 'unknown', 'resting'))
+        order by q.key, s.flat_verified_at desc
+      ) c
+      where r.key = c.key and r.state = 'quarantined'
+      returning r.key, r.account_id, c.stop_id`);
+    return rows.rows.map(row => ({ key: row.key, accountId: row.account_id, stopId: row.stop_id }));
+  }
+
   /** Stops each copy (close, then return), each in its own transaction, or
    * each in its own savepoint of `tx` when given. */
   async stopAll(copies: readonly RunningCopy[], reason: SystemStopReason, actor: AuditActor, ref: string, tx?: DbTransaction): Promise<SystemStopOutcome> {

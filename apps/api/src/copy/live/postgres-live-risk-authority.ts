@@ -125,7 +125,10 @@ export async function loadLivePreparationAuthority(session:LiveRiskDatabaseSessi
   const accounts=copies.filter(account=>account.address!==null||account.privyWalletId!==null);
   riskSourceRequire(copies.length<=8&&accounts.every(account=>account.network===a.network&&account.address&&account.privyWalletId&&account.ownerQuorumId&&account.privyUserId===o.privyUserId),'live_risk_user_coverage_unproven');
   const states=await statesWork;
-  riskSourceRequire(!states.some(state=>state.quarantined),'live_risk_quarantined');
+  // A quarantined account refuses the owner's orders while it still counts (its copy running, money
+  // moving or a liability open); a closed one (stopped, flat, swept, its liabilities released) no
+  // longer does: its quarantine stays on its own record (mainnet 2026-10-18, strategy 12).
+  riskSourceRequire(!states.some(state=>state.quarantined&&(state.accountId===a.id||copies.some(copy=>copy.id===state.accountId))),'live_risk_quarantined');
   // A transfer or mode change in flight on this account (its balance or mode
   // is moving under the order). Another copy's funding or sweep, or a main
   // wallet withdrawal, doesn't touch this account and no longer pauses its

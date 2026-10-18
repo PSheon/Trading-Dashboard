@@ -58,6 +58,8 @@ export interface StopperDependencies {
     stopExpiring(marginMs: number): Promise<SystemStopOutcome>;
     /** Copies whose account Hyperliquid liquidated (optional: older wiring). */
     stopLiquidated?(): Promise<SystemStopOutcome>;
+    /** Quarantined reservations of closed copies, released 'closed_account' (optional: older wiring). */
+    releaseClosedLiabilities?(): Promise<Array<{ key: string; accountId: string; stopId: string }>>;
     resumePendingCloseAll(): Promise<Array<{ event: string; liveStops: number; liveUnhandled: readonly { accountId: string; code: string }[] }>>;
   } | null;
 }
@@ -106,6 +108,10 @@ export class CopyLiveStopper {
         for (const stopped of outcome.stopped) this.deps.log?.(`copy account ${stopped.accountId} stopped after Hyperliquid liquidated it (stop ${stopped.stopId})`);
         for (const refused of outcome.refused) this.deps.log?.(`copy account ${refused.accountId} was liquidated and could not be stopped: ${refused.code}`);
       } catch (error) { this.deps.log?.(`liquidation stop check failed: ${why(error)}`); }
+      if (system.releaseClosedLiabilities) try {
+        for (const released of await system.releaseClosedLiabilities())
+          this.deps.log?.(`reservation ${released.key} of closed copy account ${released.accountId} released (closed_account, stop ${released.stopId})`);
+      } catch (error) { this.deps.log?.(`closed-copy liability check failed: ${why(error)}`); }
     }
     // A pending admin revoke is bounded: revoked once its stop is blocked or
     // gone, or flat past the deadline. A stop still closing keeps the grant.

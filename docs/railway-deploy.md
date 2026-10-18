@@ -240,6 +240,11 @@ ac8e81e1 reached Stage with CI red. The deploy script's `[[ "$c" == success ]]` 
 1. Every gate is written as `cond || exit 1` and never relies on `set -e`. This covers CI, the backup checkpoint, the in-flight guard and each deployment's status.
 2. The CI gate passes only when the run concluded `success` and **every job** concluded `success` or `skipped`. `skipped` means the workflow's own path filter decided not to run the job, for example browser shards when no web file changed. A cancelled job (such as an api shard cancelled after another shard failed) counts as not passed, and so does any other conclusion.
 3. Before deploying, the script prints the CI run URL and each job's conclusion. That output is kept in the gate record.
+4. Parse, don't pattern-match (2026-10-18). A gate that reads remote output accepts only the exact shape it expects and refuses anything else, including an empty or unreadable answer. On 2026-10-18 Stage's Postgres had been stopped by the Railway usage limit; the SSH endpoint answered with Railway's own status JSON, and the in-flight guard, which only looked for one line starting with `{`, printed it as the snapshot. In practice:
+   - the in-flight guard requires all seven counts as integers and refuses on any non-zero count;
+   - the variable check requires the service's own variable map (`RAILWAY_SERVICE_ID` and `RAILWAY_ENVIRONMENT_ID` equal to the ones asked for) before it reads a name from it;
+   - the checkpoint check requires the backup listing to be a list before searching it;
+   - the CI gate requires a numeric run id and a non-empty job list.
 
 ## Rollback
 

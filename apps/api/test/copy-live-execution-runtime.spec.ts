@@ -646,6 +646,16 @@ describe('unregistered concrete testnet execution runtime', () => {
       leaderAddress:seed.consent.leaderAddress,key:record.key})).rejects.toThrow(scans?'scan reached':'evidence stage reached');
     expect(scan).toHaveBeenCalledTimes(scans?1:0);
   });
+  it('a scan held back by another in-flight order (follower_attribution_pending) is a wait: the pass goes on, not a failed pass', async () => {
+    await actualClockFixture();const record=await runtime(config,{...options,slippageBps:'0'}).execute(request());
+    expect(record.outcome?.filledSize).not.toBe('0');
+    const scan=vi.fn(async()=>{throw new LiveBoundaryError('follower_attribution_pending');});
+    vi.spyOn(budget,'refillMs').mockImplementation(()=>{throw Error('evidence stage reached');});
+    const settler=new CopyLiveSettler('testnet',pool,global,budget,{runFor:scan},()=>clock);
+    await expect(settler.settle({userId:1,accountId:'account',accountAddress:record.authorization.accountAddress,sourceNetwork:'testnet',
+      leaderAddress:seed.consent.leaderAddress,key:record.key})).rejects.toThrow('evidence stage reached');
+    expect(scan).toHaveBeenCalledOnce();
+  });
   it('reconciles an unknown original key after revocation and strategy stop without another signature or nonce', async () => {
     await actualClockFixture();
     const previous = raw.getMockImplementation()!;

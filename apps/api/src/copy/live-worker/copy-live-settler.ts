@@ -123,7 +123,10 @@ export class CopyLiveSettler {
     // horizon the next order's position projection needs.
     if (scan) {
       if (claim) await claim.assertHeld();
-      await this.scanner.runFor(request.accountId);
+      // A fill of another order still in flight holds the scan back (follower_attribution_pending):
+      // a wait, not a failed pass; this order's receipts, if not yet booked, keep it pending.
+      try { await this.scanner.runFor(request.accountId); }
+      catch (error) { if (!(error instanceof LiveBoundaryError && error.code === 'follower_attribution_pending')) throw error; }
       if (claim) await claim.assertHeld();
     }
     await reserveLive(this.budget, prepaid, { maxWaitMs: Math.min(180_000, this.budget.refillMs()), ...(claim ? { signal: claim.signal } : {}) });

@@ -143,6 +143,11 @@ describe('bounded fixed-network source reads', () => {
     const result=await client((async(_url,init)=>Response.json(JSON.parse(String(init?.body)).type==='userFillsByTime'?[ordinary]:[])) as typeof fetch).read(req());
     expect(result.complete).toBe(false);expect(result.fills).toEqual([]);expect(result.unresolved.some(w=>w.reason==='twap_identity_unproven')).toBe(true);
   });
+  it('a zero-hash maker fill (crossed false, absent from the TWAP endpoint) is an ordinary fill, read complete (mainnet 2026-10-18)',async()=>{
+    const maker={...fill(),hash:`0x${'00'.repeat(32)}`,crossed:false,twapId:null};
+    const result=await client((async(_url,init)=>Response.json(JSON.parse(String(init?.body)).type==='userFillsByTime'?[maker]:[])) as typeof fetch).read(req());
+    expect(result.complete).toBe(true);expect(result.fills).toHaveLength(1);expect(result.unresolved).toEqual([]);
+  });
   it('gives back the weight an answer did not use (120 acquired, 20 + 1 per 20 rows spent)', async () => {
     const refund = vi.fn(), budget = acquire();
     const fetcher = (async (_url: unknown, init?: RequestInit) => Response.json(JSON.parse(String(init?.body)).type === 'userFillsByTime'

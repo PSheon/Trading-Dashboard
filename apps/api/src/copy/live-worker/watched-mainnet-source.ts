@@ -3,7 +3,7 @@ import { fillCoverage, fills } from '@trading-dashboard/shared/database';
 import { CHAIN_DEFAULT } from '@trading-dashboard/shared/contracts';
 import type { DbExecutor } from '../../db/unit-of-work.js';
 import type { LiveSourceReadResult } from '../copy-live-source.client.js';
-import { liveSourceDigest, parseLiveSourceFill, type LiveSourceFillEvidence } from '../live/copy-live-source-evidence.js';
+import { liveSourceDigest, parseLiveSourceFill, presumedTwapSlice, type LiveSourceFillEvidence } from '../live/copy-live-source-evidence.js';
 import { address, LiveBoundaryError } from '../live/wallet-authorization.js';
 import { liveEvidenceMaxAgeMs } from '../../config/live-evidence-window.js';
 
@@ -11,7 +11,6 @@ import { liveEvidenceMaxAgeMs } from '../../config/live-evidence-window.js';
 const WATCHED_WINDOW_ROWS = 400;
 /** Rows one window's observation may hold (the source evidence contract). */
 const MILLISECOND_ROWS = 2000;
-const ZERO_HASH = /^0x0{64}$/;
 
 /**
  * Mainnet leader fills from the watcher's REST-confirmed `fills` table, with no
@@ -52,7 +51,7 @@ export class WatchedMainnetSource {
     const receivedAt = this.now(), parsed = new Map<string, LiveSourceFillEvidence>();
     for (const row of rows) {
       const raw = row.raw as Record<string, unknown>;
-      if ((raw.twapId === undefined || raw.twapId === null) && typeof raw.hash === 'string' && ZERO_HASH.test(raw.hash)) continue;
+      if (presumedTwapSlice(raw)) continue;
       const fill = parseLiveSourceFill(raw, { network: 'mainnet', leaderAddress, from, to: through, receivedAt, kind: 'fills' });
       parsed.set(fill.id, fill);
     }

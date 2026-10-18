@@ -8,6 +8,19 @@ import type { copyLiveSourceFills } from '@trading-dashboard/shared/database';
 /** Leader fills come from a fixed public network (the consent's source
  * network), which may differ from the network the copy executes on. */
 export type LiveSourceNetwork = 'testnet' | 'mainnet';
+
+const ZERO_HASH = /^0x0{64}$/;
+/**
+ * A `userFills` row that is presumed a TWAP slice whose tagged copy comes from
+ * `userTwapSliceFillsByTime` (so this one is skipped): zero hash, no `twapId`,
+ * and a taker fill. A TWAP slice executes as a market order, so a maker fill
+ * (`crossed: false`) is never one: Hyperliquid also gives some resting-order
+ * fills a zero hash (mainnet 2026-10-18 15:36 and 15:42, a FARTCOIN leader's
+ * two maker adds, absent from the TWAP endpoint, were skipped and never copied).
+ */
+export function presumedTwapSlice(fill: { hash?: unknown; twapId?: unknown; crossed?: unknown }): boolean {
+  return (fill.twapId === undefined || fill.twapId === null) && typeof fill.hash === 'string' && ZERO_HASH.test(fill.hash) && fill.crossed !== false;
+}
 interface LiveSourceFillContext {
   network: LiveSourceNetwork; leaderAddress: string; from: number; to: number; receivedAt: number; kind: 'fills' | 'twap';
 }

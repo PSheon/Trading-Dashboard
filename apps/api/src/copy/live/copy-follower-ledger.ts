@@ -145,7 +145,10 @@ export class CopyFollowerLedger {
             !isDeepStrictEqual(liveOrderIdentityBinding(ack.identity),liveOrderIdentityBinding(identity)) || Dec.from(fill.size).gt(ack.totalSz)) return mismatch;
           bound = true;
         }
-        if (e.statusObservation) {
+        // A status read that has not found the order yet ("unknownOid": Hyperliquid had not
+        // indexed it, mainnet 2026-10-18) proves nothing either way: it neither binds the OID nor
+        // refuses it. The acknowledgement, or a later read that finds the order, binds the fill.
+        if (e.statusObservation && (e.statusObservation as unknown as LiveOrderEvidence).kind !== 'missing') {
           const saved = e.statusObservation as unknown as LiveOrderEvidence;
           // Historical mapping only: revalidate the original source at its
           // captured completion, never treat it as current risk/release proof.

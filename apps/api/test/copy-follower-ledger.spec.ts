@@ -67,6 +67,24 @@ describe("actual follower receipt ledger", () => {
     await db.update(copyLiveExecutionEvidence).set({acknowledgement:null,acknowledgementDigest:null,statusObservation:observation as unknown as Record<string,unknown>,statusDigest:observation.sourceDigest});
     expect(await ledger.bookFill(accountId,fill({time:record.createdAt+1000}))).toEqual({inserted:true,quarantined:false});
   });
+  it('a status read that has not found the order yet ("unknownOid") binds nothing and refuses nothing: the ACK attributes the fill', async () => {
+    // Mainnet 2026-10-18 10:12: an IOC filled at :04.164; settlement's status read at :05.7 got unknownOid (not yet
+    // indexed) and stored it; the account's fill scan at :13.6 refused the attribution on it, booked the fill as the
+    // account's own and quarantined the copy.
+    const {record} = await evidenceOnly(); const at=record.createdAt+1600;
+    const missing = parseLiveOrderEvidence({record,market:record.market!,checkedAt:at,completedAt:at,now:at,raw:{status:'unknownOid'}});
+    expect(missing.kind).toBe('missing');
+    await db.update(copyLiveExecutionEvidence).set({statusObservation:missing as unknown as Record<string,unknown>,statusDigest:missing.sourceDigest,revision:2});
+    expect(await ledger.bookFill(accountId,fill({sz:'0.005'}))).toEqual({inserted:true,quarantined:false});
+    expect((await db.select().from(copyFollowerReceipts))[0]).toMatchObject({executionKey:record.key,attribution:'execution'});
+  });
+  it('a not-yet-found status alone (no ACK) still binds nothing: the fill is the account\'s and quarantined', async () => {
+    const {record} = await evidenceOnly(); const at=record.createdAt+1600;
+    const missing = parseLiveOrderEvidence({record,market:record.market!,checkedAt:at,completedAt:at,now:at,raw:{status:'unknownOid'}});
+    await db.update(copyLiveExecutionEvidence).set({acknowledgement:null,acknowledgementDigest:null,statusObservation:missing as unknown as Record<string,unknown>,statusDigest:missing.sourceDigest});
+    expect(await ledger.bookFill(accountId,fill({sz:'0.005'}))).toMatchObject({inserted:true,quarantined:true});
+    expect((await db.select().from(copyFollowerReceipts))[0]).toMatchObject({executionKey:null,attribution:'account'});
+  });
   it.each(['digest','nonce','owner','cloid','wallet','coin','side','master'])('quarantines invalid evidence-backed %s identity rather than guessing attribution',async mismatch=>{
     const {record,acknowledgement} = await evidenceOnly();
     if(mismatch==='digest') await db.update(copyLiveExecutionEvidence).set({acknowledgementDigest:'a'.repeat(64)});

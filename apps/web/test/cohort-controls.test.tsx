@@ -68,7 +68,12 @@ it('keeps the five market sorting controls named and focusable with 44px targets
     expect(head.classList.contains('[&>button]:min-w-11')).toBe(true);
   }
   const market = heads[0], button = market.querySelector<HTMLButtonElement>('button')!;
-  const coins = () => [...table.querySelectorAll('tbody tr')].map(row => row.querySelector('td')!.textContent!.trim());
+  // The market's name, without its decorative icon (aria-hidden: an image, or the glyph drawn when it fails).
+  const coins = () => [...table.querySelectorAll('tbody tr')].map(row => {
+    const cell = row.querySelector('td')!.cloneNode(true) as HTMLElement;
+    cell.querySelectorAll('[aria-hidden="true"]').forEach(node => node.remove());
+    return cell.textContent!.trim();
+  });
   await act(async () => button.click());
   expect(market.getAttribute('aria-sort')).toBe('descending');
   expect(coins()).toEqual([...coins()].sort((a, b) => b.localeCompare(a)));

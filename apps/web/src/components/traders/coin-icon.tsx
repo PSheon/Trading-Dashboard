@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { cn } from "cn";
 
 import { coinDex, coinLabel } from "@/lib/format";
@@ -47,6 +47,13 @@ export function CoinIcon({
   className?: string;
 }) {
   const [failed, setFailed] = useState(false);
+  // An image that failed before React attached its handlers (server-rendered
+  // markup, an icon route answering 404 or 204 at once) never fires onError
+  // for us: the glyph is drawn from what the element already knows
+  // (Stage 2026-10-18: the home page's market chips stayed broken images).
+  const failedEarly = useCallback((img: HTMLImageElement | null) => {
+    if (img && img.complete && img.naturalWidth === 0) setFailed(true);
+  }, []);
   // Spot ("@107", "PURR/USDC") has no market icon of its own.
   if (!failed && !coin.startsWith("@") && !coin.includes("/")) {
     return (
@@ -58,6 +65,7 @@ export function CoinIcon({
         width={size}
         height={size}
         loading="lazy"
+        ref={failedEarly}
         onError={() => setFailed(true)}
         className={cn("inline-block shrink-0 rounded-full object-contain", LIGHT_DISC.has(coin) && "bg-white", className)}
         // Padding in px: a percentage resolves against the parent's width,

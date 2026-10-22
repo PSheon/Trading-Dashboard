@@ -8,6 +8,8 @@ import { liveSetupTimings, liveStopTimings, type LiveSetupTimings, type LiveStop
 import { HYPERLIQUID_BACKGROUND_REST_CAP, MAINNET_WORKER_WEIGHT } from './constants/hyperliquid.js';
 import { FAST_SOURCE_GRACE_MS, LIVE_EVIDENCE_MAX_AGE_MS, LIVE_TESTNET_EVIDENCE_MAX_AGE_CAP_MS } from './constants/timings.js';
 import { DATABASE_POOL_MAX_API, DATABASE_POOL_MAX_COPY_WORKER, DATABASE_POOL_MAX_READ_WORKER, DATABASE_POOL_MAX_WORKER } from './constants/database.js';
+import { COPY_EQUITY_FULL_RESOLUTION_MS } from './constants/cache-ttls.js';
+import { DAY_MS } from './constants/time.js';
 
 
 
@@ -323,7 +325,8 @@ function archive(source: Environment) {
 export const TUNING_DEFAULTS = {
   discovery: { leaderboardRefreshMinutes: 15, candidatePoolSize: 1000, cohortMembersPerTier: 500, cohortRefreshMinutes: 40 },
   weights: { poolLedger: 100, poolPerformance: 240, history: 120, backfill: 120, cohort: 150 },
-  retention: { enabled: true, snapshotDays: 90, auditDays: 365, accountDeletionDays: 365, queueDays: 30, alertDays: 30 },
+  retention: { enabled: true, snapshotDays: 90, auditDays: 365, accountDeletionDays: 365, queueDays: 30, alertDays: 30,
+    copyEquityFullDays: 31, cohortMemberListDays: 30, followerObservationDays: 7 },
 } as const;
 export function tuningConfig(source: Environment = {}) {
   const d = TUNING_DEFAULTS;
@@ -348,6 +351,11 @@ export function tuningConfig(source: Environment = {}) {
       accountDeletionDays: integerValue("RETENTION_ACCOUNT_DELETION_DAYS", source.RETENTION_ACCOUNT_DELETION_DAYS, d.retention.accountDeletionDays, 30, 3650),
       queueDays: integerValue("RETENTION_QUEUE_DAYS", source.RETENTION_QUEUE_DAYS, d.retention.queueDays, 7, 3650),
       alertDays: integerValue("RETENTION_ALERT_DAYS", source.RETENTION_ALERT_DAYS, d.retention.alertDays, 7, 3650),
+      // The api reads a paper copy's valuations as thinned from COPY_EQUITY_FULL_RESOLUTION_MS before its end: not below.
+      copyEquityFullDays: integerValue("RETENTION_COPY_EQUITY_FULL_DAYS", source.RETENTION_COPY_EQUITY_FULL_DAYS, d.retention.copyEquityFullDays,
+        COPY_EQUITY_FULL_RESOLUTION_MS / DAY_MS, 3650),
+      cohortMemberListDays: integerValue("RETENTION_COHORT_MEMBER_LIST_DAYS", source.RETENTION_COHORT_MEMBER_LIST_DAYS, d.retention.cohortMemberListDays, 7, 3650),
+      followerObservationDays: integerValue("RETENTION_FOLLOWER_OBSERVATION_DAYS", source.RETENTION_FOLLOWER_OBSERVATION_DAYS, d.retention.followerObservationDays, 1, 3650),
     },
   };
 }

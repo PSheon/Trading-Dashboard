@@ -173,6 +173,7 @@ default, which is what Stage and local ran with.
 | `RETENTION_ENABLED` | `true` | the daily retention job |
 | `RETENTION_SNAPSHOT_DAYS` / `RETENTION_AUDIT_DAYS` / `RETENTION_ACCOUNT_DELETION_DAYS` | `90` / `365` / `365` | snapshots / admin audit / account-deletion records (the privacy policy's periods) |
 | `RETENTION_QUEUE_DAYS` / `RETENTION_ALERT_DAYS` | `30` / `30` | finished outbox rows / alert delivery records |
+| `RETENTION_COPY_EQUITY_FULL_DAYS` / `RETENTION_COHORT_MEMBER_LIST_DAYS` / `RETENTION_FOLLOWER_OBSERVATION_DAYS` | `31` / `30` / `7` | paper copy valuations at full resolution (older ones thinned; not below 31) / cohort history member lists / superseded follower observations (`data-retention.md`) |
 
 The worker reports what it runs with on `/health/monitor` (`tuning`), shown on
 the admin 總覽; `/health` → `budget.consumers` shows who spent the trailing

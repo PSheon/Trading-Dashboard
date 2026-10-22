@@ -1001,6 +1001,9 @@ export const zhTW = {
         copy_signal_outbox: "已完成的跟單訊號",
         alerts: "提醒發送紀錄",
         hyperliquid_ws_leases: "已關閉的 Hyperliquid 連線租約",
+        copy_equity_snapshots: "模擬跟單權益快照（抽稀）",
+        cohort_snapshot_members: "分層歷史的成員名單（清除）",
+        copy_follower_observations: "實盤帳戶的舊觀測紀錄",
       },
     },
     system: {

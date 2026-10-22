@@ -48,6 +48,10 @@ export function retentionCutoffs(settings: RetentionSettings, now: Date): Record
     copy_signal_outbox: before(settings.queueDays),
     alerts: before(settings.alertDays),
     hyperliquid_ws_leases: new Date(now.getTime() - CLOSED_WS_LEASE_RETENTION_MS),
+    // A running copy's; a stopped one's is as far before its stop (the statement).
+    copy_equity_snapshots: before(settings.copyEquityFullDays),
+    cohort_snapshot_members: before(settings.cohortMemberListDays),
+    copy_follower_observations: before(settings.followerObservationDays),
   };
 }
 
@@ -70,6 +74,9 @@ export function inRetentionWindow(now: Date): boolean {
  * | finished action / notification / copy-signal outbox rows | 30 days |
  * | alert delivery records (`alerts`) | 30 days |
  * | closed Hyperliquid socket leases (`hyperliquid_ws_leases`) | 1 day after closing (fixed) |
+ * | a paper copy's per-minute valuations (`copy_equity_snapshots`), thinned to an hour's first and last | 31 days before its end |
+ * | cohort history rows' member lists (`cohort_snapshot_members`; the rows stay) | 30 days |
+ * | a live account's superseded follower observations (never its latest) | 7 days |
  *
  * Deletes are bounded (`RETENTION_LIMITS`); leftovers wait for the next run ("partial").
  * A lease row (`retention_state`) keeps two workers apart; each run is audited (`retention.run`).
@@ -124,7 +131,7 @@ export class RetentionService {
           if (this.jobs.stopping || Date.now() - started > this.limits.maxRunMs) { status = "partial"; break tables; }
           // This table has had its share of the run; the others still get theirs.
           if (batches >= this.limits.maxBatchesPerTable) { status = "partial"; break; }
-          const count = await this.repository.deleteBatch(table, cutoffs[table], this.limits.batchSize);
+          const count = await this.repository.deleteBatch(table, cutoffs[table], this.limits.batchSize, now);
           removed[table] += count;
           if (count < this.limits.batchSize) break;
           // Another worker took an expired lease: it owns the cleanup now.

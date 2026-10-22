@@ -26,7 +26,12 @@ export interface RetentionOutcome {
  *   (the other side is what stops a double evaluate/send);
  * - a copy signal at or above the consumer checkpoint; an alert whose delivery is queued;
  * - a Hyperliquid socket lease not yet closed (it still reserves capacity);
- * - `actions` (both outboxes cascade from them).
+ * - `actions` (both outboxes cascade from them);
+ * - a live copy's valuations (only paper copies' are thinned), and of a paper
+ *   copy's, the first and last of every hour;
+ * - a cohort history row (only its member list is cleared);
+ * - an account's latest follower observation, and any observation a row
+ *   still references.
  */
 @Injectable()
 export class RetentionRepository {
@@ -64,10 +69,12 @@ export class RetentionRepository {
   }
 
   /** Deletes up to `limit` rows of `table` older than `cutoff`; returns how
-   * many (for `deleted_accounts`, how many tombstones were purged). */
-  async deleteBatch(table: RetentionTable, cutoff: Date, limit: number): Promise<number> {
+   * many (for `deleted_accounts`, how many tombstones were purged; for
+   * `cohort_snapshot_members`, how many member lists were cleared). `now` is
+   * the run's time (`cutoff` of a stopped paper copy's valuations is its stop's). */
+  async deleteBatch(table: RetentionTable, cutoff: Date, limit: number, now = new Date()): Promise<number> {
     if (table === "deleted_accounts") return this.purgeDeletedAccounts(cutoff, limit);
-    const result = await this.db.execute(STATEMENTS[table](cutoff, limit));
+    const result = await this.db.execute(STATEMENTS[table](cutoff, limit, now));
     return result.rowCount ?? 0;
   }
 
@@ -120,7 +127,7 @@ const signals = (status: "done" | "failed", cutoff: Date, limit: number) => sql`
 /** One bounded, index-driven DELETE per table (plans: docs/data-retention.md).
  * The inner query picks the batch; the outer delete re-checks the status so a
  * row that changed in between is left alone. */
-export const STATEMENTS: Record<Exclude<RetentionTable, "deleted_accounts">, (cutoff: Date, limit: number) => SQL> = {
+export const STATEMENTS: Record<Exclude<RetentionTable, "deleted_accounts">, (cutoff: Date, limit: number, now?: Date) => SQL> = {
   position_snapshots: (cutoff, limit) => sql`
     DELETE FROM position_snapshots WHERE ctid = ANY (ARRAY(
       SELECT ctid FROM position_snapshots WHERE ts < ${cutoff} ORDER BY ts LIMIT ${limit}))`,
@@ -159,4 +166,42 @@ export const STATEMENTS: Record<Exclude<RetentionTable, "deleted_accounts">, (cu
     DELETE FROM hyperliquid_ws_leases WHERE id = ANY (ARRAY(
       SELECT id FROM hyperliquid_ws_leases WHERE state = 'closed' AND closed_at < ${cutoff} ORDER BY closed_at LIMIT ${limit}))
       AND state = 'closed'`,
+  // A paper copy's valuations before its horizon (`cutoff` for a running copy, as far before
+  // its stop for a stopped one, floored to the hour), other than the first and last of their
+  // UTC hour; read per copy through the primary key. The api reads them with
+  // COPY_EQUITY_THINNED_FRESH_MS (copy-runtime.repository.ts). Live copies' are never thinned.
+  copy_equity_snapshots: (cutoff, limit, now = new Date()) => sql`
+    DELETE FROM copy_equity_snapshots WHERE (strategy_id, "time") IN (
+      SELECT c.strategy_id, c."time" FROM copy_strategies s
+      CROSS JOIN LATERAL (
+        SELECT c.strategy_id, c."time" FROM copy_equity_snapshots c
+        WHERE c.strategy_id = s.id
+          AND c."time" < date_trunc('hour', least(${cutoff}::timestamptz, s.stopped_at - make_interval(secs => ${(now.getTime() - cutoff.getTime()) / 1000}::double precision)), 'UTC')
+          AND EXISTS (SELECT 1 FROM copy_equity_snapshots p WHERE p.strategy_id = c.strategy_id
+            AND p."time" >= date_trunc('hour', c."time", 'UTC') AND p."time" < c."time")
+          AND EXISTS (SELECT 1 FROM copy_equity_snapshots n WHERE n.strategy_id = c.strategy_id
+            AND n."time" > c."time" AND n."time" < date_trunc('hour', c."time", 'UTC') + interval '1 hour')
+        ORDER BY c."time" LIMIT ${limit}) c
+      WHERE s.mode = 'paper'
+      LIMIT ${limit})`,
+  // Clears the member list of old cohort history rows (no reader uses it: the chart reads the
+  // figures and membership_version, which stay). A small table (a row per tier every 40 min)
+  // read whole: a toasted list is not opened by IS NOT NULL.
+  cohort_snapshot_members: (cutoff, limit) => sql`
+    UPDATE cohort_snapshots SET member_addresses = NULL WHERE id = ANY (ARRAY(
+      SELECT id FROM cohort_snapshots WHERE ts < ${cutoff} AND member_addresses IS NOT NULL LIMIT ${limit}))
+      AND member_addresses IS NOT NULL`,
+  // A live account's observations older than `cutoff` except its latest (the only one read,
+  // copy_follower_observation_jobs.latest_observation_id, ON DELETE RESTRICT); per account,
+  // through copy_follower_observations_history_idx. The outer check spares any referenced one.
+  copy_follower_observations: (cutoff, limit) => sql`
+    DELETE FROM copy_follower_observations WHERE id = ANY (ARRAY(
+      SELECT o.id FROM copy_execution_accounts a
+      CROSS JOIN LATERAL (
+        SELECT o.id FROM copy_follower_observations o
+        WHERE o.account_id = a.id AND o.observed_at < ${cutoff}
+          AND o.id IS DISTINCT FROM (SELECT j.latest_observation_id FROM copy_follower_observation_jobs j WHERE j.account_id = a.id)
+        ORDER BY o.observed_at LIMIT ${limit}) o
+      LIMIT ${limit}))
+      AND NOT EXISTS (SELECT 1 FROM copy_follower_observation_jobs j WHERE j.latest_observation_id = copy_follower_observations.id)`,
 };

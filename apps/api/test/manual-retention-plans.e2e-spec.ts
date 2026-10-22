@@ -52,6 +52,11 @@ run("retention delete plans", () => {
     for (const table of RETENTION_TABLES) {
       // Tombstones are purged one by one through their primary keys (account-closure.plan.ts).
       if (table === "deleted_accounts") continue;
+      // Not filled here (2026-10-22): small tables whose batches are read per copy or per
+      // account through their primary key / history index (copy_equity_snapshots,
+      // copy_follower_observations), or a table of a row per tier every 40 min read whole
+      // (cohort_snapshot_members). test/retention-small-tables.spec.ts checks what they keep.
+      if (table === "copy_equity_snapshots" || table === "cohort_snapshot_members" || table === "copy_follower_observations") continue;
       const real = table === "account_deletion_records" ? "admin_audit_logs" : table;
       const total = Number((await db.execute(sql.raw(`select count(*)::int as n from ${real}`))).rows[0].n);
       let plan: string[] = [];

@@ -18,6 +18,9 @@ periods of 2026-10-01.
 | Finished copy signals | `copy_signal_outbox` (`done`, `failed`) | 30 days | `RETENTION_QUEUE_DAYS` |
 | Alert delivery records | `alerts` | 30 days | `RETENTION_ALERT_DAYS` (7–3650) |
 | Closed Hyperliquid socket leases (with their cleanup evidence) | `hyperliquid_ws_leases` where `state = 'closed'` | 1 day after `closed_at` | fixed (`CLOSED_WS_LEASE_RETENTION_MS`) |
+| A paper copy's per-minute valuations, thinned to the first and last of each UTC hour | `copy_equity_snapshots` of `mode = 'paper'` copies | 31 days before the copy's end (its stop, or now) | `RETENTION_COPY_EQUITY_FULL_DAYS` (31–3650) |
+| Cohort history rows' member lists (`member_addresses` cleared; the row, its figures and `membership_version` stay) | `cohort_snapshots` | 30 days | `RETENTION_COHORT_MEMBER_LIST_DAYS` (7–3650) |
+| A live account's superseded follower observations | `copy_follower_observations` other than the one `copy_follower_observation_jobs.latest_observation_id` names | 7 days | `RETENTION_FOLLOWER_OBSERVATION_DAYS` (1–3650) |
 
 The periods are deploy-time since 2026-10-05 (they were `general.retention`
 in the admin settings): set them on the worker and restart it;
@@ -64,6 +67,22 @@ in the worker (three ticks an hour; none in the api role).
   until it is closed or past the meter's stale margin, and the meter reads it.
   A closed lease is never read (a request naming one is refused exactly as one
   naming a missing lease).
+- A live copy's valuations (`copy_equity_snapshots` of a `testnet` copy), and of a
+  paper copy's, the first and last of every hour and everything of its last 31
+  days. The copy's charts read those days at full resolution: its 1d/7d/30d
+  windows (counted back from its stop, or now) never reach a thinned hour, and
+  its whole-life views (the "all" window, the portfolio's "all" series and the
+  sparklines, a thousandth of the life at most) read a valuation of a thinned
+  hour with `COPY_EQUITY_THINNED_FRESH_MS` (an hour and two minutes) instead of
+  `FRESH_MS`, so the thinning is not a hole and a longer gap still is. The api
+  starts reading thinned hours at `COPY_EQUITY_FULL_RESOLUTION_MS` (31 days),
+  which is why `RETENTION_COPY_EQUITY_FULL_DAYS` may not go below it.
+- A cohort history row itself: only its member list is cleared. No reader uses
+  the list (the 倉位傾向 chart reads the figures and `membership_version`).
+- An account's latest follower observation, however old (the only one any
+  reader uses: the owner's snapshot, the actual copy's valuation and whether the
+  account still holds funds), and any observation a row references
+  (`ON DELETE RESTRICT`).
 - `actions`. Both outboxes reference `actions` with `ON DELETE CASCADE`, so
   deleting an action would take its queue rows with it. The job deletes queue
   rows only, which cascades to nothing: no table references `action_outbox`,

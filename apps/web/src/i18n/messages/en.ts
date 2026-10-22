@@ -998,6 +998,9 @@ export const en: Messages = {
         copy_signal_outbox: "Finished copy signals",
         alerts: "Alert delivery records",
         hyperliquid_ws_leases: "Closed Hyperliquid socket leases",
+        copy_equity_snapshots: "Paper copy valuations (thinned)",
+        cohort_snapshot_members: "Cohort history member lists (cleared)",
+        copy_follower_observations: "Superseded live account observations",
       },
     },
     system: {

@@ -58,6 +58,31 @@ export const FRESH_MS = 2 * COPY_SNAPSHOT_INTERVAL_MS;
  */
 export const ACTUAL_FRESH_MS = 6 * COPY_SNAPSHOT_INTERVAL_MS;
 
+/** basis: derived — the longest fixed window of a copy's charts (30d, copy-performance.service.ts) plus a day: the "today" baseline looks back at most a day
+ * A paper copy's valuations this close to its end (its stop, or now) keep
+ * their full one-minute resolution; older ones may be thinned by retention
+ * (COPY_EQUITY_THINNED_INTERVAL_MS) and are read with COPY_EQUITY_THINNED_FRESH_MS.
+ * So the 1d/7d/30d windows of every copy, running or stopped, never read a
+ * thinned row; only its whole-life views do, whose resolution is a thousandth
+ * of the life (≥ 44 min past 31 days). RETENTION_COPY_EQUITY_FULL_DAYS may not
+ * be set below it.
+ */
+export const COPY_EQUITY_FULL_RESOLUTION_MS = 31 * DAY_MS;
+
+/** basis: guessed — cost reduction 2026-10-22 (§1 #9): an hour's first and last valuation stand for it (60 rows → 2) where only whole-life views read it; verify: the "all" chart of a Stage paper copy older than 31 days, before and after a retention run
+ * Retention keeps, of each hour of a paper copy's thinned valuations, the
+ * first (so the copy's first valuation stays) and the last (so a stopped
+ * copy's final one stays).
+ */
+export const COPY_EQUITY_THINNED_INTERVAL_MS = HOUR_MS;
+
+/** basis: derived — COPY_EQUITY_THINNED_INTERVAL_MS + FRESH_MS: two kept valuations of a thinned stretch are at most an hour apart, plus one sampling gap
+ * Read for a valuation older than COPY_EQUITY_FULL_RESOLUTION_MS before its
+ * copy's end instead of FRESH_MS: a gap up to this there is the thinning, not
+ * a hole (a longer one is still shown as missing).
+ */
+export const COPY_EQUITY_THINNED_FRESH_MS = COPY_EQUITY_THINNED_INTERVAL_MS + FRESH_MS;
+
 /** basis: guessed — the paper worker checks funding every minute; verify: none needed
  */
 export const FUNDING_CHECK_MS = 60_000;

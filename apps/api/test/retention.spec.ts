@@ -59,7 +59,8 @@ function lease(id: string, state: "reserved" | "open" | "closing" | "uncertain" 
 
 describe("data retention", () => {
   it("has the periods the privacy policy states as defaults", () => {
-    expect(RETENTION_DEFAULTS).toEqual({ enabled: true, snapshotDays: 90, auditDays: 365, accountDeletionDays: 365, queueDays: 30, alertDays: 30 });
+    expect(RETENTION_DEFAULTS).toEqual({ enabled: true, snapshotDays: 90, auditDays: 365, accountDeletionDays: 365, queueDays: 30, alertDays: 30,
+      copyEquityFullDays: 31, cohortMemberListDays: 30, followerObservationDays: 7 });
     expect(TUNING_DEFAULTS.retention).toEqual(RETENTION_DEFAULTS);
     expect(validateEnvironment({ DATABASE_URL: "postgres://u@localhost/db" }).tuning.retention).toEqual(RETENTION_DEFAULTS);
     // No longer an admin setting.
@@ -139,6 +140,7 @@ describe("data retention", () => {
     expect(run.removed).toEqual({
       position_snapshots: 2, equity_snapshots: 2, admin_audit_logs: 1, account_deletion_records: 1, deleted_accounts: 0, account_deletion_markers: 0,
       action_outbox: 2, notification_outbox: 2, copy_signal_outbox: 2, alerts: 1, hyperliquid_ws_leases: 0,
+      copy_equity_snapshots: 0, cohort_snapshot_members: 0, copy_follower_observations: 0,
     });
     expect(Object.keys(run.removed)).toEqual([...RETENTION_TABLES]);
 

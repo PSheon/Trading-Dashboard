@@ -43,11 +43,13 @@ describe("deploy-time tuning (DISCOVERY_*, HYPERLIQUID_*_WEIGHT_PER_MIN, RETENTI
       HYPERLIQUID_HISTORY_WEIGHT_PER_MIN: "60", HYPERLIQUID_BACKFILL_WEIGHT_PER_MIN: "90", HYPERLIQUID_COHORT_WEIGHT_PER_MIN: "60",
       RETENTION_ENABLED: "false", RETENTION_SNAPSHOT_DAYS: "120", RETENTION_AUDIT_DAYS: "730", RETENTION_ACCOUNT_DELETION_DAYS: "400",
       RETENTION_QUEUE_DAYS: "14", RETENTION_ALERT_DAYS: "21",
+      RETENTION_COPY_EQUITY_FULL_DAYS: "45", RETENTION_COHORT_MEMBER_LIST_DAYS: "60", RETENTION_FOLLOWER_OBSERVATION_DAYS: "3",
     });
     expect(tuning).toEqual({
       discovery: { leaderboardRefreshMinutes: 30, candidatePoolSize: 2000, cohortMembersPerTier: 800, cohortRefreshMinutes: 60 },
       weights: { poolLedger: 0, poolPerformance: 300, history: 60, backfill: 90, cohort: 60 },
-      retention: { enabled: false, snapshotDays: 120, auditDays: 730, accountDeletionDays: 400, queueDays: 14, alertDays: 21 },
+      retention: { enabled: false, snapshotDays: 120, auditDays: 730, accountDeletionDays: 400, queueDays: 14, alertDays: 21,
+        copyEquityFullDays: 45, cohortMemberListDays: 60, followerObservationDays: 3 },
     });
     for (const [key, value, message] of [
       ["DISCOVERY_LEADERBOARD_REFRESH_MINUTES", "4", "between 5 and 240"],

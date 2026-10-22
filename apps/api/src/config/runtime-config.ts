@@ -7,6 +7,7 @@ import { runsCopy, workerRoleValue } from "../runtime/worker-role.js";
 import { liveSetupTimings, liveStopTimings, type LiveSetupTimings, type LiveStopTimings } from "./live-timings.js";
 import { HYPERLIQUID_BACKGROUND_REST_CAP, MAINNET_WORKER_WEIGHT } from './constants/hyperliquid.js';
 import { FAST_SOURCE_GRACE_MS, LIVE_EVIDENCE_MAX_AGE_MS, LIVE_TESTNET_EVIDENCE_MAX_AGE_CAP_MS } from './constants/timings.js';
+import { DATABASE_POOL_MAX_API, DATABASE_POOL_MAX_COPY_WORKER, DATABASE_POOL_MAX_READ_WORKER, DATABASE_POOL_MAX_WORKER } from './constants/database.js';
 
 
 
@@ -359,9 +360,6 @@ function productionSecret(key: string, value: string | undefined, production: bo
   }
 }
 
-export const DATABASE_POOL_MAX_API = 20;
-export const DATABASE_POOL_MAX_WORKER = 30;
-
 /** Validate before Nest constructs any DB client, watcher or bot. No I/O. */
 export function validateEnvironment(source: Environment = process.env) {
   const nodeEnv = source.NODE_ENV ?? "development";
@@ -412,12 +410,14 @@ export function validateEnvironment(source: Environment = process.env) {
   // A worker beside an api on one machine needs its own port: WORKER_PORT
   // wins for the worker (Railway sets PORT per service and leaves it unset).
   port: isWorker && source.WORKER_PORT ? integerValue("WORKER_PORT", source.WORKER_PORT, 3000, 1, 65535) : integerValue("PORT", source.PORT, 3000, 1, 65535) };
-  // The main pool's size (DATABASE_POOL_MAX). pg's default 10 ran out and a
-  // live order failed its 5 s window waiting for a connection. api 20 +
-  // worker 30, with a rolling-deploy overlap and the migration, stay under
+  // The main pool's size (DATABASE_POOL_MAX), by default per process and
+  // worker role (config/constants/database.ts): api 10, copy 20, read 10
+  // (all 30). With a rolling-deploy overlap and the migration they stay under
   // Postgres's default max_connections of 100 (docs/railway-deploy.md).
+  const defaultPoolMax = !isWorker ? DATABASE_POOL_MAX_API
+    : workerRole === "copy" ? DATABASE_POOL_MAX_COPY_WORKER : workerRole === "read" ? DATABASE_POOL_MAX_READ_WORKER : DATABASE_POOL_MAX_WORKER;
   const database = { url: databaseUrl(source.DATABASE_URL),
-    poolMax: integerValue("DATABASE_POOL_MAX", source.DATABASE_POOL_MAX, isWorker ? DATABASE_POOL_MAX_WORKER : DATABASE_POOL_MAX_API, 2, 200) };
+    poolMax: integerValue("DATABASE_POOL_MAX", source.DATABASE_POOL_MAX, defaultPoolMax, 2, 200) };
   const serviceToken = optional(source.AUTH_SERVICE_TOKEN);
   const permissions = servicePermissions(source.AUTH_SERVICE_PERMISSIONS);
   if (permissions.length && !serviceToken) throw new Error("AUTH_SERVICE_TOKEN is required when AUTH_SERVICE_PERMISSIONS is set");

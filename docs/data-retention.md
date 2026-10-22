@@ -92,7 +92,10 @@ in the worker (three ticks an hour; none in the api role).
   not in scope (the watcher's copy signal source, derived figures, or the
   user's own records kept for the life of the account).
 - A copied leader's `history_fills` (a leader of a copy strategy not stopped)
-  and its archive span: kept whole while the copy runs.
+  and its archive span: kept whole while the copy runs. Rows below the cut of
+  any account whose active span still starts before the cut are never
+  deleted (a leader whose copy stopped after the sweep's trim): the next
+  sweep trims its span first.
 
 ## The history sweep (`history_fills`)
 

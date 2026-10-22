@@ -517,4 +517,28 @@ describe("history_fills retention (RETENTION_HISTORY_FILL_DAYS, 90 days)", () =>
     expect(await store.purgeUnreferenced([excluded], 100)).toBe(0);
     expect(await daysLeft(excluded)).toEqual([5]);
   });
+
+  it("a leader whose copy stops between the trim and the deletes keeps its rows until the next sweep trims its span", async () => {
+    const user = await insertUser(db);
+    const leader = a(2);
+    await db.execute(sql`INSERT INTO copy_strategies (user_id, leader_address, status, allocated, cash, activated_at) VALUES (${user.id}, ${leader}, 'active', 100, 100, now())`);
+    await db.insert(archiveCoverage).values({ address: leader, coveredFrom: hourOf(ago(200)), coveredThrough: hourOf(ago(0.5)) });
+    await keep(leader, [150, 1]);
+    const { service, repository } = setup();
+    const retain = repository.retainHistoryFrom.bind(repository);
+    repository.retainHistoryFrom = async (cut) => {
+      await retain(cut);
+      // The copy stops after the trim left the leader's span whole.
+      await db.execute(sql`UPDATE copy_strategies SET status = 'stopped', stopped_at = now() WHERE leader_address = ${leader}`);
+    };
+    await service.run(NOW, true);
+    // Its span still starts before the cut, so its rows there stay.
+    expect(await coverage(leader)).toEqual([hourOf(ago(200)), hourOf(ago(0.5))]);
+    expect(await daysLeft(leader)).toEqual([150, 1]);
+    // The next sweep trims the span, then deletes below it.
+    repository.retainHistoryFrom = retain;
+    await service.run(NOW, true);
+    expect(await coverage(leader)).toEqual([CUT, hourOf(ago(0.5))]);
+    expect(await daysLeft(leader)).toEqual([1]);
+  });
 });

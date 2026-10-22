@@ -119,8 +119,11 @@ export class RetentionRepository {
    * One bounded statement of the history sweep: deletes at most `limit`
    * rows of `history_fills`, oldest first, from the accounts at or after
    * `fromAccount` in id order: those before `cut`, and every row of an
-   * account nothing refers to any more (no history job, no active archive
-   * coverage). Copied leaders are never touched. Each account's rows are
+   * account nothing refers to any more (no history job, no archive coverage
+   * row). Copied leaders are never touched, nor is an account whose active
+   * span still starts before `cut`: `retainHistoryFrom` left it whole (a
+   * copied leader then), and deleting under it would leave a span certifying
+   * rows that are gone; the next sweep's trim decides it again. Each account's rows are
    * found through `history_fills_account_time_idx`; an account with none
    * costs one index probe (see `inIndexOrder`). `last`: the highest account the statement
    * reached (the next one starts there); fewer than `limit` rows: the sweep
@@ -134,6 +137,7 @@ export class RetentionRepository {
           SELECT h.id, CASE WHEN ${unreferencedAccount(sql`h`)} THEN 'infinity'::timestamptz ELSE ${cut}::timestamptz END AS below
           FROM history_accounts h
           WHERE h.id >= ${fromAccount} AND h.chain = ${CHAIN_DEFAULT} AND h.address NOT IN ${COPIED_LEADERS}
+            AND NOT EXISTS (SELECT 1 FROM archive_coverage c WHERE c.chain = h.chain AND c.address = h.address AND c.status = 'active' AND c.covered_from < ${cut})
           ORDER BY h.id
           OFFSET 0
         ) a

@@ -279,12 +279,13 @@ export function inIndexOrder<T extends Record<string, unknown>>(db: DrizzleDb, s
  * history is never pruned or purged. */
 export const COPIED_LEADERS = sql`(SELECT lower(leader_address) FROM copy_strategies WHERE chain = ${CHAIN_DEFAULT} AND status <> 'stopped')`;
 
-/** SQL: the `history_accounts` row `h` has fills no reader can reach: no
- * history job (its snapshots) and no active archive coverage (its spans)
- * for the address, and it is not a copied leader. */
+/** SQL: the `history_accounts` row `h` has fills nothing refers to: no
+ * history job (its snapshots) and no archive coverage row of any status for
+ * the address (an excluded address, a market maker, keeps its history: only
+ * the retention cut applies to it), and it is not a copied leader. */
 export function unreferencedAccount(h: SQL): SQL {
   return sql`(NOT EXISTS (SELECT 1 FROM analysis_history_jobs j WHERE j.chain = ${h}.chain AND j.address = ${h}.address)
-    AND NOT EXISTS (SELECT 1 FROM archive_coverage c WHERE c.chain = ${h}.chain AND c.address = ${h}.address AND c.status = 'active')
+    AND NOT EXISTS (SELECT 1 FROM archive_coverage c WHERE c.chain = ${h}.chain AND c.address = ${h}.address)
     AND ${h}.address NOT IN ${COPIED_LEADERS})`;
 }
 

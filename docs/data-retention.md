@@ -111,8 +111,10 @@ member list and follower observation steps):
    accounts at or after a cursor, in account-id order, each found through
    `history_fills_account_time_idx` (an account with nothing to delete costs
    one index probe). The rows of an account nothing refers to any more (no
-   history job, no active archive span) go whatever their age: they are what
-   an expired job or a dropped address left. After each statement the sweep
+   history job, no archive coverage row of any status) go whatever their age:
+   they are what an expired job or a dropped address left. An excluded
+   address (a market maker) keeps its coverage row, so only the cut applies
+   to it. After each statement the sweep
    waits as long as the statement took (at least 200 ms), so it holds the
    database at most half the time; the lease is extended after each.
    The batch adapts, because a cold heap costs a random page read per row: a

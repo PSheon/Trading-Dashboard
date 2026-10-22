@@ -505,4 +505,16 @@ describe("history_fills retention (RETENTION_HISTORY_FILL_DAYS, 90 days)", () =>
     expect(sizes).toEqual([8, 4, 2]);
     expect(await daysLeft(a(1))).toEqual([150]);
   });
+
+  it("an excluded address (a market maker) is never purged whole: only the cut applies to it", async () => {
+    const excluded = a(1);
+    await db.insert(archiveCoverage).values({ address: excluded, status: "excluded" });
+    await keep(excluded, [100, 5]);
+    const run = await setup().service.run(NOW, true);
+    if (!run.ran) throw new Error("did not run");
+    expect(await daysLeft(excluded)).toEqual([5]);
+    // Nor by an expired job's purge.
+    expect(await store.purgeUnreferenced([excluded], 100)).toBe(0);
+    expect(await daysLeft(excluded)).toEqual([5]);
+  });
 });

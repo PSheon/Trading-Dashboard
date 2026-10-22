@@ -232,7 +232,7 @@ export function systemOverview() {
   const tuning = {
     discovery: { leaderboardRefreshMinutes: 15, candidatePoolSize: 1000, cohortMembersPerTier: 500, cohortRefreshMinutes: 40 },
     weights: { poolLedger: 100, poolPerformance: 240, history: 120, backfill: 120, cohort: 150 },
-    retention: { enabled: true, snapshotDays: 90, auditDays: 365, accountDeletionDays: 365, queueDays: 30, alertDays: 30 },
+    retention: { enabled: true, snapshotDays: 90, auditDays: 365, accountDeletionDays: 365, queueDays: 30, alertDays: 30, copyEquityFullDays: 31, cohortMemberListDays: 30, followerObservationDays: 7 },
   };
   return { sampledAt: now, api: { state: "active", uptimeSeconds: 7200, budget, switches: { ...switches, isWorker: false, archiveEnabled: false }, tuning },
     worker: { state: "standby", sample: { state: "standby", instanceId: "fixture-worker", sampledAt: now, uptimeSeconds: 15, budget: null, heartbeat: null, switches: { ...switches, isWorker: true }, tuning } },
@@ -242,7 +242,8 @@ export function systemOverview() {
     outbox: ["evaluations", "deliveries"].map(kind => ({ kind, pending: 2, processing: 1, failed: 0, due: 1, expiredLeases: 0, oldestDueAt: now })),
     // Last night's retention run: every table reached, snapshots and queues trimmed.
     retention: { running: false, lastStartedAt: "2026-10-01T18:07:00.000Z", lastFinishedAt: "2026-10-01T18:07:42.000Z", lastStatus: "ok", lastError: null, durationMs: 42_180,
-      removed: { position_snapshots: 15_604, equity_snapshots: 4_147, admin_audit_logs: 0, account_deletion_records: 0, deleted_accounts: 0, account_deletion_markers: 0, action_outbox: 1_689, notification_outbox: 212, copy_signal_outbox: 311, alerts: 198, hyperliquid_ws_leases: 96 },
+      removed: { position_snapshots: 15_604, equity_snapshots: 4_147, admin_audit_logs: 0, account_deletion_records: 0, deleted_accounts: 0, account_deletion_markers: 0, action_outbox: 1_689, notification_outbox: 212, copy_signal_outbox: 311, alerts: 198, hyperliquid_ws_leases: 96, copy_equity_snapshots: 2_850, cohort_snapshot_members: 216, copy_follower_observations: 1_430 },
       cutoffs: { position_snapshots: "2026-07-03T18:07:00.000Z", equity_snapshots: "2026-07-03T18:07:00.000Z", admin_audit_logs: "2025-10-01T18:07:00.000Z", account_deletion_records: "2025-10-01T18:07:00.000Z", deleted_accounts: "2025-10-01T18:07:00.000Z", account_deletion_markers: "2025-10-01T18:07:00.000Z",
-        action_outbox: "2026-09-01T18:07:00.000Z", notification_outbox: "2026-09-01T18:07:00.000Z", copy_signal_outbox: "2026-09-01T18:07:00.000Z", alerts: "2026-09-01T18:07:00.000Z", hyperliquid_ws_leases: "2026-10-01T18:07:00.000Z" } } };
+        action_outbox: "2026-09-01T18:07:00.000Z", notification_outbox: "2026-09-01T18:07:00.000Z", copy_signal_outbox: "2026-09-01T18:07:00.000Z", alerts: "2026-09-01T18:07:00.000Z", hyperliquid_ws_leases: "2026-10-01T18:07:00.000Z",
+        copy_equity_snapshots: "2026-08-31T18:07:00.000Z", cohort_snapshot_members: "2026-09-01T18:07:00.000Z", copy_follower_observations: "2026-09-24T18:07:00.000Z" } } };
 }

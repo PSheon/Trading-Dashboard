@@ -2,8 +2,8 @@ import { RETENTION_DEFAULTS, RETENTION_TABLES, adminSettingsSchema, adminSystemS
 import { AppConfig } from "../src/config/app-config.js";
 import { TUNING_DEFAULTS, validateEnvironment } from "../src/config/runtime-config.js";
 import {
-  actionOutbox, actions, adminAuditLogs, alerts, appSettings, copyConsumerCheckpoints, copySignalOutbox,
-  equitySnapshots, hyperliquidEgressQuota, hyperliquidWsLeases, notificationOutbox, positionSnapshots, retentionState,
+  actionOutbox, actions, adminAuditLogs, alerts, analysisHistoryJobs, appSettings, archiveCoverage, archiveIngestState, copyConsumerCheckpoints, copySignalOutbox,
+  equitySnapshots, hyperliquidEgressQuota, hyperliquidWsLeases, kolTraders, notificationOutbox, positionSnapshots, retentionState,
 } from "@trading-dashboard/shared/database";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
@@ -11,11 +11,15 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { AdminSystemRepository } from "../src/admin/admin-system.repository.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
 import { RetentionRepository } from "../src/retention/retention.repository.js";
-import { RetentionService, inRetentionWindow, retentionCutoffs } from '../src/retention/retention.service.js';
+import { RetentionService, historyRetentionCut, inRetentionWindow, retentionCutoffs } from '../src/retention/retention.service.js';
+import { initialCheckpoint } from "../src/analytics/history-checkpoint.js";
+import type { HlUserFill } from "../src/hyperliquid/types.js";
+import { HistoryFillStore } from "../src/traders/history-fill.store.js";
+import { sqlState } from "../src/db/sql-state.js";
 import { BackgroundJobs } from "../src/runtime/background-jobs.service.js";
 import { SettingsRepository } from "../src/settings/settings.repository.js";
 import { SettingsService } from "../src/settings/settings.service.js";
-import { closeTestDb, getTestDb, insertUser, truncateAll } from "./db-test-utils.js";
+import { closeTestDb, getTestDb, insertUser, storedFills, truncateAll } from "./db-test-utils.js";
 import { RETENTION_MIN_INTERVAL_MS } from '../src/config/constants/background.js';
 
 const db = getTestDb();
@@ -59,7 +63,8 @@ function lease(id: string, state: "reserved" | "open" | "closing" | "uncertain" 
 
 describe("data retention", () => {
   it("has the periods the privacy policy states as defaults", () => {
-    expect(RETENTION_DEFAULTS).toEqual({ enabled: true, snapshotDays: 90, auditDays: 365, accountDeletionDays: 365, queueDays: 30, alertDays: 30 });
+    expect(RETENTION_DEFAULTS).toEqual({ enabled: true, snapshotDays: 90, auditDays: 365, accountDeletionDays: 365, queueDays: 30, alertDays: 30,
+      copyEquityFullDays: 31, cohortMemberListDays: 30, followerObservationDays: 7, historyFillDays: 90 });
     expect(TUNING_DEFAULTS.retention).toEqual(RETENTION_DEFAULTS);
     expect(validateEnvironment({ DATABASE_URL: "postgres://u@localhost/db" }).tuning.retention).toEqual(RETENTION_DEFAULTS);
     // No longer an admin setting.
@@ -139,6 +144,7 @@ describe("data retention", () => {
     expect(run.removed).toEqual({
       position_snapshots: 2, equity_snapshots: 2, admin_audit_logs: 1, account_deletion_records: 1, deleted_accounts: 0, account_deletion_markers: 0,
       action_outbox: 2, notification_outbox: 2, copy_signal_outbox: 2, alerts: 1, hyperliquid_ws_leases: 0,
+      copy_equity_snapshots: 0, cohort_snapshot_members: 0, copy_follower_observations: 0,
     });
     expect(Object.keys(run.removed)).toEqual([...RETENTION_TABLES]);
 
@@ -335,5 +341,204 @@ describe("data retention", () => {
     await db.update(retentionState).set({ leaseToken: "x", lockedUntil: new Date(Date.now() + 60_000) });
     expect((await system.retention()).running).toBe(true);
     await db.delete(appSettings);
+  });
+});
+
+describe("history_fills retention (RETENTION_HISTORY_FILL_DAYS, 90 days)", () => {
+  const HOUR = 3_600_000;
+  /** The cut at NOW: the start of the UTC day 90 days back. */
+  const CUT = new Date("2026-07-04T00:00:00Z");
+  const a = (n: number) => `0x${String(n).padStart(40, "0")}`;
+  let tid = 1;
+  const fillAt = (time: Date): HlUserFill => ({
+    tid: tid++, time: time.getTime(), coin: "BTC", px: "100", sz: "1", side: "B", startPosition: "0", closedPnl: "0", dir: "Open Long", hash: "0x1", oid: 1, crossed: true, fee: "0",
+  });
+  const store = new HistoryFillStore(db);
+  const keep = (address: string, days: number[]) => store.insert(days.map((d) => ({ address, source: "regular" as const, origin: "s3" as const, fill: fillAt(ago(d)) })));
+  const daysLeft = async (address: string) => (await storedFills(db, address)).map((row) => Math.round(((NOW.getTime() - row.fill.time) / DAY) * 10) / 10).sort((x, y) => y - x);
+  const job = (address: string) => db.insert(analysisHistoryJobs).values({ address, checkpoint: initialCheckpoint(NOW.getTime(), 0) });
+  const hourOf = (date: Date) => new Date(Math.floor(date.getTime() / HOUR) * HOUR);
+  const coverage = async (address: string) => {
+    const [row] = await db.select().from(archiveCoverage).where(eq(archiveCoverage.address, address));
+    return [row.coveredFrom, row.coveredThrough];
+  };
+
+  it("deletes what is older than the day's cut, moves the archive's spans and floor to it first, and never touches a copied leader", async () => {
+    expect(historyRetentionCut(NOW, 90)).toEqual(CUT);
+    const user = await insertUser(db);
+    const [tracked, gone, jobOnly, orphan, leader] = [1, 2, 3, 4, 5].map(a);
+    // An archive-covered (tracked) address, one whose span is wholly before
+    // the cut, a REST history job's address, fills nothing refers to any
+    // more, and a live copy's leader (covered since long before the cut).
+    await db.insert(kolTraders).values([{ address: tracked }, { address: gone }]);
+    await db.insert(archiveCoverage).values([
+      { address: tracked, coveredFrom: hourOf(ago(120)), coveredThrough: hourOf(ago(0.5)) },
+      { address: gone, coveredFrom: hourOf(ago(150)), coveredThrough: hourOf(ago(120)) },
+      { address: leader, coveredFrom: hourOf(ago(200)), coveredThrough: hourOf(ago(0.5)) },
+    ]);
+    await job(jobOnly);
+    await db.execute(sql`INSERT INTO copy_strategies (user_id, leader_address, status, allocated, cash, activated_at) VALUES (${user.id}, ${leader}, 'active', 100, 100, now())`);
+    await keep(tracked, [120, 91, 90.5, 89, 1]);
+    await keep(gone, [130]);
+    await keep(jobOnly, [100, 10]);
+    await keep(orphan, [200, 5]);
+    await keep(leader, [150, 1]);
+
+    const run = await setup().service.run(NOW, true);
+    if (!run.ran) throw new Error("did not run");
+    // 90.5 days back is after the cut (the cut is a day boundary).
+    expect(await daysLeft(tracked)).toEqual([90.5, 89, 1]);
+    expect(await daysLeft(gone)).toEqual([]);
+    expect(await daysLeft(jobOnly)).toEqual([10]);
+    // Unreachable (no job, no span): every row, however recent.
+    expect(await daysLeft(orphan)).toEqual([]);
+    expect(await daysLeft(leader)).toEqual([150, 1]);
+    expect(run.history).toMatchObject({ cut: CUT.toISOString(), removed: 6, complete: true, timeouts: 0 });
+
+    // Nothing is reported held that is gone: spans start at the cut (one
+    // wholly before it is emptied), and the archive's backfill floor is it.
+    expect(await coverage(tracked)).toEqual([CUT, hourOf(ago(0.5))]);
+    expect(await coverage(gone)).toEqual([null, null]);
+    expect(await coverage(leader)).toEqual([hourOf(ago(200)), hourOf(ago(0.5))]);
+    expect((await db.select().from(archiveIngestState))[0].retainedFrom).toEqual(CUT);
+
+    const [state] = await db.select().from(retentionState);
+    expect(state.historyCut).toEqual(CUT);
+    const [audit] = await db.select().from(adminAuditLogs).where(eq(adminAuditLogs.event, "retention.run"));
+    expect(audit.afterJson).toMatchObject({ history: { cut: CUT.toISOString(), removed: 6, complete: true } });
+    // The admin page's per-table record is unchanged in shape.
+    expect(Object.keys(state.cutoffs ?? {}).sort()).toEqual([...RETENTION_TABLES].sort());
+
+    // Off: nothing is pruned.
+    await keep(tracked, [95]);
+    expect(await setup({}, { enabled: false }).service.run(NOW, true)).toEqual({ ran: false, reason: "disabled" });
+    expect(await daysLeft(tracked)).toEqual([95, 90.5, 89, 1]);
+  });
+
+  it("deletes in bounded statements; a sweep the run's time cut short is continued by the window's later ticks, without repeating the tables", async () => {
+    // A fixed size of 2 (floor = cap): the statements are counted.
+    const { service, repository } = setup({ historyBatchSize: 2, historyBatchFloor: 2, historyBatchCap: 2 });
+    const [first, second] = [1, 2].map(a);
+    await job(first);
+    await job(second);
+    await keep(first, [300, 200, 100, 95]);
+    await keep(second, [120, 110, 92, 1]);
+    const sizes: number[] = [];
+    const deleteBatch = repository.deleteHistoryBatch.bind(repository);
+    repository.deleteHistoryBatch = async (cut, from, limit) => {
+      const result = await deleteBatch(cut, from, limit);
+      sizes.push(result.removed);
+      // The run's time is up after its second statement.
+      if (sizes.length === 2) service.limits.maxRunMs = -1;
+      return result;
+    };
+
+    const night = await service.tick(NOW);
+    if (!night.ran) throw new Error("did not run");
+    expect(night.history).toMatchObject({ cut: CUT.toISOString(), removed: 4, complete: false });
+    expect(night.cutoffs).toHaveProperty("equity_snapshots");
+    const [after] = await db.select().from(retentionState);
+    expect(after.historyCut).toBeNull();
+
+    // The next tick of the same window: the sweep only.
+    service.limits.maxRunMs = 20 * 60_000;
+    await db.insert(equitySnapshots).values({ address, ts: ago(100), accountValue: "1" });
+    const later = await service.tick(new Date(NOW.getTime() + 20 * 60_000));
+    if (!later.ran) throw new Error("did not run");
+    expect([later.status, later.removed, later.cutoffs, later.history]).toEqual(["ok", {}, {}, expect.objectContaining({ cut: CUT.toISOString(), removed: 3, complete: true })]);
+    expect(await count("equity_snapshots")).toBe(1);
+    const [done] = await db.select().from(retentionState);
+    expect(done.lastFinishedAt).toEqual(after.lastFinishedAt);
+    expect(done.removed).toEqual(after.removed);
+    expect(done.historyCut).toEqual(CUT);
+    expect(await daysLeft(first)).toEqual([]);
+    expect(await daysLeft(second)).toEqual([1]);
+    // Never more than a statement's allowance at once.
+    expect(Math.max(...sizes)).toBe(2);
+    // Reached: the rest of the night does nothing.
+    expect(await service.tick(new Date(NOW.getTime() + 40 * 60_000))).toEqual({ ran: false, reason: "recent" });
+  });
+
+  it("a statement cancelled by statement_timeout halves the batch and is retried; fast ones grow it back, within the floor and cap; the audit records it", async () => {
+    // What a cancelled statement looks like through the ORM.
+    const cancelled = await db.transaction(async (tx) => {
+      await tx.execute(sql`SET LOCAL statement_timeout = '20ms'`);
+      await tx.execute(sql`SELECT pg_sleep(1)`);
+    }).catch((error: unknown) => error);
+    expect(sqlState(cancelled)).toBe("57014");
+
+    const { service, repository } = setup({ historyBatchSize: 8, historyBatchFloor: 2, historyBatchCap: 8 });
+    await job(a(1));
+    await keep(a(1), Array.from({ length: 12 }, (_, i) => 100 + i));
+    const sizes: number[] = [];
+    const deleteBatch = repository.deleteHistoryBatch.bind(repository);
+    // A cold heap: a statement of more than 4 rows runs into statement_timeout.
+    repository.deleteHistoryBatch = async (cut, from, limit) => {
+      sizes.push(limit);
+      if (limit > 4) throw Object.assign(new Error("canceling statement due to statement timeout"), { code: "57014" });
+      return deleteBatch(cut, from, limit);
+    };
+    const run = await service.run(NOW, true);
+    if (!run.ran) throw new Error("did not run");
+    expect(run.status).toBe("ok");
+    expect(run.history).toMatchObject({ removed: 12, complete: true });
+    expect(run.history!.timeouts).toBeGreaterThanOrEqual(1);
+    expect(sizes[0]).toBe(8);
+    expect(sizes[1]).toBe(4);
+    // Fast statements grow it again (and the timeouts bring it back down).
+    expect(sizes.some((size, i) => i > 1 && size > sizes[i - 1]!)).toBe(true);
+    expect(Math.min(...sizes)).toBeGreaterThanOrEqual(2);
+    expect(Math.max(...sizes)).toBeLessThanOrEqual(8);
+    expect(await daysLeft(a(1))).toEqual([]);
+    const [audit] = await db.select().from(adminAuditLogs).where(eq(adminAuditLogs.event, "retention.run"));
+    expect(audit.afterJson).toMatchObject({ history: { removed: 12, complete: true, timeouts: run.history!.timeouts, batch: run.history!.batch } });
+
+    // Still cancelled at the floor: the run fails (bounded: 8, 4, 2), nothing is lost, the next tick retries.
+    await keep(a(1), [150]);
+    sizes.length = 0;
+    repository.deleteHistoryBatch = async (_cut, _from, limit) => {
+      sizes.push(limit);
+      throw Object.assign(new Error("canceling statement due to statement timeout"), { code: "57014" });
+    };
+    const failed = await service.run(NOW, true);
+    expect(failed).toMatchObject({ ran: true, status: "failed" });
+    expect(sizes).toEqual([8, 4, 2]);
+    expect(await daysLeft(a(1))).toEqual([150]);
+  });
+
+  it("an excluded address (a market maker) is never purged whole: only the cut applies to it", async () => {
+    const excluded = a(1);
+    await db.insert(archiveCoverage).values({ address: excluded, status: "excluded" });
+    await keep(excluded, [100, 5]);
+    const run = await setup().service.run(NOW, true);
+    if (!run.ran) throw new Error("did not run");
+    expect(await daysLeft(excluded)).toEqual([5]);
+    // Nor by an expired job's purge.
+    expect(await store.purgeUnreferenced([excluded], 100)).toBe(0);
+    expect(await daysLeft(excluded)).toEqual([5]);
+  });
+
+  it("a leader whose copy stops between the trim and the deletes keeps its rows until the next sweep trims its span", async () => {
+    const user = await insertUser(db);
+    const leader = a(2);
+    await db.execute(sql`INSERT INTO copy_strategies (user_id, leader_address, status, allocated, cash, activated_at) VALUES (${user.id}, ${leader}, 'active', 100, 100, now())`);
+    await db.insert(archiveCoverage).values({ address: leader, coveredFrom: hourOf(ago(200)), coveredThrough: hourOf(ago(0.5)) });
+    await keep(leader, [150, 1]);
+    const { service, repository } = setup();
+    const retain = repository.retainHistoryFrom.bind(repository);
+    repository.retainHistoryFrom = async (cut) => {
+      await retain(cut);
+      // The copy stops after the trim left the leader's span whole.
+      await db.execute(sql`UPDATE copy_strategies SET status = 'stopped', stopped_at = now() WHERE leader_address = ${leader}`);
+    };
+    await service.run(NOW, true);
+    // Its span still starts before the cut, so its rows there stay.
+    expect(await coverage(leader)).toEqual([hourOf(ago(200)), hourOf(ago(0.5))]);
+    expect(await daysLeft(leader)).toEqual([150, 1]);
+    // The next sweep trims the span, then deletes below it.
+    repository.retainHistoryFrom = retain;
+    await service.run(NOW, true);
+    expect(await coverage(leader)).toEqual([CUT, hourOf(ago(0.5))]);
+    expect(await daysLeft(leader)).toEqual([1]);
   });
 });

@@ -12,7 +12,7 @@ import { CopyMarketService } from './copy-market.service.js';
 import { wire } from "./copy.mappers.js";
 import { strategyValue } from "./copy-planner.service.js";
 import { CopyRepository } from "./copy.repository.js";
-import { ACTUAL_FRESH_MS, COPY_SNAPSHOT_INTERVAL_MS, FRESH_MS, MIDS_TTL_MS } from '../config/constants/cache-ttls.js';
+import { ACTUAL_FRESH_MS, COPY_EQUITY_FULL_RESOLUTION_MS, COPY_SNAPSHOT_INTERVAL_MS, FRESH_MS, MIDS_TTL_MS } from '../config/constants/cache-ttls.js';
 import { liveEvidenceMaxAgeMs } from '../config/live-evidence-window.js';
 
 /** The portfolio chart's resolution: about this many intervals per window. */
@@ -110,7 +110,9 @@ export class CopyPerformanceService {
     const bucketMs = Math.max(60_000, Math.ceil((to.getTime() - from.getTime()) / 1000 / 60_000) * 60_000);
     const today = new Date(); today.setUTCHours(0, 0, 0, 0);
     const baselineTime = new Date(Math.max(today.getTime(), strategy.createdAt.getTime()));
-    const { sampled, first, last, windowFirst, maxGap, baseline } = await this.repository.runtime.performance(strategyId, from, to, baselineTime, bucketMs, freshMs);
+    // A paper copy's valuations this far before its end may be thinned by retention (live ones never are).
+    const thinnedBefore = actual ? null : new Date(to.getTime() - COPY_EQUITY_FULL_RESOLUTION_MS);
+    const { sampled, first, last, windowFirst, holes, baseline } = await this.repository.runtime.performance(strategyId, from, to, baselineTime, bucketMs, freshMs, thinnedBefore);
     const points = sampled.map((r) => ({
       time: new Date(r.time as string | Date), equity: r.missing || r.equity === null ? null : wire(r.equity as string),
       totalPnl: r.missing || r.total_pnl === null ? null : wire(r.total_pnl as string),
@@ -121,7 +123,7 @@ export class CopyPerformanceService {
     const todayPnl = strategy.stoppedAt && strategy.stoppedAt.getTime() < today.getTime() ? 0 : baselineValid && fresh && baseline.totalPnl !== null && last.totalPnl !== null
       ? wire(Dec.from(last.totalPnl).sub(baseline.totalPnl)) : null;
     const complete = Boolean(first && windowFirst && fresh && windowFirst.time.getTime() <= from.getTime() + stepMs
-      && maxGap <= freshMs && points.every((p) => p.equity !== null));
+      && !holes && points.every((p) => p.equity !== null));
     return { strategyId, mode: actual ? "actual" : "paper", ...(actual ? { network: strategy.network } : {}), window, from, to, points, todayPnl,
       coverage: { firstSnapshotAt: first?.time ?? null, lastSnapshotAt: last?.time ?? null, complete } };
   }

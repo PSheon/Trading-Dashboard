@@ -1589,10 +1589,17 @@ export type MaintenanceSettings = z.infer<typeof maintenanceSettingsSchema>;
  * them (docs/account-deletion.md), counted per tombstone; and
  * `account_deletion_markers`, the deleted identities' keyed hashes.
  * `hyperliquid_ws_leases` are closed Hyperliquid socket leases (a fixed
- * day, not a setting: they are operational, not personal data). */
+ * day, not a setting: they are operational, not personal data).
+ * Since 2026-10-22 (cost reduction): `copy_equity_snapshots`, a paper copy's
+ * per-minute valuations thinned to an hour's first and last once they are
+ * older than its charts' fixed windows; `cohort_snapshot_members`, the member
+ * lists of old cohort history rows (cleared, the row and its membership
+ * hash stay); `copy_follower_observations`, a live account's superseded
+ * observations (never its latest). */
 export const RETENTION_TABLES = [
   "position_snapshots", "equity_snapshots", "admin_audit_logs", "account_deletion_records", "deleted_accounts", "account_deletion_markers",
   "action_outbox", "notification_outbox", "copy_signal_outbox", "alerts", "hyperliquid_ws_leases",
+  "copy_equity_snapshots", "cohort_snapshot_members", "copy_follower_observations",
 ] as const;
 export type RetentionTable = (typeof RETENTION_TABLES)[number];
 
@@ -1617,8 +1624,22 @@ export interface RetentionSettings {
   queueDays: number;
   /** Alert delivery records (`alerts`): what was sent to whom, and its result. */
   alertDays: number;
+  /** A paper copy's valuations keep their one-minute resolution this long
+   * before its end (its stop, or now); older ones are thinned to an hour's
+   * first and last. Not below 31 (the api reads thinned rows from there). */
+  copyEquityFullDays: number;
+  /** Cohort history rows keep the member list they were computed from this
+   * long; then it is cleared (the row, its figures and membership hash stay). */
+  cohortMemberListDays: number;
+  /** A live account's follower observations other than its latest (the only
+   * one read) are deleted after this. */
+  followerObservationDays: number;
+  /** Traders' stored fill history (`history_fills`, public market data, not
+   * personal): figures built from it cover at most this many days. */
+  historyFillDays: number;
 }
-export const RETENTION_DEFAULTS = { enabled: true, snapshotDays: 90, auditDays: 365, accountDeletionDays: 365, queueDays: 30, alertDays: 30 } as const satisfies RetentionSettings;
+export const RETENTION_DEFAULTS = { enabled: true, snapshotDays: 90, auditDays: 365, accountDeletionDays: 365, queueDays: 30, alertDays: 30,
+  copyEquityFullDays: 31, cohortMemberListDays: 30, followerObservationDays: 7, historyFillDays: 90 } as const satisfies RetentionSettings;
 
 /** One schema per `app_settings.key`; `.default()`s are the values before
  * an admin saves anything. */

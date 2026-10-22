@@ -7,6 +7,9 @@ import { runsCopy, workerRoleValue } from "../runtime/worker-role.js";
 import { liveSetupTimings, liveStopTimings, type LiveSetupTimings, type LiveStopTimings } from "./live-timings.js";
 import { HYPERLIQUID_BACKGROUND_REST_CAP, MAINNET_WORKER_WEIGHT } from './constants/hyperliquid.js';
 import { FAST_SOURCE_GRACE_MS, LIVE_EVIDENCE_MAX_AGE_MS, LIVE_TESTNET_EVIDENCE_MAX_AGE_CAP_MS } from './constants/timings.js';
+import { DATABASE_POOL_MAX_API, DATABASE_POOL_MAX_COPY_WORKER, DATABASE_POOL_MAX_READ_WORKER, DATABASE_POOL_MAX_WORKER } from './constants/database.js';
+import { COPY_EQUITY_FULL_RESOLUTION_MS } from './constants/cache-ttls.js';
+import { DAY_MS } from './constants/time.js';
 
 
 
@@ -322,7 +325,8 @@ function archive(source: Environment) {
 export const TUNING_DEFAULTS = {
   discovery: { leaderboardRefreshMinutes: 15, candidatePoolSize: 1000, cohortMembersPerTier: 500, cohortRefreshMinutes: 40 },
   weights: { poolLedger: 100, poolPerformance: 240, history: 120, backfill: 120, cohort: 150 },
-  retention: { enabled: true, snapshotDays: 90, auditDays: 365, accountDeletionDays: 365, queueDays: 30, alertDays: 30 },
+  retention: { enabled: true, snapshotDays: 90, auditDays: 365, accountDeletionDays: 365, queueDays: 30, alertDays: 30,
+    copyEquityFullDays: 31, cohortMemberListDays: 30, followerObservationDays: 7, historyFillDays: 90 },
 } as const;
 export function tuningConfig(source: Environment = {}) {
   const d = TUNING_DEFAULTS;
@@ -347,6 +351,13 @@ export function tuningConfig(source: Environment = {}) {
       accountDeletionDays: integerValue("RETENTION_ACCOUNT_DELETION_DAYS", source.RETENTION_ACCOUNT_DELETION_DAYS, d.retention.accountDeletionDays, 30, 3650),
       queueDays: integerValue("RETENTION_QUEUE_DAYS", source.RETENTION_QUEUE_DAYS, d.retention.queueDays, 7, 3650),
       alertDays: integerValue("RETENTION_ALERT_DAYS", source.RETENTION_ALERT_DAYS, d.retention.alertDays, 7, 3650),
+      // The api reads a paper copy's valuations as thinned from COPY_EQUITY_FULL_RESOLUTION_MS before its end: not below.
+      copyEquityFullDays: integerValue("RETENTION_COPY_EQUITY_FULL_DAYS", source.RETENTION_COPY_EQUITY_FULL_DAYS, d.retention.copyEquityFullDays,
+        COPY_EQUITY_FULL_RESOLUTION_MS / DAY_MS, 3650),
+      cohortMemberListDays: integerValue("RETENTION_COHORT_MEMBER_LIST_DAYS", source.RETENTION_COHORT_MEMBER_LIST_DAYS, d.retention.cohortMemberListDays, 7, 3650),
+      followerObservationDays: integerValue("RETENTION_FOLLOWER_OBSERVATION_DAYS", source.RETENTION_FOLLOWER_OBSERVATION_DAYS, d.retention.followerObservationDays, 1, 3650),
+      // At least 30: the trader figures' 30-day window must stay whole.
+      historyFillDays: integerValue("RETENTION_HISTORY_FILL_DAYS", source.RETENTION_HISTORY_FILL_DAYS, d.retention.historyFillDays, 30, 3650),
     },
   };
 }
@@ -358,9 +369,6 @@ function productionSecret(key: string, value: string | undefined, production: bo
     throw new Error(`${key} must be a strong, non-placeholder secret in production/staging`);
   }
 }
-
-export const DATABASE_POOL_MAX_API = 20;
-export const DATABASE_POOL_MAX_WORKER = 30;
 
 /** Validate before Nest constructs any DB client, watcher or bot. No I/O. */
 export function validateEnvironment(source: Environment = process.env) {
@@ -412,12 +420,14 @@ export function validateEnvironment(source: Environment = process.env) {
   // A worker beside an api on one machine needs its own port: WORKER_PORT
   // wins for the worker (Railway sets PORT per service and leaves it unset).
   port: isWorker && source.WORKER_PORT ? integerValue("WORKER_PORT", source.WORKER_PORT, 3000, 1, 65535) : integerValue("PORT", source.PORT, 3000, 1, 65535) };
-  // The main pool's size (DATABASE_POOL_MAX). pg's default 10 ran out and a
-  // live order failed its 5 s window waiting for a connection. api 20 +
-  // worker 30, with a rolling-deploy overlap and the migration, stay under
+  // The main pool's size (DATABASE_POOL_MAX), by default per process and
+  // worker role (config/constants/database.ts): api 10, copy 20, read 10
+  // (all 30). With a rolling-deploy overlap and the migration they stay under
   // Postgres's default max_connections of 100 (docs/railway-deploy.md).
+  const defaultPoolMax = !isWorker ? DATABASE_POOL_MAX_API
+    : workerRole === "copy" ? DATABASE_POOL_MAX_COPY_WORKER : workerRole === "read" ? DATABASE_POOL_MAX_READ_WORKER : DATABASE_POOL_MAX_WORKER;
   const database = { url: databaseUrl(source.DATABASE_URL),
-    poolMax: integerValue("DATABASE_POOL_MAX", source.DATABASE_POOL_MAX, isWorker ? DATABASE_POOL_MAX_WORKER : DATABASE_POOL_MAX_API, 2, 200) };
+    poolMax: integerValue("DATABASE_POOL_MAX", source.DATABASE_POOL_MAX, defaultPoolMax, 2, 200) };
   const serviceToken = optional(source.AUTH_SERVICE_TOKEN);
   const permissions = servicePermissions(source.AUTH_SERVICE_PERMISSIONS);
   if (permissions.length && !serviceToken) throw new Error("AUTH_SERVICE_TOKEN is required when AUTH_SERVICE_PERMISSIONS is set");

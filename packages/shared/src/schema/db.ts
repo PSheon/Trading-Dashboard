@@ -505,6 +505,18 @@ export const traderStats = pgTable(
   ],
 );
 
+/**
+ * When each chain's leaderboard was last imported (one row per chain, written
+ * in the import's transaction). An import rewrites a `trader_stats` row only
+ * when its figures change (2026-10-22), so a row's `updated_at` is when they
+ * last changed; every row is current as of this import (an import deletes the
+ * rows it did not list). Readers take the later of the two (`traderStatsAsOf`).
+ */
+export const leaderboardImports = pgTable("leaderboard_imports", {
+  chain: text("chain").primaryKey(),
+  importedAt: timestamp("imported_at", { withTimezone: true }).notNull(),
+});
+
 // ---------------------------------------------------------------------------
 // app_settings — 管理員在後台調整的全站設定（每個區塊一列，value 由 zod 驗證）
 // ---------------------------------------------------------------------------
@@ -641,6 +653,10 @@ export const retentionState = pgTable("retention_state", {
   cutoffs: jsonb("cutoffs").$type<Record<string, string>>(),
   lastError: text("last_error"),
   durationMs: integer("duration_ms"),
+  /** The `history_fills` cut (RETENTION_HISTORY_FILL_DAYS) the last
+   * complete sweep reached; until today's cut is reached, later ticks of the
+   * same window continue the sweep. Null: no sweep has completed. */
+  historyCut: timestamp("history_cut", { withTimezone: true }),
 }, (table) => [
   check("retention_state_single_row", sql`${table.id} = 1`),
   check("retention_state_last_status_check", oneOf(table.lastStatus, ["ok", "partial", "failed"])),
@@ -2408,6 +2424,11 @@ export const archiveIngestState = pgTable("archive_ingest_state", {
   /** A fixed code (never provider text): e.g. "missing_object", "parse_error". */
   lastError: text("last_error"),
   version: integer("version").notNull().default(0),
+  /** Stored fills before this are pruned by the retention job
+   * (RETENTION_HISTORY_FILL_DAYS): no span starts before it and no backfill
+   * pass goes below it. Set by the retention job before it deletes; null:
+   * nothing pruned yet. */
+  retainedFrom: timestamp("retained_from", { withTimezone: true }),
 });
 
 /** Per address: the contiguous span of hourly archive objects already
@@ -2415,7 +2436,10 @@ export const archiveIngestState = pgTable("archive_ingest_state", {
  * An address enters as "queued" (no span); the live cursor starts its span
  * and a backfill pass extends `covered_from` backward to the archive's
  * first day. "excluded": too many fills per hour to keep (a market maker);
- * it stays on the REST path and is never reported as archive-covered. */
+ * it stays on the REST path and is never reported as archive-covered.
+ * An active address that leaves the tracked set is still ingested for a
+ * grace period (`untracked_since`), then its row is deleted: it is no longer
+ * ingested, and its stored fills fall to the history job's expiry. */
 export const archiveCoverage = pgTable("archive_coverage", {
   chain: text("chain").notNull().default(CHAIN_DEFAULT),
   address: text("address").notNull(),
@@ -2423,6 +2447,8 @@ export const archiveCoverage = pgTable("archive_coverage", {
   coveredFrom: timestamp("covered_from", { withTimezone: true }),
   coveredThrough: timestamp("covered_through", { withTimezone: true }),
   queuedAt: timestamp("queued_at", { withTimezone: true }).notNull().defaultNow(),
+  /** When the address was first seen outside the tracked set; null while in it. */
+  untrackedSince: timestamp("untracked_since", { withTimezone: true }),
 }, table => [
   primaryKey({ columns: [table.chain, table.address] }),
   index("archive_coverage_from_idx").on(table.coveredFrom),

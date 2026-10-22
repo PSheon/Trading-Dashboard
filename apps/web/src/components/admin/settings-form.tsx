@@ -436,6 +436,8 @@ function AdvancedCard() {
               ["RETENTION_SNAPSHOT_DAYS", tuning.retention.snapshotDays], ["RETENTION_AUDIT_DAYS", tuning.retention.auditDays],
               ["RETENTION_ACCOUNT_DELETION_DAYS", tuning.retention.accountDeletionDays], ["RETENTION_QUEUE_DAYS", tuning.retention.queueDays],
               ["RETENTION_ALERT_DAYS", tuning.retention.alertDays],
+              ["RETENTION_COPY_EQUITY_FULL_DAYS", tuning.retention.copyEquityFullDays ?? "—"], ["RETENTION_COHORT_MEMBER_LIST_DAYS", tuning.retention.cohortMemberListDays ?? "—"],
+              ["RETENTION_FOLLOWER_OBSERVATION_DAYS", tuning.retention.followerObservationDays ?? "—"],
             ] as const).map(([name, v]) => (
               <div key={name} className="flex items-center justify-between gap-3 py-2 text-sm">
                 <dt className="min-w-0 truncate font-mono text-xs font-bold text-muted-foreground" title={name}>{name}</dt>

@@ -6,6 +6,7 @@ import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 import { decodeFill, encodeFill, termsOf, type FillColumns } from "../analytics/fill-codec.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { HlUserFill } from "../hyperliquid/types.js";
+import { HISTORY_RETENTION_BATCH_LIMIT } from "../config/constants/background.js";
 
 export type FillSource = "regular" | "twap";
 export type FillOrigin = "rest" | "s3";
@@ -169,6 +170,32 @@ export class HistoryFillStore {
     return Number(row?.n ?? 0);
   }
 
+  /**
+   * Deletes the fills of these addresses once nothing refers to them
+   * ({@link unreferencedAccount}), oldest first, one bounded statement at a
+   * time and at most `maxRows` in all; returns the rows deleted. A history
+   * job or archive span created meanwhile stops it (each statement checks).
+   * What is left past `maxRows` is the retention job's (its sweep deletes
+   * unreferenced accounts' fills whole).
+   */
+  async purgeUnreferenced(addresses: string[], maxRows: number, batch = HISTORY_RETENTION_BATCH_LIMIT): Promise<number> {
+    await this.ready();
+    let removed = 0;
+    for (const address of addresses) {
+      while (removed < maxRows) {
+        const limit = Math.min(batch, maxRows - removed);
+        const result = await inIndexOrder(this.db, sql`
+          DELETE FROM history_fills WHERE ctid = ANY (ARRAY(
+            SELECT f.ctid FROM history_accounts h JOIN history_fills f ON f.account_id = h.id
+            WHERE h.chain = ${CHAIN_DEFAULT} AND h.address = ${address} AND ${unreferencedAccount(sql`h`)}
+            ORDER BY f.time LIMIT ${limit}))`);
+        removed += result.rowCount ?? 0;
+        if ((result.rowCount ?? 0) < limit) break;
+      }
+    }
+    return removed;
+  }
+
   /** Removes every fill of these addresses; returns the rows deleted. */
   async remove(addresses: string[], db: FillExecutor = this.db): Promise<number> {
     await this.ready();
@@ -229,6 +256,37 @@ function timeRange(range: FillRange): SQL[] {
     ...(range.through ? [lte(historyFills.time, range.through)] : []),
     ...(range.source ? [eq(historyFills.twap, range.source === "twap")] : []),
   ];
+}
+
+/**
+ * Runs a bounded statement that must walk `history_fills_account_time_idx`
+ * in order and stop at its LIMIT. The planner sizes an account by the
+ * table's average, while a few accounts hold most rows (30 addresses, 75 %):
+ * estimated small, it may pick a bitmap scan and a sort, which read and sort
+ * every row of a heavy account before the LIMIT (millions, past
+ * statement_timeout). Without those two for this statement it walks the
+ * index and stops.
+ */
+export function inIndexOrder<T extends Record<string, unknown>>(db: DrizzleDb, statement: SQL) {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`SET LOCAL enable_bitmapscan = off`);
+    await tx.execute(sql`SET LOCAL enable_sort = off`);
+    return tx.execute<T>(statement);
+  });
+}
+
+/** SQL: the live copy strategies' leaders (lower case). Their stored
+ * history is never pruned or purged. */
+export const COPIED_LEADERS = sql`(SELECT lower(leader_address) FROM copy_strategies WHERE chain = ${CHAIN_DEFAULT} AND status <> 'stopped')`;
+
+/** SQL: the `history_accounts` row `h` has fills nothing refers to: no
+ * history job (its snapshots) and no archive coverage row of any status for
+ * the address (an excluded address, a market maker, keeps its history: only
+ * the retention cut applies to it), and it is not a copied leader. */
+export function unreferencedAccount(h: SQL): SQL {
+  return sql`(NOT EXISTS (SELECT 1 FROM analysis_history_jobs j WHERE j.chain = ${h}.chain AND j.address = ${h}.address)
+    AND NOT EXISTS (SELECT 1 FROM archive_coverage c WHERE c.chain = ${h}.chain AND c.address = ${h}.address)
+    AND ${h}.address NOT IN ${COPIED_LEADERS})`;
 }
 
 /** SQL: distinct tids stored for `address` between two times (both

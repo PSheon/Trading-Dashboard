@@ -2,6 +2,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import type { Pool } from "pg";
 import type { AdminSystemOverview, RetentionStatus } from "@trading-dashboard/shared/contracts";
 import { DATABASE_POOL } from "../db/drizzle.provider.js";
+import { LEADERBOARD_AS_OF_SQL } from "../traders/trader-stats-as-of.js";
 
 @Injectable()
 export class AdminSystemRepository {
@@ -34,10 +35,10 @@ export class AdminSystemRepository {
   async data(): Promise<NonNullable<AdminSystemOverview["data"]>> {
     const [row] = await this.query<NonNullable<AdminSystemOverview["data"]>>(`SELECT
       (SELECT count(*)::int FROM trader_stats) AS "leaderboardCount",
-      (SELECT max(updated_at) FROM trader_stats) AS "leaderboardUpdatedAt",
+      ${LEADERBOARD_AS_OF_SQL} AS "leaderboardUpdatedAt",
       (SELECT count(*)::int FROM leaders WHERE active) AS watched,
       json_build_object('leaderboardThresholdMinutes', 60, 'portfolioThresholdMinutes', 1440, 'tradesThresholdMinutes', 1440,
-        'leaderboard', (SELECT CASE WHEN max(updated_at) IS NULL THEN 'missing' WHEN max(updated_at) < now() - interval '60 minutes' THEN 'stale' ELSE 'fresh' END FROM trader_stats),
+        'leaderboard', (SELECT CASE WHEN at IS NULL THEN 'missing' WHEN at < now() - interval '60 minutes' THEN 'stale' ELSE 'fresh' END FROM (SELECT ${LEADERBOARD_AS_OF_SQL} AS at) l),
         'portfolioStale', count(*) FILTER (WHERE portfolio_at < now() - interval '24 hours'),
         'portfolioMissing', count(*) FILTER (WHERE portfolio_at IS NULL),
         'tradesStale', count(*) FILTER (WHERE trades_at < now() - interval '24 hours'),

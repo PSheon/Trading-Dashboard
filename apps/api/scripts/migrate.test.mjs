@@ -42,9 +42,10 @@ test('defers only the exact immutable 0026 CHECK migration without changing its 
 
 /** Tables large enough that a plain CREATE INDEX blocks their writes for
  * minutes, and with lock_timeout 15 s may fail the release (dev: history_fills
- * 2.4 GB, analysis_history_fills_retired 4.1 GB, fills 0.3 GB on 2026-10-05).
+ * 2.4 GB, fills 0.3 GB on 2026-10-05; analysis_history_fills_retired, 4.1 GB
+ * then, is dropped by 0088).
  * docs/backend-conventions.md, "Indexes on large tables". */
-const LARGE_TABLES = ['history_fills', 'analysis_history_fills_retired', 'fills', 'trader_stats', 'position_snapshots', 'actions', 'trader_trades', 'equity_snapshots', 'history_accounts'];
+const LARGE_TABLES = ['history_fills', 'fills', 'trader_stats', 'position_snapshots', 'actions', 'trader_trades', 'equity_snapshots', 'history_accounts'];
 /** Migrations up to here are applied somewhere and immutable. */
 const LAST_MIGRATION_BEFORE_RULE = 1791129916485; // 0060_grant_revoke_requested
 test('a new index on a large table is IF NOT EXISTS, so the release finds the one built CONCURRENTLY beforehand', () => {

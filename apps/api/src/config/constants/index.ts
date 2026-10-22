@@ -8,3 +8,4 @@ export * from './alerts.js';
 export * from './cache-ttls.js';
 export * from './http.js';
 export * from './background.js';
+export * from './database.js';

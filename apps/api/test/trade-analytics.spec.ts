@@ -8,6 +8,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import type { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
 import type { HlUserFill, HlUserFundingEntry } from "../src/hyperliquid/types.js";
 import { TradeAnalyticsController } from "../src/traders/trade-analytics.controller.js";
+import { RetentionRepository } from "../src/retention/retention.repository.js";
 import { AnalysisHistoryRepository } from "../src/traders/analysis-history.repository.js";
 import { HistoryFillStore } from "../src/traders/history-fill.store.js";
 import { AnalysisHistoryService } from "../src/traders/analysis-history.service.js";
@@ -712,6 +713,73 @@ describe("trade analytics for any address", () => {
     expect(trades.items[0].exitTime).toBeNull();
     await production.fundingStep(X);
     expect(info.userFunding.mock.calls.at(-1)?.[2]).toBe(T(10));
+  });
+
+  it("once the retention cut passes a ledger's start, the snapshot of what is kept replaces it, and coverage starts there", async () => {
+    const archiveRepository = new AnalysisHistoryRepository(db);
+    const archive = new AnalysisHistoryService(archiveRepository, info as unknown as HyperliquidInfoClient);
+    const production = new TradeAnalyticsService(new TradeAnalyticsRepository(db), traders as unknown as TradersService, info as unknown as HyperliquidInfoClient, undefined, archive);
+    await archiveRepository.ensure(X);
+    await archive.advance((await archiveRepository.state(X))!);
+    await production.compute(X, true, { funding: false });
+    await production.settled();
+    const btc = BigInt(history[0].tid);
+    expect((await new TradeAnalyticsRepository(db).allTrades(X)).map((t) => t.openTid)).toContain(btc);
+    expect((await production.analytics(X, "all")).coverage.from).toEqual(new Date(T(50)));
+
+    // The retention job prunes what precedes T(40) (the BTC round trip).
+    const retention = new RetentionRepository(db);
+    await retention.retainHistoryFrom(new Date(T(40)));
+    await retention.deleteHistoryBatch(new Date(T(40)), 0, 1_000);
+    // A new fill closes SOL; the job publishes past it.
+    history.push(fill("SOL", 5, -5, 12, Date.now(), { closedPnl: "10" }));
+    livePositions = [];
+    await archive.advance((await archiveRepository.state(X))!);
+    await production.compute(X, false, { funding: false });
+    await production.settled();
+
+    const trades = await new TradeAnalyticsRepository(db).allTrades(X);
+    expect(trades.map((t) => t.openTid)).not.toContain(btc);
+    expect(trades.map((t) => t.coin).sort()).toEqual(["ETH", "SOL"]);
+    const result = await production.analytics(X, "all");
+    // Figures claim only what is kept: from the first kept fill, partial.
+    expect(result.coverage).toMatchObject({ from: new Date(T(30)), truncated: true });
+    expect(result.coverage.through).toBeInstanceOf(Date);
+    expect(result.summary).toMatchObject({ trades: 2 });
+  });
+
+  it("a moving retention cut does not rebuild a tracked ledger: its trade opened from pruned fills stays whole, and new fills extend it", async () => {
+    tracked.add(TRACKED);
+    const hour = (hoursAgo: number) => Math.floor(T(hoursAgo) / HOUR) * HOUR;
+    // Opened in the archive, partly closed in our own table: still open.
+    const opening = fill("BTC", 0, 2, 100, T(50));
+    const partly = fill("BTC", 2, -1, 120, T(5), { closedPnl: "20" });
+    await db.insert(fills).values(toFillRow(TRACKED, partly));
+    await db.insert(fillCoverage).values({ address: TRACKED, verifiedFrom: new Date(T(10)), verifiedThrough: new Date(NOW), backfillFloor: new Date(T(10)), backfillStatus: "retention" });
+    await db.insert(archiveCoverage).values({ address: TRACKED, coveredFrom: new Date(hour(100)), coveredThrough: new Date(hour(8)) });
+    await new HistoryFillStore(db).insert([{ address: TRACKED, source: "regular", origin: "s3", fill: opening }]);
+    const archive = new AnalysisHistoryService(new AnalysisHistoryRepository(db), info as unknown as HyperliquidInfoClient);
+    const production = new TradeAnalyticsService(new TradeAnalyticsRepository(db), traders as unknown as TradersService, info as unknown as HyperliquidInfoClient, undefined, archive);
+    await production.compute(TRACKED, true, { funding: false });
+    await production.settled();
+    expect(production.lastLog.get(TRACKED)!.at(-1)).toMatchObject({ kind: "tracked", fills: 2 });
+
+    // The day's cut passes the opening: the span moves to it, the fill is gone.
+    const retention = new RetentionRepository(db);
+    await retention.retainHistoryFrom(new Date(hour(40)));
+    await retention.deleteHistoryBatch(new Date(hour(40)), 0, 1_000);
+    expect(await storedFills(db, TRACKED)).toEqual([]);
+    const closing = fill("BTC", 1, -1, 125, T(1), { closedPnl: "25" });
+    await db.insert(fills).values(toFillRow(TRACKED, closing));
+    await production.compute(TRACKED, false, { funding: false });
+    await production.settled();
+
+    // Extended (the one new fill), not rebuilt from the cut: the trade keeps its opening.
+    expect(production.lastLog.get(TRACKED)!.at(-1)).toMatchObject({ kind: "tracked", fills: 1 });
+    const trades = await new TradeAnalyticsRepository(db).allTrades(TRACKED);
+    expect(trades).toHaveLength(1);
+    expect(trades[0]).toMatchObject({ openTid: BigInt(opening.tid), entryTime: opening.time, exitTime: closing.time });
+    tracked.delete(TRACKED);
   });
 
   it("does not replace a longer existing ledger with shorter retained upstream history", async () => {

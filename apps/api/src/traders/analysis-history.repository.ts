@@ -1,13 +1,13 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { and, asc, count, eq, inArray, isNull, lt, ne, or, sql, type SQL } from "drizzle-orm";
-import { analysisHistoryJobs, archiveCoverage, discoveryTraders, kolTraders, leaders, userFavorites } from "@trading-dashboard/shared/database";
+import { analysisHistoryJobs, archiveCoverage, archiveIngestState, discoveryTraders, kolTraders, leaders, userFavorites } from "@trading-dashboard/shared/database";
 import { CHAIN_DEFAULT } from "@trading-dashboard/shared/contracts";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { HlUserFill } from "../hyperliquid/types.js";
 import { HistoryFillStore, type StoredHistoryFill } from "./history-fill.store.js";
 import { certifiedSpan, completeCheckpoint, initialCheckpoint, type ArchiveSpan, type HistoryCheckpoint, type HistorySource } from "../analytics/history-checkpoint.js";
-import { REQUESTED_JOB_TTL_MS } from '../config/constants/background.js';
+import { EXPIRED_FILLS_PURGE_LIMIT, REQUESTED_JOB_TTL_MS } from '../config/constants/background.js';
 
 export type HistoryJob = typeof analysisHistoryJobs.$inferSelect;
 /** Who asks for an address's durable history: the product's own jobs (the
@@ -82,20 +82,31 @@ export class AnalysisHistoryRepository {
   }
   /**
    * Deletes up to `EXPIRE_BATCH` jobs nobody has asked for since `cutoff`
-   * whose address the product does not follow, and the fills kept for
+   * whose address the product does not follow, then the fills kept for
+   * them, in bounded statements (an address that left the archive's tracked
+   * set can hold millions: one statement would outlast statement_timeout and
+   * stop every later expiry). Fills past `EXPIRED_FILLS_PURGE_LIMIT` are no
+   * longer reachable (no job, no span) and the retention job's sweep ends
    * them. Returns the number of jobs removed.
    */
-  async expire(now = Date.now(), ttlMs = REQUESTED_JOB_TTL_MS): Promise<number> {
-    return this.db.transaction(async tx => {
+  async expire(now = Date.now(), ttlMs = REQUESTED_JOB_TTL_MS, purgeRows = EXPIRED_FILLS_PURGE_LIMIT): Promise<number> {
+    const addresses = await this.db.transaction(async tx => {
       const stale = await tx.select({ address: analysisHistoryJobs.address }).from(analysisHistoryJobs)
         .where(and(eq(analysisHistoryJobs.chain, CHAIN_DEFAULT), lt(analysisHistoryJobs.requestedAt, new Date(now - ttlMs)), sql`not ${known(sql`${analysisHistoryJobs.address}`)}`))
         .orderBy(asc(analysisHistoryJobs.requestedAt)).limit(EXPIRE_BATCH).for("update", { skipLocked: true });
-      if (stale.length === 0) return 0;
+      if (stale.length === 0) return [];
       const addresses = stale.map(r => r.address);
-      await this.fills.remove(addresses, tx);
       await tx.delete(analysisHistoryJobs).where(and(eq(analysisHistoryJobs.chain, CHAIN_DEFAULT), inArray(analysisHistoryJobs.address, addresses)));
-      return addresses.length;
+      return addresses;
     });
+    if (addresses.length > 0) await this.fills.purgeUnreferenced(addresses, purgeRows);
+    return addresses.length;
+  }
+  /** Stored fills before this are pruned (RETENTION_HISTORY_FILL_DAYS, set
+   * by the retention job before it deletes); null: nothing pruned yet. */
+  async retainedFrom(): Promise<Date | null> {
+    const [row] = await this.db.select({ at: archiveIngestState.retainedFrom }).from(archiveIngestState).where(eq(archiveIngestState.chain, CHAIN_DEFAULT));
+    return row?.at ?? null;
   }
   /** Keep fills already fetched by the live analysis path, including
    * records which may expire upstream before the background scan reaches them. */

@@ -1031,6 +1031,10 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
   });
 
   describe("GET /traders/:address/activity (sample size, last trade)", () => {
+    // The recorded fixture ends 2026-09-22: the 30-day sample is read a day after its newest fill, not at
+    // today's clock (every run failed from 2026-10-22 05:23 UTC, when the fixture left the window).
+    const atFixtureTime = () => vi.useFakeTimers({ toFake: ["Date"], now: Math.max(...userFillsFixture.map((f) => f.time)) + 86_400_000 });
+    afterEach(() => { vi.useRealTimers(); });
     const hl = (hoursAgo: number, coin = "BTC", tid = Math.floor(Math.random() * 1e12)): HlUserFill => ({
       ...userFillsFixture[0],
       coin,
@@ -1160,6 +1164,7 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
     });
 
     it("uses Hyperliquid's count for a tracked address when ours has holes, and ours if Hyperliquid fails", async () => {
+      atFixtureTime();
       await db.insert(leaders).values({ address: C });
       // No fills of ours at all (e.g. imported today): the upstream sample wins.
       const upstream = sampleFromLists([userFillsFixture], Date.now() - 30 * 86_400_000);
@@ -1177,6 +1182,7 @@ describe("TradersModule — real Postgres, fake Hyperliquid", () => {
     });
 
     it("maps upstream failure to 502, and past the deadline answers 503 busy while the work carries on into the cache", async () => {
+      atFixtureTime();
       info.userFills.mockRejectedValueOnce(new Error("Hyperliquid info request failed: 500"));
       await expectStatus(controller.activity(UNKNOWN), 502);
       await expectStatus(() => controller.activity("0x12"), 400);

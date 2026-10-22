@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
 import { ConflictException, Inject, Injectable } from "@nestjs/common";
-import { and, asc, desc, eq, gt, gte, inArray, lt, lte, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, lt, lte, ne, sql, type SQL } from "drizzle-orm";
 import { copyEquitySnapshots, copyEvents, copyExecutionAccounts, copyFollowerObservationJobs, copyFollowerObservations, copyFundingOperations, copyOperations,
   copyPaperFills, copyStrategies } from "@trading-dashboard/shared/database";
 import { ACTUAL_STRATEGY_MODE, type HyperliquidNetwork } from "@trading-dashboard/shared/contracts";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { DbTransaction } from "../db/unit-of-work.js";
+import { COPY_EQUITY_FULL_RESOLUTION_MS, COPY_EQUITY_THINNED_FRESH_MS } from "../config/constants/cache-ttls.js";
 
 /** Only normalized schema-parsed JSON is fingerprinted; object order is irrelevant. */
 export function operationFingerprint(value: unknown): string {
@@ -26,6 +27,14 @@ export async function insertOwnerEvent(tx: DbTransaction, userId: number, strate
   await tx.insert(copyEvents).values({ userId, strategyId, type, payload: structuredClone(payload) });
   await tx.execute(sql`select pg_notify(${COPY_EVENTS_CHANNEL}, ${String(userId)})`);
 }
+
+/** The longest gap after a valuation at `at` that is not a hole (milliseconds, SQL): where
+ * retention may have thinned it (`at` before `thinnedBefore`), COPY_EQUITY_THINNED_FRESH_MS,
+ * else `freshMs`. A null `thinnedBefore` (a live copy's) is `freshMs`. */
+const allowedGap = (at: SQL, thinnedBefore: SQL, freshMs: number) =>
+  sql`(case when ${at} < ${thinnedBefore} then ${COPY_EQUITY_THINNED_FRESH_MS}::numeric else ${freshMs}::numeric end)`;
+/** Where a paper copy `s` (aliased so) may be thinned: COPY_EQUITY_FULL_RESOLUTION_MS before its stop, or `now`. */
+const paperThinnedBefore = (now: SQL) => sql`(coalesce(s.stopped_at, ${now}) - make_interval(secs => ${COPY_EQUITY_FULL_RESOLUTION_MS / 1000}::double precision))`;
 
 @Injectable()
 export class CopyRuntimeRepository {
@@ -103,13 +112,17 @@ export class CopyRuntimeRepository {
     return row;
   }
 
-  async performance(strategyId: number, from: Date, to: Date, baselineTime: Date, bucketMs: number, freshMs: number) {
+  /** `thinnedBefore`: a paper copy's valuations before it may be thinned by retention (null:
+   * a live copy's, never thinned); a gap after one of them is a hole only past COPY_EQUITY_THINNED_FRESH_MS.
+   * `holes`: some gap in the window is a hole. */
+  async performance(strategyId: number, from: Date, to: Date, baselineTime: Date, bucketMs: number, freshMs: number, thinnedBefore: Date | null) {
     const inWindow = and(eq(copyEquitySnapshots.strategyId, strategyId), gte(copyEquitySnapshots.time, from), lte(copyEquitySnapshots.time, to));
+    const allowed = allowedGap(sql`previous`, sql`${thinnedBefore}::timestamptz`, freshMs);
     const sampled = await this.db.execute(sql`
       select distinct on (bucket) time, equity, total_pnl, net_deposits, exposure_usd, missing
       from (
         select *, floor(extract(epoch from time) * 1000 / ${bucketMs}) as bucket,
-          bool_or(equity is null or extract(epoch from (time - previous)) * 1000 > ${freshMs})
+          bool_or(equity is null or extract(epoch from (time - previous)) * 1000 > ${allowed})
             over (partition by floor(extract(epoch from time) * 1000 / ${bucketMs})) as missing
         from (
           select *, lag(time) over(order by time) as previous from ${copyEquitySnapshots}
@@ -120,13 +133,13 @@ export class CopyRuntimeRepository {
     const [first] = await this.db.select().from(copyEquitySnapshots).where(eq(copyEquitySnapshots.strategyId, strategyId)).orderBy(asc(copyEquitySnapshots.time)).limit(1);
     const [last] = await this.db.select().from(copyEquitySnapshots).where(inWindow).orderBy(desc(copyEquitySnapshots.time)).limit(1);
     const [windowFirst] = await this.db.select().from(copyEquitySnapshots).where(inWindow).orderBy(asc(copyEquitySnapshots.time)).limit(1);
-    const gap = await this.db.execute(sql`select max(extract(epoch from (time - previous))) * 1000 as gap from (
+    const gap = await this.db.execute(sql`select coalesce(bool_or(extract(epoch from (time - previous)) * 1000 > ${allowed}), false) as holes from (
       select time, lag(time) over(order by time) as previous from ${copyEquitySnapshots}
       where strategy_id = ${strategyId} and time >= ${from} and time <= ${to}
     ) intervals`);
     const [baseline] = await this.db.select().from(copyEquitySnapshots).where(and(eq(copyEquitySnapshots.strategyId, strategyId), lte(copyEquitySnapshots.time, baselineTime)))
       .orderBy(desc(copyEquitySnapshots.time)).limit(1);
-    return { sampled: sampled.rows, first, last, windowFirst, maxGap: Number(gap.rows[0]?.gap ?? 0), baseline };
+    return { sampled: sampled.rows, first, last, windowFirst, holes: gap.rows[0]?.holes === true, baseline };
   }
 
   /** First creation time of the owner's paper copies (the portfolio's "all" start). */
@@ -155,7 +168,7 @@ export class CopyRuntimeRepository {
         coalesce(bool_or(s.created_at <= t.time and not (
           (snap.time is null and extract(epoch from (t.time - s.created_at)) * 1000 <= ${freshMs})
           or (snap.time is not null and snap.total_pnl is not null and ((s.stopped_at is not null and s.stopped_at <= t.time)
-            or extract(epoch from (t.time - snap.time)) * 1000 <= ${freshMs}))
+            or extract(epoch from (t.time - snap.time)) * 1000 <= ${allowedGap(sql`snap.time`, paperThinnedBefore(sql`${to}::timestamptz`), freshMs)}))
         )), false) as missing
       from t left join s on s.created_at <= t.time
       left join lateral (
@@ -177,7 +190,7 @@ export class CopyRuntimeRepository {
           when snap.time is null then case when g.i = 0 then '0' else null end
           when snap.total_pnl is null then null
           when s.stopped_at is not null and s.stopped_at <= tt.time then snap.total_pnl::text
-          when extract(epoch from (tt.time - snap.time)) * 1000 > ${freshMs} then null
+          when extract(epoch from (tt.time - snap.time)) * 1000 > ${allowedGap(sql`snap.time`, paperThinnedBefore(sql`now()`), freshMs)} then null
           else snap.total_pnl::text
         end as pnl
       from ${copyStrategies} s

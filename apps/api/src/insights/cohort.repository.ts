@@ -5,6 +5,7 @@ import { CHAIN_DEFAULT, type CohortTier } from "@trading-dashboard/shared/contra
 
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
+import { upsertChanged } from "../db/upsert-changed.js";
 import { COHORT_HISTORY_MIN_COVERAGE, COHORT_MAX_PERP_EQUITY, COHORT_TIERS, TIER_BOUNDS } from "./cohorts.js";
 
 export type CohortMemberRow = typeof cohortMembers.$inferSelect;
@@ -100,7 +101,8 @@ export class CohortRepository {
   }
 
   /** Makes the members exactly `candidates` in one transaction; existing ones
-   * keep their snapshot. */
+   * keep their snapshot. A member whose tier, source, rank and figures are
+   * unchanged and whose dexes are all known already is not rewritten. */
   async sync(candidates: CohortCandidate[]): Promise<{ added: number; removed: number }> {
     return this.db.transaction(async (tx) => {
       const keep = candidates.map((c) => c.address);
@@ -125,6 +127,8 @@ export class CohortRepository {
               // Known dexes only grow here; a refresh prunes them.
               dexes: sql`(select coalesce(array_agg(distinct d), '{}') from unnest(${cohortMembers.dexes} || excluded.dexes) as d)`,
             },
+            setWhere: sql`${upsertChanged([cohortMembers.tier, cohortMembers.source, cohortMembers.rank, cohortMembers.pnlAll, cohortMembers.roiAll])}
+              or not (excluded.dexes <@ ${cohortMembers.dexes})`,
           })
           .returning({ inserted: sql<boolean>`xmax = 0` });
         added += rows.filter((r) => r.inserted).length;

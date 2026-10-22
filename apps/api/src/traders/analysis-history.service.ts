@@ -55,6 +55,8 @@ export class AnalysisHistoryService {
   ensure(address: string, from?: number, caller: HistoryCaller = "product") { return this.repository.ensure(address, Date.now(), from, caller); }
   preserve(address: string, fills: HlUserFill[]) { return this.repository.preserve(address, fills); }
   snapshot(address: string) { return this.repository.snapshot(address); }
+  /** Where stored history starts being kept (the retention cut); null: nothing pruned. */
+  retainedFrom() { return this.repository.retainedFrom(); }
   async status(address: string) {
     const job = await this.repository.state(address);
     return job ? {

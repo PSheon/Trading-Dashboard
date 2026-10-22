@@ -36,7 +36,8 @@ function archiveStoreFrom(config: AppConfig): ArchiveStore | undefined {
  * - live, forward: the next hour once settled; every active address's span grows;
  * - backfill, backward: from the latest span start to the window's floor; an
  *   address joins at the hour just before its own span, so spans stay contiguous.
- *   Passes start at most every `passIntervalHours`.
+ *   Passes start at most every `passIntervalHours`. The floor is never below
+ *   the history retention cut (`retained_from`).
  * One object = one unit: fills inserted (idempotent), then cursor, coverage and
  * spend commit in one transaction, so a restart re-reads at most that object.
  * Spend is capped per tick (`maxBytesPerMinute`) and per UTC day (`maxDailyUsd`).
@@ -94,7 +95,7 @@ export class ArchiveIngestService {
     if (!this.store) return [];
     const options = this.config.value.archive;
     const started = Date.now();
-    const floor = backfillFloor(now, options.start, options.backfillDays);
+    const windowFloor = backfillFloor(now, options.start, options.backfillDays);
     await this.repository.syncTrackedSet();
     const outcomes: ObjectOutcome[] = [];
     let bytes = 0;
@@ -106,6 +107,7 @@ export class ArchiveIngestService {
         state = await this.repository.moveCursor(state, { liveNextHour: new Date(floorHour(now) - HOUR_MS) }) ?? state;
         if (state.liveNextHour === null) break;
       }
+      const floor = retainedFloor(windowFloor, state);
       const liveHour = state.liveNextHour.getTime();
       const liveDue = !liveDone && liveHour + HOUR_MS + options.settleMinutes * 60_000 <= now;
       let direction: IngestDirection;
@@ -126,6 +128,11 @@ export class ArchiveIngestService {
         }
         direction = "backfill";
         hour = state.backfillCursorHour.getTime();
+        if (hour < floor) {
+          // The retention cut passed the cursor: what is left of the pass is pruned history.
+          await this.repository.moveCursor(state, { backfillCursorHour: null });
+          break;
+        }
       }
       const outcome = await this.ingestObject(state, direction, hour, now, floor);
       outcomes.push(outcome.result);
@@ -217,8 +224,9 @@ export class ArchiveIngestService {
   /** `/health` figures: cursors, lag, volume and today's spend. */
   async status(now = Date.now()): Promise<NonNullable<HeartbeatResponse["archive"]>> {
     const options = this.config.value.archive;
-    const floor = backfillFloor(now, options.start, options.backfillDays);
-    const [state, addresses] = await Promise.all([this.repository.state(), this.repository.coverageCounts(floor)]);
+    const state = await this.repository.state();
+    const floor = retainedFloor(backfillFloor(now, options.start, options.backfillDays), state);
+    const addresses = await this.repository.coverageCounts(floor);
     const today = new Date(now).toISOString().slice(0, 10);
     const spendDayBytes = state.spendDay === today ? state.spendDayBytes : 0;
     return {
@@ -242,6 +250,13 @@ export class ArchiveIngestService {
       lastError: state.lastError,
     };
   }
+}
+
+/** The backfill window's floor, never below the history retention cut:
+ * fills before it are pruned (`retained_from`), so reading them again would
+ * only buy rows to delete. */
+function retainedFloor(windowFloor: number, state: ArchiveState): number {
+  return state.retainedFrom ? Math.max(windowFloor, state.retainedFrom.getTime()) : windowFloor;
 }
 
 function errorCode(error: Error): string {

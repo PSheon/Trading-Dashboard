@@ -8,6 +8,7 @@ import type { DrizzleDb } from "../db/drizzle.provider.js";
 import { HistoryFillStore } from "../traders/history-fill.store.js";
 import { fillStream, type ArchiveFill } from './archive-format.js';
 import { HOUR_MS } from '../config/constants/time.js';
+import { ARCHIVE_UNTRACKED_GRACE_MS } from '../config/constants/background.js';
 
 export type ArchiveState = typeof archiveIngestState.$inferSelect;
 export type IngestDirection = "live" | "backfill";
@@ -60,15 +61,37 @@ export class ArchiveIngestRepository {
     return result.rows.map((row) => row.address);
   }
 
-  /** Queues every tracked address that has no coverage row yet; returns how
-   * many entered. Rows are never removed: an address that leaves the set
-   * keeps its history and keeps being extended (cheap, and it may return). */
+  /**
+   * Queues every tracked address that has no coverage row yet; returns how
+   * many entered. An active address that left the set is still ingested for
+   * `ARCHIVE_UNTRACKED_GRACE_MS` (the pool and cohorts are rebuilt all day,
+   * and an address at their edge comes back), then its row is deleted: the
+   * live cursor no longer reads for it, and with no active coverage its
+   * history job is no longer `known`, so the job's expiry reclaims its fills.
+   * Copied leaders are in the set while their copy runs, so never leave it.
+   * An excluded row is left as it is. One statement, so every part sees one
+   * snapshot of the set (a data-modifying part runs even if nothing reads it).
+   */
   async syncTrackedSet(): Promise<number> {
-    const result = await this.db.execute(sql`
-      INSERT INTO archive_coverage (chain, address)
-      SELECT DISTINCT ${CHAIN_DEFAULT}, lower(address) FROM (${TRACKED_SET_SQL}) tracked
-      ON CONFLICT DO NOTHING`);
-    return result.rowCount ?? 0;
+    const result = await this.db.execute<{ entered: number }>(sql`
+      WITH tracked AS MATERIALIZED (
+        SELECT DISTINCT lower(address) AS address FROM (${TRACKED_SET_SQL}) tracked WHERE address IS NOT NULL
+      ), entered AS (
+        INSERT INTO archive_coverage (chain, address) SELECT ${CHAIN_DEFAULT}, address FROM tracked
+        ON CONFLICT DO NOTHING RETURNING 1
+      ), returned AS (
+        UPDATE archive_coverage c SET untracked_since = NULL
+        WHERE c.chain = ${CHAIN_DEFAULT} AND c.untracked_since IS NOT NULL AND EXISTS (SELECT 1 FROM tracked t WHERE t.address = c.address)
+      ), departed AS (
+        UPDATE archive_coverage c SET untracked_since = now()
+        WHERE c.chain = ${CHAIN_DEFAULT} AND c.status = 'active' AND c.untracked_since IS NULL AND NOT EXISTS (SELECT 1 FROM tracked t WHERE t.address = c.address)
+      ), dropped AS (
+        DELETE FROM archive_coverage c
+        WHERE c.chain = ${CHAIN_DEFAULT} AND c.status = 'active' AND c.untracked_since < now() - ${ARCHIVE_UNTRACKED_GRACE_MS} * interval '1 millisecond'
+          AND NOT EXISTS (SELECT 1 FROM tracked t WHERE t.address = c.address)
+      )
+      SELECT (SELECT count(*) FROM entered)::int AS entered`);
+    return result.rows[0]?.entered ?? 0;
   }
 
   /** Explicit admission (same effect as the next sync), for callers that
@@ -163,7 +186,9 @@ export class ArchiveIngestRepository {
         // Contiguous spans grow; an address seen for the first time starts one.
         await tx.update(archiveCoverage).set({ coveredThrough: next }).where(and(scope, eq(archiveCoverage.coveredThrough, hour)));
         await tx.update(archiveCoverage).set({ coveredFrom: hour, coveredThrough: next }).where(and(scope, isNull(archiveCoverage.coveredFrom)));
-      } else {
+      } else if (saved.retainedFrom === null || commit.hour >= saved.retainedFrom.getTime()) {
+        // Never below the retention cut: fills there are being deleted. The
+        // state row is locked by this transaction, so the cut read is current.
         await tx.update(archiveCoverage).set({ coveredFrom: hour }).where(and(scope, eq(archiveCoverage.coveredFrom, next)));
       }
       return saved;

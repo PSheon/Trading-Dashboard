@@ -104,7 +104,7 @@ Secrets are set in Railway per service and per environment; nothing here belongs
 | `NODE_ENV` | `staging` | `production` | both enable production-grade validation |
 | `PORT` | `3000` | `3000` | |
 | `DATABASE_URL` | ref → Stage Postgres | ref → production Postgres | never the other environment's |
-| `DATABASE_POOL_MAX` | unset (20) | unset (20) | the api's main pool; see "Database connections" below |
+| `DATABASE_POOL_MAX` | unset (10) | unset (10) | the api's main pool; see "Database connections" below |
 | `PRIVY_APP_ID`, `PRIVY_APP_SECRET`, `PRIVY_VERIFICATION_KEY` | Stage Privy app | production Privy app | api only |
 | `AUTH_ADMIN_EMAILS` | owner's email(s) | owner's email(s) | bootstrap admins |
 | `AUTH_SERVICE_TOKEN`, `AUTH_SERVICE_PERMISSIONS` | unset | unset unless a service caller exists | ≥ 32 chars when set |
@@ -121,7 +121,7 @@ Secrets are set in Railway per service and per environment; nothing here belongs
 | Variable | Stage | Production | Notes |
 | --- | --- | --- | --- |
 | `IS_WORKER` | `true` | `true` | replaces `APP_ROLE=worker` (delete `APP_ROLE`) |
-| `DATABASE_POOL_MAX` | unset (30) | unset (30) | the worker's main pool (its lease takes one more connection); see "Database connections" |
+| `DATABASE_POOL_MAX` | unset (copy 20, read 10; `all` 30) | unset (same) | the worker's main pool, by `WORKER_ROLE` (its lease takes one more connection); see "Database connections" |
 | `NODE_ENV`, `PORT`, `DATABASE_URL` | as api | as api | `WORKER_PORT` wins over `PORT` when set (one machine). `DATABASE_URL` must be the api's exact value: `/health/monitor` (the admin system page's worker telemetry) answers only the key the api derives from it (`src/runtime/worker-calls.ts`); with another value the page shows the worker as unavailable |
 | `HYPERLIQUID_WEIGHT_BUDGET_PER_MIN` / `HYPERLIQUID_WEIGHT_BURST` | `360` / `100` | `360` / `100` | 480 + 360 = 840 of 1,200. On one machine with one `.env` (local), the worker reads `HYPERLIQUID_WORKER_WEIGHT_BUDGET_PER_MIN` / `HYPERLIQUID_WORKER_WEIGHT_BURST` instead (as `WORKER_PORT`); not needed on Railway. With both at 840 locally the worker alone filled the background lane: 45–136 `hyperliquid_quota_exhausted` every 10 minutes on 2026-10-04 (`shared-egress-budget.spec.ts`: 167 → 0 in a simulated 10 minutes) |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `TELEGRAM_SYSTEM_CHAT_ID` | Stage bot | production bot | different bots per environment (one poller per token) |
@@ -173,6 +173,8 @@ default, which is what Stage and local ran with.
 | `RETENTION_ENABLED` | `true` | the daily retention job |
 | `RETENTION_SNAPSHOT_DAYS` / `RETENTION_AUDIT_DAYS` / `RETENTION_ACCOUNT_DELETION_DAYS` | `90` / `365` / `365` | snapshots / admin audit / account-deletion records (the privacy policy's periods) |
 | `RETENTION_QUEUE_DAYS` / `RETENTION_ALERT_DAYS` | `30` / `30` | finished outbox rows / alert delivery records |
+| `RETENTION_COPY_EQUITY_FULL_DAYS` / `RETENTION_COHORT_MEMBER_LIST_DAYS` / `RETENTION_FOLLOWER_OBSERVATION_DAYS` | `31` / `30` / `7` | paper copy valuations at full resolution (older ones thinned; not below 31) / cohort history member lists / superseded follower observations (`data-retention.md`) |
+| `RETENTION_HISTORY_FILL_DAYS` | `90` | traders' stored fill history (`history_fills`, min 30); the archive backfill never goes further back |
 
 The worker reports what it runs with on `/health/monitor` (`tuning`), shown on
 the admin 總覽; `/health` → `budget.consumers` shows who spent the trailing
@@ -201,15 +203,18 @@ At the default 840/min: jobs 630 (see the table), plus the home warm-up (24 port
 
 ## Database connections
 
-Each process has one main pool (`DATABASE_POOL_MAX`, default api 20, worker 30; pg's own default of 10 ran out under live orders, which take two dedicated connections each beside the LISTEN relays, the snapshot cron and the sweeps). The worker also holds one lease connection. Budget against Postgres's `max_connections` (100 on Railway's PostgreSQL unless changed; `SHOW max_connections`, 3 of them reserved for superusers):
+Each process has one main pool (`DATABASE_POOL_MAX`; defaults in `apps/api/src/config/constants/database.ts`, each with its count): api 10, copy worker 20, read worker 10, and 30 for a single worker of role `all` (copy + read). pg opens a connection only when a query needs one and closes it after 10 s idle, so the size is a ceiling, not what a process holds. Every worker also holds one lease connection (its own pool of one). Budget against Postgres's `max_connections` (100 on Railway's PostgreSQL unless changed; `SHOW max_connections`, 3 of them reserved for superusers, so 97):
 
-| Moment | Connections at most |
+| Moment (Stage: api + copy worker + read worker) | Connections at most |
 | --- | --- |
-| Steady (api + active worker) | 20 + 30 + 1 = 51 |
-| api rolling deploy (old and new api, pre-deploy migration) | 20 + 20 + 30 + 1 + 1 = 72 |
-| worker rolling deploy (the standby builds nothing until it owns the lease) | 20 + 30 + 1 + 1 = 52 |
+| Steady | 10 + 20 + 10 + 2 leases = 42 |
+| api rolling deploy (old and new api, pre-deploy migration) | 42 + 10 + 1 = 53 |
+| a worker's rolling deploy (the standby builds nothing until it owns the lease) | 42 + 1 = 43 each |
+| all of the above at once | 55 |
 
-Raise either value only after checking that sum (plus any admin `psql` sessions) still fits.
+What the pools hold (2026-10-22 count, the basis lines of the constants): the api keeps three LISTEN relays (settings, actions, copy feed) and runs the terminal settlement loop (a claim and a risk-scope connection, refused below three free); the copy worker keeps two LISTEN connections (settings, setup wake-ups), and its live engine works one order, stop, close or settlement at a time with two dedicated connections (order lock and risk scope) beside the settlement loop's two, about 13 at its busiest; the read worker keeps one LISTEN connection and runs short statements only. Before 2026-10-22 the defaults were api 20 and worker 30: 82 steady with two workers and about 103 during an api deploy, over the limit.
+
+Raise a value only after checking that sum (plus any admin `psql` sessions) still fits. To see what a process really uses: `select application_name, state, count(*) from pg_stat_activity group by 1, 2` (`td-api`, `td-worker-copy`, `td-worker-read`).
 
 ## Volumes and storage
 

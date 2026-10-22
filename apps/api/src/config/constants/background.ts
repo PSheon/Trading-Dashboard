@@ -66,6 +66,13 @@ export const ARCHIVE_TICK_BUDGET_MS = 45_000;
  */
 export const ARCHIVE_BOUNDARY_MARGIN_MS = 5 * MINUTE_MS;
 
+/** basis: guessed — an address out of the tracked set for a week is no longer ingested; verify: count of coverage rows dropped vs re-queued per week on Stage
+ * The pool (15 min) and cohorts (40 min) are rebuilt all day, so an address
+ * at their edge leaves and returns; within this grace it keeps its span (and
+ * is still ingested). After it, its archive_coverage row is deleted.
+ */
+export const ARCHIVE_UNTRACKED_GRACE_MS = 7 * DAY_MS;
+
 /** basis: guessed — every dex of a cohort member is swept daily; verify: none needed
  * In between, only the main dex and the dexes it holds or has traded.
  */
@@ -85,6 +92,19 @@ export const RETENTION_MIN_INTERVAL_MS = 20 * HOUR_MS;
  * missing lease is refused the same way (hyperliquid_quota_lease_lost).
  */
 export const CLOSED_WS_LEASE_RETENTION_MS = DAY_MS;
+
+/** basis: guessed — 5,000 history_fills rows per DELETE, picked through (account_id, time); verify: the first Stage runs' retention.run audit (rows, ms) against statement_timeout 15 s
+ * One statement deletes the oldest rows below the cut of one or more accounts
+ * (ascending account id); the retention job pauses at least as long as each
+ * statement took, so it holds the database at most half of its time.
+ */
+export const HISTORY_RETENTION_BATCH_LIMIT = 5_000;
+
+/** basis: derived — HISTORY_RETENTION_BATCH_LIMIT × 20 statements per hourly expiry pass
+ * The fills of expired history jobs deleted right away; what is left (a
+ * heavy account) is unreachable and the retention job's next sweep ends it.
+ */
+export const EXPIRED_FILLS_PURGE_LIMIT = 20 * HISTORY_RETENTION_BATCH_LIMIT;
 
 /** basis: guessed — an egress address not seen for a day leaves the set (a pool address may move to another tenant); verify: observe week publicIps
  */

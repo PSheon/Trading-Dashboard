@@ -1,12 +1,13 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { retentionState, users } from "@trading-dashboard/shared/database";
-import type { RetentionTable } from "@trading-dashboard/shared/contracts";
+import { CHAIN_DEFAULT, type RetentionTable } from "@trading-dashboard/shared/contracts";
 import { and, asc, eq, isNotNull, isNull, lt, or, sql, type SQL } from "drizzle-orm";
 
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { DbTransaction } from "../db/unit-of-work.js";
 import { purgeDetachedReferences, purgeStatements } from "../users/account-closure.plan.js";
+import { COPIED_LEADERS, LEGACY_FILLS_TABLE, unreferencedAccount } from "../traders/history-fill.store.js";
 
 export interface RetentionOutcome {
   status: "ok" | "partial" | "failed";
@@ -14,6 +15,16 @@ export interface RetentionOutcome {
   cutoffs: Record<string, string>;
   error: string | null;
   durationMs: number;
+  /** The `history_fills` sweep of this run; absent when it did not run. */
+  history?: HistorySweep;
+}
+
+/** What one run's `history_fills` sweep did. `complete`: every account is
+ * below `cut` (the next sweep is due when the cut moves, the next day). */
+export interface HistorySweep {
+  cut: string;
+  removed: number;
+  complete: boolean;
 }
 
 /**
@@ -59,8 +70,80 @@ export class RetentionRepository {
     const rows = await tx.update(retentionState).set({
       leaseToken: null, lockedUntil: null, lastFinishedAt: at, lastStatus: outcome.status,
       removed: outcome.removed, cutoffs: outcome.cutoffs, lastError: outcome.error, durationMs: outcome.durationMs,
+      ...sweptTo(outcome.history),
     }).where(and(eq(retentionState.id, 1), eq(retentionState.leaseToken, token))).returning({ id: retentionState.id });
     return rows.length > 0;
+  }
+
+  /** Gives the lease back after a run that only continued the history sweep:
+   * the last full run's record (what the admin page shows) stays as it is. */
+  async finishSweep(tx: DbTransaction, token: string, sweep: HistorySweep | undefined): Promise<boolean> {
+    const rows = await tx.update(retentionState).set({ leaseToken: null, lockedUntil: null, ...sweptTo(sweep) })
+      .where(and(eq(retentionState.id, 1), eq(retentionState.leaseToken, token))).returning({ id: retentionState.id });
+    return rows.length > 0;
+  }
+
+  /** False while stored fills are still in the raw layout (`history:convert`
+   * not finished): the sweep's reference checks would not see them right. */
+  async historyConverted(): Promise<boolean> {
+    const result = await this.db.execute<{ pending: boolean }>(sql`SELECT to_regclass(${`public.${LEGACY_FILLS_TABLE}`}) IS NOT NULL AS pending`);
+    return result.rows[0]?.pending !== true;
+  }
+
+  /**
+   * Before any history row is deleted, in one transaction: the archive's
+   * floor becomes `cut` (no backfill pass reads below it, no span is
+   * extended below it), and every span starting before it starts at it
+   * (one wholly before it is emptied, and the live cursor starts it again),
+   * so nothing is reported as held that is being deleted. A copied leader's
+   * span is left whole, as its fills are.
+   */
+  async retainHistoryFrom(cut: Date): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      await tx.execute(sql`
+        INSERT INTO archive_ingest_state (chain, retained_from) VALUES (${CHAIN_DEFAULT}, ${cut})
+        ON CONFLICT (chain) DO UPDATE SET retained_from = excluded.retained_from`);
+      await tx.execute(sql`
+        UPDATE archive_coverage SET
+          covered_from = CASE WHEN covered_through > ${cut} THEN ${cut}::timestamptz END,
+          covered_through = CASE WHEN covered_through > ${cut} THEN covered_through END
+        WHERE chain = ${CHAIN_DEFAULT} AND covered_from < ${cut} AND address NOT IN ${COPIED_LEADERS}`);
+    });
+  }
+
+  /**
+   * One bounded statement of the history sweep: deletes at most `limit`
+   * rows of `history_fills`, oldest first, from the accounts at or after
+   * `fromAccount` in id order: those before `cut`, and every row of an
+   * account nothing refers to any more (no history job, no active archive
+   * coverage). Copied leaders are never touched. Each account's rows are
+   * found through `history_fills_account_time_idx`; an account with none
+   * costs one index probe. `last`: the highest account the statement
+   * reached (the next one starts there); fewer than `limit` rows: the sweep
+   * reached the end.
+   */
+  async deleteHistoryBatch(cut: Date, fromAccount: number, limit: number): Promise<{ removed: number; last: number | null }> {
+    const result = await this.db.execute<{ removed: number; last: number | null }>(sql`
+      WITH doomed AS (
+        SELECT f.ctid AS row
+        FROM (
+          SELECT h.id, CASE WHEN ${unreferencedAccount(sql`h`)} THEN 'infinity'::timestamptz ELSE ${cut}::timestamptz END AS below
+          FROM history_accounts h
+          WHERE h.id >= ${fromAccount} AND h.chain = ${CHAIN_DEFAULT} AND h.address NOT IN ${COPIED_LEADERS}
+          ORDER BY h.id
+          OFFSET 0
+        ) a
+        CROSS JOIN LATERAL (
+          SELECT x.ctid FROM history_fills x WHERE x.account_id = a.id AND x.time < a.below ORDER BY x.time LIMIT ${limit}
+        ) f
+        ORDER BY a.id
+        LIMIT ${limit}
+      ), gone AS (
+        DELETE FROM history_fills WHERE ctid = ANY (ARRAY(SELECT row FROM doomed)) RETURNING account_id
+      )
+      SELECT count(*)::int AS removed, max(account_id) AS last FROM gone`);
+    const row = result.rows[0];
+    return { removed: Number(row?.removed ?? 0), last: row?.last === null || row?.last === undefined ? null : Number(row.last) };
   }
 
   async state() {
@@ -100,6 +183,11 @@ export class RetentionRepository {
     if (failed.length) throw new Error(`deleted_accounts: ${failed.length} tombstone(s) could not be purged (first ${failed[0]}); ${purged} purged`);
     return purged;
   }
+}
+
+/** The `history_cut` a sweep moves the state to: its cut once complete. */
+function sweptTo(sweep: HistorySweep | undefined): { historyCut?: Date } {
+  return sweep?.complete ? { historyCut: new Date(sweep.cut) } : {};
 }
 
 const UNFINISHED = sql`('pending', 'processing')`;

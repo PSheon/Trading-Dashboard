@@ -1634,9 +1634,12 @@ export interface RetentionSettings {
   /** A live account's follower observations other than its latest (the only
    * one read) are deleted after this. */
   followerObservationDays: number;
+  /** Traders' stored fill history (`history_fills`, public market data, not
+   * personal): figures built from it cover at most this many days. */
+  historyFillDays: number;
 }
 export const RETENTION_DEFAULTS = { enabled: true, snapshotDays: 90, auditDays: 365, accountDeletionDays: 365, queueDays: 30, alertDays: 30,
-  copyEquityFullDays: 31, cohortMemberListDays: 30, followerObservationDays: 7 } as const satisfies RetentionSettings;
+  copyEquityFullDays: 31, cohortMemberListDays: 30, followerObservationDays: 7, historyFillDays: 90 } as const satisfies RetentionSettings;
 
 /** One schema per `app_settings.key`; `.default()`s are the values before
  * an admin saves anything. */

@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { eq, sql } from "drizzle-orm";
-import { actions, archiveCoverage, cohortMembers, discoveryTraders, kolTraders, leaders, userFavorites } from "@trading-dashboard/shared/database";
+import { actions, archiveCoverage, archiveIngestState, cohortMembers, discoveryTraders, kolTraders, leaders, userFavorites } from "@trading-dashboard/shared/database";
 
 import { auditFills, reconcileFills } from "../src/analytics/fill-integrity.js";
 
@@ -22,7 +22,7 @@ import { storedFrame } from "./archive-test-utils.js";
 import { testConfig } from "./config-test-utils.js";
 import { closeTestDb, getTestDb, insertUser, storedFills, truncateAll } from "./db-test-utils.js";
 import { HOUR_MS } from '../src/config/constants/time.js';
-import { ARCHIVE_BOUNDARY_MARGIN_MS } from '../src/config/constants/background.js';
+import { ARCHIVE_BOUNDARY_MARGIN_MS, ARCHIVE_UNTRACKED_GRACE_MS, REQUESTED_JOB_TTL_MS } from '../src/config/constants/background.js';
 
 const FIXTURES = fileURLToPath(new URL("./fixtures/archive/", import.meta.url));
 const expected = JSON.parse(readFileSync(join(FIXTURES, "expected.json"), "utf8")) as Record<string, HlUserFill[]>;
@@ -240,6 +240,74 @@ describe("archive ingest", () => {
     expect(await span(heavy)).toEqual([H11, H13, "active"]);
     expect(await stored(heavy)).toHaveLength(expected[heavy].length);
     expect((await repository.coverageCounts(H11)).excluded).toBe(0);
+  });
+
+  it("an address that leaves the tracked set is ingested through a grace period, then dropped: no longer read for, and its job expires with its fills; a copied leader never leaves", async () => {
+    const [leaving, leader, excluded] = ADDRESSES;
+    const user = await insertUser(db);
+    await track([leaving]);
+    await db.execute(sql`INSERT INTO copy_strategies (user_id, leader_address, status, allocated, cash, activated_at) VALUES (${user.id}, ${leader}, 'active', 100, 100, now())`);
+    await db.insert(archiveCoverage).values({ address: excluded, status: "excluded" });
+    const row = async (address: string) => (await db.select().from(archiveCoverage).where(eq(archiveCoverage.address, address)))[0];
+    const readFor = async () => [...(await repository.participants("live", H12)).addresses].sort();
+
+    expect(await repository.syncTrackedSet()).toBe(2);
+    await service().tick(NOW);
+    expect(await span(leaving)).toEqual([H11, H13, "active"]);
+
+    // Out of the set: still read for, its span still certified, through the grace.
+    await db.delete(kolTraders);
+    await repository.syncTrackedSet();
+    expect((await row(leaving)).untrackedSince).toBeInstanceOf(Date);
+    expect(await readFor()).toEqual([leaving, leader].sort());
+    expect(await history.archiveSpan(leaving)).not.toBeNull();
+    // Back in it (the pool's edge): as if it never left.
+    await track([leaving]);
+    await repository.syncTrackedSet();
+    expect((await row(leaving)).untrackedSince).toBeNull();
+
+    // Out for longer than the grace: the row goes; nothing is read for it.
+    await db.delete(kolTraders);
+    await repository.syncTrackedSet();
+    await db.update(archiveCoverage).set({ untrackedSince: new Date(Date.now() - ARCHIVE_UNTRACKED_GRACE_MS - 60_000) }).where(eq(archiveCoverage.address, leaving));
+    // Its history job, nobody asked for in two weeks, is still the product's while the row lives.
+    await history.ensure(leaving, Date.now() - REQUESTED_JOB_TTL_MS - 60_000);
+    expect(await history.isKnown(leaving)).toBe(true);
+    expect(await history.expire()).toBe(0);
+    await repository.syncTrackedSet();
+    expect(await row(leaving)).toBeUndefined();
+    expect(await readFor()).toEqual([leader]);
+    expect(await history.archiveSpan(leaving)).toBeNull();
+    expect(await history.isKnown(leaving)).toBe(false);
+    expect(await stored(leaving)).toHaveLength(expected[leaving].length);
+    expect(await history.expire()).toBe(1);
+    expect(await stored(leaving)).toEqual([]);
+
+    // A live copy's leader is in the set by definition, and an excluded row is left as it is.
+    expect(await row(leader)).toMatchObject({ status: "active", untrackedSince: null });
+    expect(await stored(leader)).toHaveLength(expected[leader].length);
+    expect(await row(excluded)).toMatchObject({ status: "excluded", untrackedSince: null });
+    // Returning later starts over: queued, spans from the next live hour.
+    await track([leaving]);
+    expect(await repository.syncTrackedSet()).toBe(1);
+    expect(await span(leaving)).toEqual([null, null, "active"]);
+  });
+
+  it("never reads or certifies below the history retention cut: the backfill floor is `retained_from`", async () => {
+    await track(ADDRESSES);
+    await db.insert(archiveIngestState).values({ retainedFrom: new Date(H12) });
+    const ingest = service();
+    // Only the live hour: hour 11 is before the cut.
+    expect(await ingest.tick(NOW)).toEqual(["ingested"]);
+    for (const address of ADDRESSES) expect(await span(address)).toEqual([H12, H13, "active"]);
+    expect((await stored(ADDRESSES[0])).every((fill) => fill.time >= H12 - ARCHIVE_BOUNDARY_MARGIN_MS)).toBe(true);
+    expect((await ingest.status(NOW)).backfillFloor).toEqual(new Date(H12));
+
+    // A pass the cut overtook ends without another download or span.
+    await db.update(archiveIngestState).set({ backfillCursorHour: new Date(H11) });
+    expect(await ingest.tick(NOW)).toEqual([]);
+    expect((await repository.state()).backfillCursorHour).toBeNull();
+    for (const address of ADDRESSES) expect(await span(address)).toEqual([H12, H13, "active"]);
   });
 
   describe("the backfill window", () => {

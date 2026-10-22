@@ -631,6 +631,13 @@
       "when": 1792668659658,
       "tag": "0089_leaderboard_imports",
       "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1792672734708,
+      "tag": "0090_history_retention",
+      "breakpoints": true
     }
   ]
 }

@@ -15,7 +15,7 @@ export const deploymentTuningSchema = z.object({
   weights: z.object({ poolLedger: count, poolPerformance: count, history: count, backfill: count, cohort: count }),
   retention: z.object({ enabled: z.boolean(), snapshotDays: count, auditDays: count, accountDeletionDays: count, queueDays: count, alertDays: count,
     // Optional while older workers roll out (2026-10-22).
-    copyEquityFullDays: count.optional(), cohortMemberListDays: count.optional(), followerObservationDays: count.optional() }),
+    copyEquityFullDays: count.optional(), cohortMemberListDays: count.optional(), followerObservationDays: count.optional(), historyFillDays: count.optional() }),
 });
 export type DeploymentTuning = z.infer<typeof deploymentTuningSchema>;
 export const settingsRuntimeSchema = z.object({

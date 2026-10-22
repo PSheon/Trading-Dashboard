@@ -326,7 +326,7 @@ export const TUNING_DEFAULTS = {
   discovery: { leaderboardRefreshMinutes: 15, candidatePoolSize: 1000, cohortMembersPerTier: 500, cohortRefreshMinutes: 40 },
   weights: { poolLedger: 100, poolPerformance: 240, history: 120, backfill: 120, cohort: 150 },
   retention: { enabled: true, snapshotDays: 90, auditDays: 365, accountDeletionDays: 365, queueDays: 30, alertDays: 30,
-    copyEquityFullDays: 31, cohortMemberListDays: 30, followerObservationDays: 7 },
+    copyEquityFullDays: 31, cohortMemberListDays: 30, followerObservationDays: 7, historyFillDays: 90 },
 } as const;
 export function tuningConfig(source: Environment = {}) {
   const d = TUNING_DEFAULTS;
@@ -356,6 +356,8 @@ export function tuningConfig(source: Environment = {}) {
         COPY_EQUITY_FULL_RESOLUTION_MS / DAY_MS, 3650),
       cohortMemberListDays: integerValue("RETENTION_COHORT_MEMBER_LIST_DAYS", source.RETENTION_COHORT_MEMBER_LIST_DAYS, d.retention.cohortMemberListDays, 7, 3650),
       followerObservationDays: integerValue("RETENTION_FOLLOWER_OBSERVATION_DAYS", source.RETENTION_FOLLOWER_OBSERVATION_DAYS, d.retention.followerObservationDays, 1, 3650),
+      // At least 30: the trader figures' 30-day window must stay whole.
+      historyFillDays: integerValue("RETENTION_HISTORY_FILL_DAYS", source.RETENTION_HISTORY_FILL_DAYS, d.retention.historyFillDays, 30, 3650),
     },
   };
 }

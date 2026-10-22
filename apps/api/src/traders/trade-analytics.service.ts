@@ -375,10 +375,14 @@ export class TradeAnalyticsService {
     // from Hyperliquid and nothing is stored for a background scan.
     cost.keep = !watched && (await this.history?.ensure(address, state?.source === "hyperliquid" ? state.coverageFrom?.getTime() : undefined, cost.caller)) === true;
     const snapshot = cost.keep ? await this.history?.snapshot(address) : null;
-    // Never replace a newer legacy ledger with an older archive snapshot.
+    // Never replace a newer legacy ledger with an older archive snapshot,
+    // nor a deeper one with a shallower snapshot, unless the ledger reaches
+    // before the retention cut: the fills it was built from are pruned, and
+    // the snapshot (what is kept) is the history now.
     const historyStartsAt = snapshot?.fills.reduce((min, f) => Math.min(min, f.time), Infinity) ?? Infinity;
+    const retainedFrom = snapshot && state?.coverageFrom ? await this.history?.retainedFrom() : null;
     const useHistory = snapshot && snapshot.through.getTime() >= (state?.fillCursor?.getTime() ?? 0)
-      && (!state?.coverageFrom || historyStartsAt <= state.coverageFrom.getTime());
+      && (!state?.coverageFrom || historyStartsAt <= state.coverageFrom.getTime() || (retainedFrom != null && state.coverageFrom < retainedFrom));
     const live = await this.liveAccount(address, cost);
     let kind: ComputeLog["kind"];
     let next: Omit<AnalyticsInsert, "summary" | "classification" | "computedAt">;

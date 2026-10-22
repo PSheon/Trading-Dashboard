@@ -43,13 +43,13 @@ describe("deploy-time tuning (DISCOVERY_*, HYPERLIQUID_*_WEIGHT_PER_MIN, RETENTI
       HYPERLIQUID_HISTORY_WEIGHT_PER_MIN: "60", HYPERLIQUID_BACKFILL_WEIGHT_PER_MIN: "90", HYPERLIQUID_COHORT_WEIGHT_PER_MIN: "60",
       RETENTION_ENABLED: "false", RETENTION_SNAPSHOT_DAYS: "120", RETENTION_AUDIT_DAYS: "730", RETENTION_ACCOUNT_DELETION_DAYS: "400",
       RETENTION_QUEUE_DAYS: "14", RETENTION_ALERT_DAYS: "21",
-      RETENTION_COPY_EQUITY_FULL_DAYS: "45", RETENTION_COHORT_MEMBER_LIST_DAYS: "60", RETENTION_FOLLOWER_OBSERVATION_DAYS: "3",
+      RETENTION_COPY_EQUITY_FULL_DAYS: "45", RETENTION_COHORT_MEMBER_LIST_DAYS: "60", RETENTION_FOLLOWER_OBSERVATION_DAYS: "3", RETENTION_HISTORY_FILL_DAYS: "180",
     });
     expect(tuning).toEqual({
       discovery: { leaderboardRefreshMinutes: 30, candidatePoolSize: 2000, cohortMembersPerTier: 800, cohortRefreshMinutes: 60 },
       weights: { poolLedger: 0, poolPerformance: 300, history: 60, backfill: 90, cohort: 60 },
       retention: { enabled: false, snapshotDays: 120, auditDays: 730, accountDeletionDays: 400, queueDays: 14, alertDays: 21,
-        copyEquityFullDays: 45, cohortMemberListDays: 60, followerObservationDays: 3 },
+        copyEquityFullDays: 45, cohortMemberListDays: 60, followerObservationDays: 3, historyFillDays: 180 },
     });
     for (const [key, value, message] of [
       ["DISCOVERY_LEADERBOARD_REFRESH_MINUTES", "4", "between 5 and 240"],
@@ -59,6 +59,7 @@ describe("deploy-time tuning (DISCOVERY_*, HYPERLIQUID_*_WEIGHT_PER_MIN, RETENTI
       ["HYPERLIQUID_POOL_LEDGER_WEIGHT_PER_MIN", "1.5", "between 0 and 600"],
       ["RETENTION_AUDIT_DAYS", "29", "between 30 and 3650"],
       ["RETENTION_ALERT_DAYS", "6", "between 7 and 3650"],
+      ["RETENTION_HISTORY_FILL_DAYS", "29", "between 30 and 3650"],
     ] as const) {
       expect(() => validateEnvironment({ ...BASE, [key]: value }), key).toThrow(`${key} must be an integer ${message}`);
     }

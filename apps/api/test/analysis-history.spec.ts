@@ -8,6 +8,7 @@ import { AnalysisHistoryRepository, MAX_REQUESTED_JOBS } from '../src/traders/an
 import { AnalysisHistoryService } from "../src/traders/analysis-history.service.js";
 import { closeTestDb, getTestDb, insertUser, storedFills, truncateAll } from "./db-test-utils.js";
 import { REQUESTED_JOB_TTL_MS } from '../src/config/constants/background.js';
+import { RetentionRepository } from "../src/retention/retention.repository.js";
 
 const ADDRESS = `0x${"ab".repeat(20)}`;
 const fill = (tid: number, time = tid): HlUserFill => ({
@@ -182,6 +183,27 @@ describe("durable fill history", () => {
       const kept = await storedFills(db);
       expect(kept.map(f => f.address).sort()).toEqual([followed, followed, recent].sort());
       expect(await repository.expire()).toBe(0);
+    });
+
+    it("an expired job's fills go in bounded statements (an address that left the archive can hold millions); the retention sweep ends what is left", async () => {
+      const [forgotten, covered] = [1, 2].map(other);
+      await repository.ensure(forgotten, Date.now() - REQUESTED_JOB_TTL_MS - 60_000);
+      await repository.preserve(forgotten, batch(5));
+      // At most 2 rows: the job goes, 3 of its rows stay, out of every reader's reach.
+      expect(await repository.expire(Date.now(), REQUESTED_JOB_TTL_MS, 2)).toBe(1);
+      expect(await jobs()).toEqual([]);
+      expect(await storedFills(db, forgotten)).toHaveLength(3);
+      // An address the archive covers is never purged, nor is one whose job came back.
+      await db.insert(archiveCoverage).values({ address: covered });
+      await repository.preserve(covered, batch(2, 10));
+      expect(await repository.fills.purgeUnreferenced([covered], 100)).toBe(0);
+      await repository.ensure(forgotten);
+      expect(await repository.fills.purgeUnreferenced([forgotten], 100)).toBe(0);
+      await db.delete(analysisHistoryJobs);
+      // The nightly sweep deletes an unreferenced account whole, whatever its age.
+      expect(await new RetentionRepository(db).deleteHistoryBatch(new Date(0), 0, 100)).toMatchObject({ removed: 3 });
+      expect(await storedFills(db, forgotten)).toEqual([]);
+      expect(await storedFills(db, covered)).toHaveLength(2);
     });
 
     it("every other turn goes to a job already in progress, so new jobs can't hold the whole queue", async () => {

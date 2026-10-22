@@ -21,6 +21,7 @@ periods of 2026-10-01.
 | A paper copy's per-minute valuations, thinned to the first and last of each UTC hour | `copy_equity_snapshots` of `mode = 'paper'` copies | 31 days before the copy's end (its stop, or now) | `RETENTION_COPY_EQUITY_FULL_DAYS` (31–3650) |
 | Cohort history rows' member lists (`member_addresses` cleared; the row, its figures and `membership_version` stay) | `cohort_snapshots` | 30 days | `RETENTION_COHORT_MEMBER_LIST_DAYS` (7–3650) |
 | A live account's superseded follower observations | `copy_follower_observations` other than the one `copy_follower_observation_jobs.latest_observation_id` names | 7 days | `RETENTION_FOLLOWER_OBSERVATION_DAYS` (1–3650) |
+| Traders' stored fill history (public market data; Paul, 2026-10-22) | `history_fills`, except the leaders of copy strategies not stopped | from 00:00 UTC of the day 90 days back | `RETENTION_HISTORY_FILL_DAYS` (30–3650) |
 
 The periods are deploy-time since 2026-10-05 (they were `general.retention`
 in the admin settings): set them on the worker and restart it;
@@ -87,9 +88,53 @@ in the worker (three ticks an hour; none in the api role).
   deleting an action would take its queue rows with it. The job deletes queue
   rows only, which cascades to nothing: no table references `action_outbox`,
   `notification_outbox`, `copy_signal_outbox` or `alerts`.
-- `fills`, `history_fills`, `trader_trades`, copy orders, fills and ledger:
-  not in scope (public market data, or the user's own records kept for the life
-  of the account).
+- `fills`, `fill_coverage`, `trader_trades`, copy orders, fills and ledger:
+  not in scope (the watcher's copy signal source, derived figures, or the
+  user's own records kept for the life of the account).
+- A copied leader's `history_fills` (a leader of a copy strategy not stopped)
+  and its archive span: kept whole while the copy runs.
+
+## The history sweep (`history_fills`)
+
+`history_fills` holds ~180 M rows and gains ~2 M a day, 4 times what the
+table loop's 500,000 rows per table per run could remove, so it has its own
+sweep in the same run, after the tables (and their paper-valuation, cohort
+member list and follower observation steps):
+
+1. **The cut first.** In one transaction: `archive_ingest_state.retained_from`
+   becomes the cut (the archive backfill never reads or certifies an hour
+   below it) and every `archive_coverage` span starting before it starts at it
+   (a span wholly before it is emptied; the live cursor starts it again). From
+   here on nothing reports as held what is being deleted.
+2. **Bounded deletes.** One `DELETE` removes at most 5,000 rows
+   (`HISTORY_RETENTION_BATCH_LIMIT`): the oldest rows below the cut of the
+   accounts at or after a cursor, in account-id order, each found through
+   `history_fills_account_time_idx` (an account with nothing to delete costs
+   one index probe). The rows of an account nothing refers to any more (no
+   history job, no active archive span) go whatever their age: they are what
+   an expired job or a dropped address left. After each statement the sweep
+   waits as long as the statement took (at least 200 ms), so it holds the
+   database at most half the time; the lease is extended after each.
+3. **Continued.** A sweep the run's 20 minutes cut short is continued by the
+   window's later ticks (three an hour, 18–22 UTC) until it reaches the day's
+   cut, without repeating the tables or overwriting the last run's record;
+   `retention_state.history_cut` is the cut the last complete sweep reached.
+   Each run's `retention.run` audit carries `history` (cut, rows, complete).
+
+**Throughput.** At 5,000 rows a statement and at most half the time, a
+statement of 0.5 s (Stage to be measured: the audit's rows and duration) gives
+~5,000 rows/s: the steady ~2 M rows a day take ~7 minutes, and the 4-hour
+window can remove up to ~72 M rows a night, so a backlog of the whole table
+(180 M) is gone in under 3 nights (2 s a statement: ~18 M a night, ~11 nights).
+
+**What figures show after a cut.** Figures built from stored history (the
+durable job's snapshot, an archive-covered first build) start at the first
+kept fill: "all" means the last 90 days for them, and their coverage says
+`from` that date and partial, which the trader page already shows ("since …").
+A ledger built before the cut is rebuilt from the kept snapshot when the job
+publishes its next one. Watched addresses are rebuilt from `fills` (365 days,
+not pruned) and use the archive only where its span (now from the cut)
+reaches back further. Cold REST reads still look back up to 365 days.
 
 After a finished queue row is gone, nothing re-creates it: an `action_outbox`
 row is written only in the transaction that inserts its action, and a

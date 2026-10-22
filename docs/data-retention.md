@@ -106,8 +106,8 @@ member list and follower observation steps):
    below it) and every `archive_coverage` span starting before it starts at it
    (a span wholly before it is emptied; the live cursor starts it again). From
    here on nothing reports as held what is being deleted.
-2. **Bounded deletes.** One `DELETE` removes at most 5,000 rows
-   (`HISTORY_RETENTION_BATCH_LIMIT`): the oldest rows below the cut of the
+2. **Bounded deletes.** One `DELETE` removes at most a batch of rows
+   (1,000 to start, `HISTORY_RETENTION_BATCH_LIMIT`): the oldest rows below the cut of the
    accounts at or after a cursor, in account-id order, each found through
    `history_fills_account_time_idx` (an account with nothing to delete costs
    one index probe). The rows of an account nothing refers to any more (no
@@ -115,17 +115,28 @@ member list and follower observation steps):
    an expired job or a dropped address left. After each statement the sweep
    waits as long as the statement took (at least 200 ms), so it holds the
    database at most half the time; the lease is extended after each.
+   The batch adapts, because a cold heap costs a random page read per row: a
+   statement cancelled by `statement_timeout` (15 s; SQLSTATE 57014) rolled
+   back whole, so the batch halves and the same rows are tried again, down to
+   100 (`HISTORY_RETENTION_BATCH_FLOOR`; a timeout there fails the run and
+   the next tick retries). A statement slower than 2 s
+   (`HISTORY_RETENTION_TARGET_MS`) halves it as well; one under 1 s grows it
+   by a quarter, up to 5,000 (`HISTORY_RETENTION_BATCH_CAP`).
 3. **Continued.** A sweep the run's 20 minutes cut short is continued by the
    window's later ticks (three an hour, 18–22 UTC) until it reaches the day's
    cut, without repeating the tables or overwriting the last run's record;
    `retention_state.history_cut` is the cut the last complete sweep reached.
-   Each run's `retention.run` audit carries `history` (cut, rows, complete).
+   Each run's `retention.run` audit carries `history` (cut, rows, complete,
+   the batch it ended at and the statements cancelled).
 
-**Throughput.** At 5,000 rows a statement and at most half the time, a
-statement of 0.5 s (Stage to be measured: the audit's rows and duration) gives
-~5,000 rows/s: the steady ~2 M rows a day take ~7 minutes, and the 4-hour
-window can remove up to ~72 M rows a night, so a backlog of the whole table
-(180 M) is gone in under 3 nights (2 s a statement: ~18 M a night, ~11 nights).
+**Throughput.** At most half the time is spent deleting. Warm, at the cap
+(5,000 rows in ~0.5 s): ~5,000 rows/s, so the steady ~2 M rows a day take ~7
+minutes and the 4-hour window can remove up to ~72 M rows a night. Cold, at
+the floor's worst (100 rows a statement near 2 s): ~25 rows/s, ~0.36 M a night,
+which does not keep up; the batch then sits wherever statements take 1–2 s
+(for example 1,000 rows in 1.5 s: ~330 rows/s, ~4.8 M a night, ahead of the
+~2 M a day). Stage to be measured: the audit's `history.batch`, rows and
+duration.
 
 **What figures show after a cut.** Figures built from stored history (the
 durable job's snapshot, an archive-covered first build) start at the first

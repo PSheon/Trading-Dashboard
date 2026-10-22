@@ -93,12 +93,31 @@ export const RETENTION_MIN_INTERVAL_MS = 20 * HOUR_MS;
  */
 export const CLOSED_WS_LEASE_RETENTION_MS = DAY_MS;
 
-/** basis: guessed — 5,000 history_fills rows per DELETE, picked through (account_id, time); verify: the first Stage runs' retention.run audit (rows, ms) against statement_timeout 15 s
+/** basis: guessed — 1,000 history_fills rows per DELETE to start: on a cold 40 GB heap each row can be its own random page read, ~1,000 reads stays far under statement_timeout (15 s); verify: retention.run audit history.batch / timeouts on the first Stage nights
  * One statement deletes the oldest rows below the cut of one or more accounts
  * (ascending account id); the retention job pauses at least as long as each
- * statement took, so it holds the database at most half of its time.
+ * statement took, so it holds the database at most half of its time. The
+ * sweep adapts it per run between HISTORY_RETENTION_BATCH_FLOOR and
+ * HISTORY_RETENTION_BATCH_CAP (see HISTORY_RETENTION_TARGET_MS).
  */
-export const HISTORY_RETENTION_BATCH_LIMIT = 5_000;
+export const HISTORY_RETENTION_BATCH_LIMIT = 1_000;
+
+/** basis: guessed — 100 rows: ~100 random page reads, a fraction of a second even cold; verify: retention.run audit history.timeouts stays 0 at this size
+ * The smallest history sweep statement: a statement_timeout halves the batch
+ * down to this; one at this size fails the run (the next tick retries).
+ */
+export const HISTORY_RETENTION_BATCH_FLOOR = 100;
+
+/** basis: guessed — 5,000 rows: 6–11 ms locally on warm data, so far under the target once Stage's pages are cached; verify: retention.run audit history.batch and durations
+ * The largest history sweep statement the batch may grow to.
+ */
+export const HISTORY_RETENTION_BATCH_CAP = 5_000;
+
+/** basis: guessed — 2 s, well under statement_timeout (15 s); verify: retention.run audit (rows, durationMs, history.batch)
+ * A history sweep statement faster than half of this grows the batch by a
+ * quarter (up to the cap); one slower than this halves it (down to the floor).
+ */
+export const HISTORY_RETENTION_TARGET_MS = 2_000;
 
 /** basis: derived — HISTORY_RETENTION_BATCH_LIMIT × 20 statements per hourly expiry pass
  * The fills of expired history jobs deleted right away; what is left (a

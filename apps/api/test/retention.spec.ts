@@ -15,6 +15,7 @@ import { RetentionService, historyRetentionCut, inRetentionWindow, retentionCuto
 import { initialCheckpoint } from "../src/analytics/history-checkpoint.js";
 import type { HlUserFill } from "../src/hyperliquid/types.js";
 import { HistoryFillStore } from "../src/traders/history-fill.store.js";
+import { sqlState } from "../src/db/sql-state.js";
 import { BackgroundJobs } from "../src/runtime/background-jobs.service.js";
 import { SettingsRepository } from "../src/settings/settings.repository.js";
 import { SettingsService } from "../src/settings/settings.service.js";
@@ -392,7 +393,7 @@ describe("history_fills retention (RETENTION_HISTORY_FILL_DAYS, 90 days)", () =>
     // Unreachable (no job, no span): every row, however recent.
     expect(await daysLeft(orphan)).toEqual([]);
     expect(await daysLeft(leader)).toEqual([150, 1]);
-    expect(run.history).toEqual({ cut: CUT.toISOString(), removed: 6, complete: true });
+    expect(run.history).toMatchObject({ cut: CUT.toISOString(), removed: 6, complete: true, timeouts: 0 });
 
     // Nothing is reported held that is gone: spans start at the cut (one
     // wholly before it is emptied), and the archive's backfill floor is it.
@@ -415,7 +416,8 @@ describe("history_fills retention (RETENTION_HISTORY_FILL_DAYS, 90 days)", () =>
   });
 
   it("deletes in bounded statements; a sweep the run's time cut short is continued by the window's later ticks, without repeating the tables", async () => {
-    const { service, repository } = setup({ historyBatchSize: 2 });
+    // A fixed size of 2 (floor = cap): the statements are counted.
+    const { service, repository } = setup({ historyBatchSize: 2, historyBatchFloor: 2, historyBatchCap: 2 });
     const [first, second] = [1, 2].map(a);
     await job(first);
     await job(second);
@@ -433,7 +435,7 @@ describe("history_fills retention (RETENTION_HISTORY_FILL_DAYS, 90 days)", () =>
 
     const night = await service.tick(NOW);
     if (!night.ran) throw new Error("did not run");
-    expect(night.history).toEqual({ cut: CUT.toISOString(), removed: 4, complete: false });
+    expect(night.history).toMatchObject({ cut: CUT.toISOString(), removed: 4, complete: false });
     expect(night.cutoffs).toHaveProperty("equity_snapshots");
     const [after] = await db.select().from(retentionState);
     expect(after.historyCut).toBeNull();
@@ -443,7 +445,7 @@ describe("history_fills retention (RETENTION_HISTORY_FILL_DAYS, 90 days)", () =>
     await db.insert(equitySnapshots).values({ address, ts: ago(100), accountValue: "1" });
     const later = await service.tick(new Date(NOW.getTime() + 20 * 60_000));
     if (!later.ran) throw new Error("did not run");
-    expect([later.status, later.removed, later.cutoffs, later.history]).toEqual(["ok", {}, {}, { cut: CUT.toISOString(), removed: 3, complete: true }]);
+    expect([later.status, later.removed, later.cutoffs, later.history]).toEqual(["ok", {}, {}, expect.objectContaining({ cut: CUT.toISOString(), removed: 3, complete: true })]);
     expect(await count("equity_snapshots")).toBe(1);
     const [done] = await db.select().from(retentionState);
     expect(done.lastFinishedAt).toEqual(after.lastFinishedAt);
@@ -455,5 +457,52 @@ describe("history_fills retention (RETENTION_HISTORY_FILL_DAYS, 90 days)", () =>
     expect(Math.max(...sizes)).toBe(2);
     // Reached: the rest of the night does nothing.
     expect(await service.tick(new Date(NOW.getTime() + 40 * 60_000))).toEqual({ ran: false, reason: "recent" });
+  });
+
+  it("a statement cancelled by statement_timeout halves the batch and is retried; fast ones grow it back, within the floor and cap; the audit records it", async () => {
+    // What a cancelled statement looks like through the ORM.
+    const cancelled = await db.transaction(async (tx) => {
+      await tx.execute(sql`SET LOCAL statement_timeout = '20ms'`);
+      await tx.execute(sql`SELECT pg_sleep(1)`);
+    }).catch((error: unknown) => error);
+    expect(sqlState(cancelled)).toBe("57014");
+
+    const { service, repository } = setup({ historyBatchSize: 8, historyBatchFloor: 2, historyBatchCap: 8 });
+    await job(a(1));
+    await keep(a(1), Array.from({ length: 12 }, (_, i) => 100 + i));
+    const sizes: number[] = [];
+    const deleteBatch = repository.deleteHistoryBatch.bind(repository);
+    // A cold heap: a statement of more than 4 rows runs into statement_timeout.
+    repository.deleteHistoryBatch = async (cut, from, limit) => {
+      sizes.push(limit);
+      if (limit > 4) throw Object.assign(new Error("canceling statement due to statement timeout"), { code: "57014" });
+      return deleteBatch(cut, from, limit);
+    };
+    const run = await service.run(NOW, true);
+    if (!run.ran) throw new Error("did not run");
+    expect(run.status).toBe("ok");
+    expect(run.history).toMatchObject({ removed: 12, complete: true });
+    expect(run.history!.timeouts).toBeGreaterThanOrEqual(1);
+    expect(sizes[0]).toBe(8);
+    expect(sizes[1]).toBe(4);
+    // Fast statements grow it again (and the timeouts bring it back down).
+    expect(sizes.some((size, i) => i > 1 && size > sizes[i - 1]!)).toBe(true);
+    expect(Math.min(...sizes)).toBeGreaterThanOrEqual(2);
+    expect(Math.max(...sizes)).toBeLessThanOrEqual(8);
+    expect(await daysLeft(a(1))).toEqual([]);
+    const [audit] = await db.select().from(adminAuditLogs).where(eq(adminAuditLogs.event, "retention.run"));
+    expect(audit.afterJson).toMatchObject({ history: { removed: 12, complete: true, timeouts: run.history!.timeouts, batch: run.history!.batch } });
+
+    // Still cancelled at the floor: the run fails (bounded: 8, 4, 2), nothing is lost, the next tick retries.
+    await keep(a(1), [150]);
+    sizes.length = 0;
+    repository.deleteHistoryBatch = async (_cut, _from, limit) => {
+      sizes.push(limit);
+      throw Object.assign(new Error("canceling statement due to statement timeout"), { code: "57014" });
+    };
+    const failed = await service.run(NOW, true);
+    expect(failed).toMatchObject({ ran: true, status: "failed" });
+    expect(sizes).toEqual([8, 4, 2]);
+    expect(await daysLeft(a(1))).toEqual([150]);
   });
 });

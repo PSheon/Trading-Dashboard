@@ -10,7 +10,11 @@ import { safeErrorText } from "../runtime/safe-error-text.js";
 import { SettingsService } from "../settings/settings.service.js";
 import { RetentionRepository, type HistorySweep, type RetentionOutcome } from "./retention.repository.js";
 import { DAY_MS } from "../config/constants/time.js";
-import { CLOSED_WS_LEASE_RETENTION_MS, HISTORY_RETENTION_BATCH_LIMIT, RETENTION_MIN_INTERVAL_MS } from '../config/constants/background.js';
+import {
+  CLOSED_WS_LEASE_RETENTION_MS, HISTORY_RETENTION_BATCH_CAP, HISTORY_RETENTION_BATCH_FLOOR, HISTORY_RETENTION_BATCH_LIMIT, HISTORY_RETENTION_TARGET_MS,
+  RETENTION_MIN_INTERVAL_MS,
+} from '../config/constants/background.js';
+import { QUERY_CANCELED, sqlState } from "../db/sql-state.js";
 
 /** Off-peak: 18:00–22:00 UTC is 02:00–06:00 in Taipei, where most users are. */
 const RETENTION_WINDOW_UTC = { fromHour: 18, toHour: 22 } as const;
@@ -26,11 +30,18 @@ interface RetentionLimits {
   maxRunMs: number;
   /** The lease lasts this long past the last statement. */
   leaseMs: number;
-  /** `history_fills` rows per DELETE statement of the history sweep. */
+  /** `history_fills` rows of the history sweep's first DELETE statement in a run. */
   historyBatchSize: number;
+  /** The sweep's statement size adapts between these. */
+  historyBatchFloor: number;
+  historyBatchCap: number;
+  /** Faster than half of this: the batch grows by a quarter; slower: it halves. */
+  historyTargetMs: number;
 }
 const RETENTION_LIMITS: RetentionLimits = {
-  batchSize: 2_000, maxBatchesPerTable: 250, pauseMs: 200, maxRunMs: 20 * 60_000, leaseMs: 5 * 60_000, historyBatchSize: HISTORY_RETENTION_BATCH_LIMIT,
+  batchSize: 2_000, maxBatchesPerTable: 250, pauseMs: 200, maxRunMs: 20 * 60_000, leaseMs: 5 * 60_000,
+  historyBatchSize: HISTORY_RETENTION_BATCH_LIMIT, historyBatchFloor: HISTORY_RETENTION_BATCH_FLOOR, historyBatchCap: HISTORY_RETENTION_BATCH_CAP,
+  historyTargetMs: HISTORY_RETENTION_TARGET_MS,
 };
 
 type RetentionRun =
@@ -166,7 +177,7 @@ export class RetentionService {
         }
       }
       if (!this.jobs.stopping && Date.now() - started <= this.limits.maxRunMs) {
-        history = { cut: historyCut.toISOString(), removed: 0, complete: false };
+        history = { cut: historyCut.toISOString(), removed: 0, complete: false, batch: this.limits.historyBatchSize, timeouts: 0 };
         await this.sweepHistory(token, historyCut, started, history);
       }
       // A sweep cut short is continued by the next tick (see `history_cut`).
@@ -199,22 +210,44 @@ export class RetentionService {
    * long as the statement took (at least `pauseMs`), so it never holds the
    * database more than half the time. Progress is written to `sweep` as it
    * goes, so a failure still reports what was removed.
+   *
+   * The statement size adapts (a cold heap reads a page per row): a
+   * statement cancelled by statement_timeout rolled back whole, so the batch
+   * halves and the same rows are tried again, down to `historyBatchFloor`
+   * (a timeout there fails the run; the next tick retries). A statement
+   * slower than `historyTargetMs` halves it too; one faster than half of it
+   * grows it by a quarter, up to `historyBatchCap`.
    */
   private async sweepHistory(token: string, cut: Date, started: number, sweep: HistorySweep): Promise<void> {
     if (!(await this.repository.historyConverted())) return;
     await this.repository.retainHistoryFrom(cut);
+    const { historyBatchFloor: floor, historyBatchCap: cap, historyTargetMs: target } = this.limits;
+    let size = Math.min(cap, Math.max(floor, this.limits.historyBatchSize));
+    sweep.batch = size;
     for (let from = 0; ;) {
       if (this.jobs.stopping || Date.now() - started > this.limits.maxRunMs) return;
       const statementStarted = Date.now();
-      const batch = await this.repository.deleteHistoryBatch(cut, from, this.limits.historyBatchSize);
-      sweep.removed += batch.removed;
-      if (batch.removed < this.limits.historyBatchSize) {
-        sweep.complete = true;
-        return;
+      let batch: { removed: number; last: number | null } | undefined;
+      try {
+        batch = await this.repository.deleteHistoryBatch(cut, from, size);
+      } catch (error) {
+        if (sqlState(error) !== QUERY_CANCELED || size <= floor) throw error;
+        sweep.timeouts += 1;
       }
-      from = batch.last ?? from;
+      const took = Date.now() - statementStarted;
+      if (batch) {
+        sweep.removed += batch.removed;
+        if (batch.removed < size) {
+          sweep.complete = true;
+          return;
+        }
+        from = batch.last ?? from;
+      }
+      if (!batch || took > target) size = Math.max(floor, Math.floor(size / 2));
+      else if (took < target / 2) size = Math.min(cap, size + Math.max(1, Math.floor(size / 4)));
+      sweep.batch = size;
       if (!(await this.repository.extend(token, this.limits.leaseMs, new Date()))) throw new Error("lease lost");
-      await delay(Math.max(this.limits.pauseMs, Date.now() - statementStarted));
+      await delay(Math.max(this.limits.pauseMs, took));
     }
   }
 }

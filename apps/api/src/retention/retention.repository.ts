@@ -20,11 +20,15 @@ export interface RetentionOutcome {
 }
 
 /** What one run's `history_fills` sweep did. `complete`: every account is
- * below `cut` (the next sweep is due when the cut moves, the next day). */
+ * below `cut` (the next sweep is due when the cut moves, the next day).
+ * `batch`: the statement size it ended at (adaptive); `timeouts`: statements
+ * cancelled by statement_timeout (each halved the batch and was retried). */
 export interface HistorySweep {
   cut: string;
   removed: number;
   complete: boolean;
+  batch: number;
+  timeouts: number;
 }
 
 /**

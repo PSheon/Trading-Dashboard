@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, count, desc, eq, gt, gte, ilike, inArray, isNotNull, like, max, notLike, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, getTableColumns, gt, gte, ilike, inArray, isNotNull, like, max, notLike, or, sql, type SQL } from "drizzle-orm";
 import { discoveryTraders, fillCoverage, fills, leaders, traderStats, userFavorites } from "@trading-dashboard/shared/database";
 import {
   CHAIN_DEFAULT,
@@ -10,6 +10,9 @@ import {
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import { escapeLike } from "../common/sql/escape-like.js";
+import { traderStatsAsOf } from "./trader-stats-as-of.js";
+/** A whole trader_stats row, its `updatedAt` the time its figures are current as of. */
+const STATS_ROW = { ...getTableColumns(traderStats), updatedAt: traderStatsAsOf };
 const SORT_COLUMNS = {
   accountPnl: { day: traderStats.pnlDay, week: traderStats.pnlWeek, month: traderStats.pnlMonth, allTime: traderStats.pnlAllTime },
   accountRoi: { day: traderStats.roiDay, week: traderStats.roiWeek, month: traderStats.roiMonth, allTime: traderStats.roiAllTime },
@@ -65,7 +68,7 @@ export class TradersRepository {
 
     const [rows, [{ total }]] = await Promise.all([
       this.db
-        .select()
+        .select(STATS_ROW)
         .from(traderStats)
         .where(where)
         .orderBy(direction(column), asc(traderStats.address))
@@ -126,7 +129,7 @@ export class TradersRepository {
     return new Set([...stats, ...pool].map((r) => r.address));
   }
   findStats(address: string) {
-    return this.db.select().from(traderStats).where(and(eq(traderStats.chain, CHAIN_DEFAULT), eq(traderStats.address, address))).limit(1);
+    return this.db.select(STATS_ROW).from(traderStats).where(and(eq(traderStats.chain, CHAIN_DEFAULT), eq(traderStats.address, address))).limit(1);
   }
   /** Where our stored fills of a watched address are verified complete
    * (`fill_coverage`), if anywhere. */

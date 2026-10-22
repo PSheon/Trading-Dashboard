@@ -505,6 +505,18 @@ export const traderStats = pgTable(
   ],
 );
 
+/**
+ * When each chain's leaderboard was last imported (one row per chain, written
+ * in the import's transaction). An import rewrites a `trader_stats` row only
+ * when its figures change (2026-10-22), so a row's `updated_at` is when they
+ * last changed; every row is current as of this import (an import deletes the
+ * rows it did not list). Readers take the later of the two (`traderStatsAsOf`).
+ */
+export const leaderboardImports = pgTable("leaderboard_imports", {
+  chain: text("chain").primaryKey(),
+  importedAt: timestamp("imported_at", { withTimezone: true }).notNull(),
+});
+
 // ---------------------------------------------------------------------------
 // app_settings — 管理員在後台調整的全站設定（每個區塊一列，value 由 zod 驗證）
 // ---------------------------------------------------------------------------

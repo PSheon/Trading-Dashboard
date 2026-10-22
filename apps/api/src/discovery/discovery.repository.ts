@@ -7,6 +7,8 @@ import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import { escapeLike } from "../common/sql/escape-like.js";
 import { HistoryFillStore } from "../traders/history-fill.store.js";
+import { traderStatsAsOf } from "../traders/trader-stats-as-of.js";
+import { upsertChanged } from "../db/upsert-changed.js";
 import type { DbTransaction } from "../db/unit-of-work.js";
 
 type DiscoveryRow = typeof discoveryTraders.$inferSelect;
@@ -94,7 +96,7 @@ export class DiscoveryRepository {
   }
 
   /** Makes the pool exactly `entries` in one transaction (new rows, never
-   * attempted, go first). */
+   * attempted, go first). A member whose rank is unchanged is not rewritten. */
   async syncPool(tx: DbTransaction, entries: Array<{ address: string; poolRank: number | null }>): Promise<{ added: number; removed: number }> {
     let added = 0;
     for (let i = 0; i < entries.length; i += 1000) {
@@ -105,6 +107,7 @@ export class DiscoveryRepository {
         .onConflictDoUpdate({
           target: [discoveryTraders.chain, discoveryTraders.address],
           set: { poolRank: sql`excluded.pool_rank`, inPool: true },
+          setWhere: upsertChanged([discoveryTraders.poolRank, discoveryTraders.inPool]),
         })
         .returning({ inserted: sql<boolean>`xmax = 0` });
       added += rows.filter((r) => r.inserted).length;
@@ -239,7 +242,7 @@ export class DiscoveryRepository {
         leaderboardName: traderStats.displayName,
         leaderboardAccountValue: traderStats.accountValue,
         leaderboardVolumeMonth: traderStats.volumeMonth,
-        leaderboardUpdatedAt: traderStats.updatedAt,
+        leaderboardUpdatedAt: traderStatsAsOf,
         archiveStatus: archiveCoverage.status,
       })
       .from(discoveryTraders)
@@ -275,7 +278,7 @@ export class DiscoveryRepository {
           pnlAllTime: traderStats.pnlAllTime,
           roiAllTime: traderStats.roiAllTime,
           pnlMonth: traderStats.pnlMonth,
-          statsUpdatedAt: traderStats.updatedAt,
+          statsUpdatedAt: traderStatsAsOf,
         })
         .from(traderStats)
         .where(and(eq(traderStats.chain, CHAIN_DEFAULT), inArray(traderStats.address, addresses))),

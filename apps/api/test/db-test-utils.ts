@@ -48,7 +48,7 @@ export async function truncateAll(db: TestDb): Promise<void> {
       favorite_group_members, favorite_groups, backfill_jobs, admin_audit_logs,
       alerts, alert_rules, actions, position_snapshots, equity_snapshots,
       fill_coverage, archive_coverage, archive_ingest_state, history_fills, history_accounts, history_terms, analysis_history_jobs, fills, coin_meta, leader_list_items, leader_lists, leaders, trader_trades, trader_analytics, kol_traders, kol_avatars, discovery_traders, cohort_members, cohort_snapshots,
-      notification_channels, user_favorites, users, trader_stats,
+      notification_channels, user_favorites, users, trader_stats, leaderboard_imports,
       app_settings, revenue_snapshots, telegram_link_tokens, notification_cooldowns, notification_outbox, action_outbox,
       copy_ledger, copy_paper_fills, copy_reservations, copy_orders, copy_signal_legs, copy_positions, copy_strategy_versions, copy_strategies,
       copy_signal_outbox, copy_consumer_checkpoints, copy_controls, copy_control_events, copy_risk_policies, copy_signer_nonces,

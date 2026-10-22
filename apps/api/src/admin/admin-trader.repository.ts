@@ -16,6 +16,7 @@ import {
 import type { AdminTrader } from "@trading-dashboard/shared/contracts";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
+import { traderStatsAsOf } from "../traders/trader-stats-as-of.js";
 const iso = (d: Date | null | undefined) => d?.toISOString() ?? null;
 @Injectable()
 export class AdminTraderRepository {
@@ -41,7 +42,7 @@ export class AdminTraderRepository {
         const [stats] = await tx
           .select({
             displayName: traderStats.displayName,
-            updatedAt: traderStats.updatedAt,
+            updatedAt: traderStatsAsOf,
           })
           .from(traderStats)
           .where(

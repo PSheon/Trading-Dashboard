@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import type { AdminSources } from "@trading-dashboard/shared/contracts";
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
+import { LEADERBOARD_AS_OF_SQL } from "../traders/trader-stats-as-of.js";
 @Injectable()
 export class AdminSourcesRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleDb) {}
@@ -11,7 +12,7 @@ export class AdminSourcesRepository {
       async (tx) => {
         await tx.execute(sql`SET LOCAL statement_timeout = '2000ms'`);
         const { rows } = await tx.execute(sql`
-    SELECT 'leaderboard' AS id,count(*)::int AS count,max(updated_at) AS "latestAt" FROM trader_stats WHERE chain='hyperliquid'
+    SELECT 'leaderboard' AS id,count(*)::int AS count,${sql.raw(LEADERBOARD_AS_OF_SQL)} AS "latestAt" FROM trader_stats WHERE chain='hyperliquid'
     UNION ALL SELECT 'discovery',count(*)::int,max(portfolio_at) FROM discovery_traders WHERE chain='hyperliquid' AND in_pool
     UNION ALL SELECT 'kol',count(*)::int,max(updated_at) FROM kol_traders WHERE chain='hyperliquid'
     UNION ALL SELECT 'watched',count(*)::int,NULL::timestamptz FROM leaders WHERE chain='hyperliquid' AND active

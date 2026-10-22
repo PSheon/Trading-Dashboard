@@ -7,7 +7,7 @@ import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import type { DbTransaction } from "../db/unit-of-work.js";
 import { purgeDetachedReferences, purgeStatements } from "../users/account-closure.plan.js";
-import { COPIED_LEADERS, LEGACY_FILLS_TABLE, unreferencedAccount } from "../traders/history-fill.store.js";
+import { COPIED_LEADERS, LEGACY_FILLS_TABLE, inIndexOrder, unreferencedAccount } from "../traders/history-fill.store.js";
 
 export interface RetentionOutcome {
   status: "ok" | "partial" | "failed";
@@ -118,12 +118,12 @@ export class RetentionRepository {
    * account nothing refers to any more (no history job, no active archive
    * coverage). Copied leaders are never touched. Each account's rows are
    * found through `history_fills_account_time_idx`; an account with none
-   * costs one index probe. `last`: the highest account the statement
+   * costs one index probe (see `inIndexOrder`). `last`: the highest account the statement
    * reached (the next one starts there); fewer than `limit` rows: the sweep
    * reached the end.
    */
   async deleteHistoryBatch(cut: Date, fromAccount: number, limit: number): Promise<{ removed: number; last: number | null }> {
-    const result = await this.db.execute<{ removed: number; last: number | null }>(sql`
+    const result = await inIndexOrder<{ removed: number; last: number | null }>(this.db, sql`
       WITH doomed AS (
         SELECT f.ctid AS row
         FROM (

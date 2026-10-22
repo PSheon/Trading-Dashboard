@@ -184,7 +184,7 @@ export class HistoryFillStore {
     for (const address of addresses) {
       while (removed < maxRows) {
         const limit = Math.min(batch, maxRows - removed);
-        const result = await this.db.execute(sql`
+        const result = await inIndexOrder(this.db, sql`
           DELETE FROM history_fills WHERE ctid = ANY (ARRAY(
             SELECT f.ctid FROM history_accounts h JOIN history_fills f ON f.account_id = h.id
             WHERE h.chain = ${CHAIN_DEFAULT} AND h.address = ${address} AND ${unreferencedAccount(sql`h`)}
@@ -256,6 +256,23 @@ function timeRange(range: FillRange): SQL[] {
     ...(range.through ? [lte(historyFills.time, range.through)] : []),
     ...(range.source ? [eq(historyFills.twap, range.source === "twap")] : []),
   ];
+}
+
+/**
+ * Runs a bounded statement that must walk `history_fills_account_time_idx`
+ * in order and stop at its LIMIT. The planner sizes an account by the
+ * table's average, while a few accounts hold most rows (30 addresses, 75 %):
+ * estimated small, it may pick a bitmap scan and a sort, which read and sort
+ * every row of a heavy account before the LIMIT (millions, past
+ * statement_timeout). Without those two for this statement it walks the
+ * index and stops.
+ */
+export function inIndexOrder<T extends Record<string, unknown>>(db: DrizzleDb, statement: SQL) {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`SET LOCAL enable_bitmapscan = off`);
+    await tx.execute(sql`SET LOCAL enable_sort = off`);
+    return tx.execute<T>(statement);
+  });
 }
 
 /** SQL: the live copy strategies' leaders (lower case). Their stored

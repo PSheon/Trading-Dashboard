@@ -617,6 +617,13 @@
       "when": 1792324160378,
       "tag": "0087_closed_account_release",
       "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1792668241421,
+      "tag": "0088_drop_retired_history_fills",
+      "breakpoints": true
     }
   ]
 }

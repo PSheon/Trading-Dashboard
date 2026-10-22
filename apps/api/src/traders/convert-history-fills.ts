@@ -13,7 +13,8 @@
  *            late rows, verifies, and renames the raw table to
  *            `analysis_history_fills_retired` only if exact.
  *   drop     Drops the retired table and the cursor (separate on purpose:
- *            the raw rows are the fallback until then).
+ *            the raw rows are the fallback until then). Migration 0088 does
+ *            the same on every converted database (2026-10-22).
  *   status   Prints the cursor and both tables' row counts.
  *
  * `all` = copy, then finish; does nothing (exit 0) when there is no raw

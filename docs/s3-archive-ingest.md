@@ -174,7 +174,7 @@ pnpm --filter @trading-dashboard/api history:convert drop     # later: drop the 
 - `copy` reads the raw table in key order, 5,000 rows per transaction together with its cursor (`analysis_history_fills_conversion`), and only reads the raw table: the previous release keeps working. Interrupted, it continues at the cursor.
 - `finish` takes a SHARE lock on the raw table (writers wait, readers do not), copies rows written since `copy` passed their key (an anti-join), compares every row and renames the table to `analysis_history_fills_retired` only if the comparison is exact. The rename is the fence: a process of the previous release fails loudly instead of writing fills the new layout would never see.
 - The new release reads `history_fills` only and refuses (`HistoryNotConvertedError`) while a table named `analysis_history_fills` exists, so it cannot serve or store history around unconverted rows.
-- Dropping is a separate command so the raw rows stay as a fallback until someone decides they are not needed.
+- Dropping is a separate command so the raw rows stay as a fallback until someone decides they are not needed. That decision was made on 2026-10-22 (cost reduction, 4.4 GB on Stage): migration 0088 drops `analysis_history_fills_retired` and the cursor on every database the conversion finished; one still mid-conversion keeps both.
 
 Measured on the scratch copy (5.89 M rows, this laptop): copy 642 s (≈ 9,200 rows/s; interrupted once at 940,000 rows and resumed), verify 99 s, finish 151 s (catch-up of 3,000 late rows + verify + rename). Disk: the new table adds 1.23 GB next to the 3.9 GB raw table until `drop`.
 

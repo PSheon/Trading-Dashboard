@@ -502,9 +502,18 @@ export class TradeAnalyticsService {
     // (REST keeps a moving window); before `verified_from` it is the source.
     const span = await this.history?.archiveSpan(address).catch(() => null);
     const archiveFrom = span && span.from < verifiedFrom && span.through >= verifiedFrom ? span.from : null;
-    const start = archiveFrom ?? Math.max(Date.now() - ANALYTICS_LOOKBACK_MS, verifiedFrom);
+    const lookback = Date.now() - ANALYTICS_LOOKBACK_MS;
+    const start = archiveFrom ?? Math.max(lookback, verifiedFrom);
     const revised = coverage.revisedAt !== null && state !== undefined && coverage.revisedAt > state.computedAt;
-    if (state?.source === "tracked" && state.fillCursor && state.fillCursor.getTime() >= verifiedFrom && !revised && this.trackedDepth.get(address) === start) {
+    // A later start than the ledger's own (the history retention cut moves
+    // the archive's span forward every day, or passes `verified_from`) only
+    // means fills under the ledger were pruned: the trades built from them
+    // stay right, so the ledger is extended. A rebuild there would read every
+    // kept fill daily and cut open positions at the cut into partial trades.
+    // A deeper start, a revision, or the rolling one-year bound rebuilds.
+    const depth = this.trackedDepth.get(address);
+    const reaches = depth === start || (depth !== undefined && depth < start && start !== lookback);
+    if (state?.source === "tracked" && state.fillCursor && state.fillCursor.getTime() >= verifiedFrom && !revised && reaches) {
       return this.extendTracked(address, state, coverage);
     }
     const fundingFrom = state?.fundingFrom?.getTime() ?? null;

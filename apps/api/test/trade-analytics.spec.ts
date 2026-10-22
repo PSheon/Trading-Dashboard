@@ -748,6 +748,40 @@ describe("trade analytics for any address", () => {
     expect(result.summary).toMatchObject({ trades: 2 });
   });
 
+  it("a moving retention cut does not rebuild a tracked ledger: its trade opened from pruned fills stays whole, and new fills extend it", async () => {
+    tracked.add(TRACKED);
+    const hour = (hoursAgo: number) => Math.floor(T(hoursAgo) / HOUR) * HOUR;
+    // Opened in the archive, partly closed in our own table: still open.
+    const opening = fill("BTC", 0, 2, 100, T(50));
+    const partly = fill("BTC", 2, -1, 120, T(5), { closedPnl: "20" });
+    await db.insert(fills).values(toFillRow(TRACKED, partly));
+    await db.insert(fillCoverage).values({ address: TRACKED, verifiedFrom: new Date(T(10)), verifiedThrough: new Date(NOW), backfillFloor: new Date(T(10)), backfillStatus: "retention" });
+    await db.insert(archiveCoverage).values({ address: TRACKED, coveredFrom: new Date(hour(100)), coveredThrough: new Date(hour(8)) });
+    await new HistoryFillStore(db).insert([{ address: TRACKED, source: "regular", origin: "s3", fill: opening }]);
+    const archive = new AnalysisHistoryService(new AnalysisHistoryRepository(db), info as unknown as HyperliquidInfoClient);
+    const production = new TradeAnalyticsService(new TradeAnalyticsRepository(db), traders as unknown as TradersService, info as unknown as HyperliquidInfoClient, undefined, archive);
+    await production.compute(TRACKED, true, { funding: false });
+    await production.settled();
+    expect(production.lastLog.get(TRACKED)!.at(-1)).toMatchObject({ kind: "tracked", fills: 2 });
+
+    // The day's cut passes the opening: the span moves to it, the fill is gone.
+    const retention = new RetentionRepository(db);
+    await retention.retainHistoryFrom(new Date(hour(40)));
+    await retention.deleteHistoryBatch(new Date(hour(40)), 0, 1_000);
+    expect(await storedFills(db, TRACKED)).toEqual([]);
+    const closing = fill("BTC", 1, -1, 125, T(1), { closedPnl: "25" });
+    await db.insert(fills).values(toFillRow(TRACKED, closing));
+    await production.compute(TRACKED, false, { funding: false });
+    await production.settled();
+
+    // Extended (the one new fill), not rebuilt from the cut: the trade keeps its opening.
+    expect(production.lastLog.get(TRACKED)!.at(-1)).toMatchObject({ kind: "tracked", fills: 1 });
+    const trades = await new TradeAnalyticsRepository(db).allTrades(TRACKED);
+    expect(trades).toHaveLength(1);
+    expect(trades[0]).toMatchObject({ openTid: BigInt(opening.tid), entryTime: opening.time, exitTime: closing.time });
+    tracked.delete(TRACKED);
+  });
+
   it("does not replace a longer existing ledger with shorter retained upstream history", async () => {
     await service.refresh(X);
     const before = await new TradeAnalyticsRepository(db).allTrades(X);

@@ -148,9 +148,14 @@ durable job's snapshot, an archive-covered first build) start at the first
 kept fill: "all" means the last 90 days for them, and their coverage says
 `from` that date and partial, which the trader page already shows ("since …").
 A ledger built before the cut is rebuilt from the kept snapshot when the job
-publishes its next one. Watched addresses are rebuilt from `fills` (365 days,
-not pruned) and use the archive only where its span (now from the cut)
-reaches back further. Cold REST reads still look back up to 365 days.
+publishes its next one (a snapshot is always a full rebuild, as before; a
+position open across the cut becomes a partial trade: its realized PnL is
+Hyperliquid's, its entry time and price are those of the first kept fill).
+Watched addresses are built from `fills` (365 days, not pruned) and use the
+archive only where its span (now from the cut) reaches back further; a cut
+moving under an existing ledger only extends it (its trades from pruned fills
+stay whole), so the daily cut causes no daily full rebuild. Cold REST reads
+still look back up to 365 days.
 
 After a finished queue row is gone, nothing re-creates it: an `action_outbox`
 row is written only in the transaction that inserts its action, and a

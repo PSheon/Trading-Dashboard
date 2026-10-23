@@ -103,10 +103,9 @@ describe("startup environment", () => {
         COPY_LIVE_FIXED_PER_TRADE_MIN_USD: "13", COPY_LIVE_FIXED_PER_TRADE_MAX_USD: "14" }).copy.live?.caps)
         // Real-money copies size by ratio only: Stage's leftover fixed bounds are ignored, not a boot failure.
         .toEqual({ maxStrategiesPerUser: 1, maxAllocationUsd: 50, maxLeverage: 2, ratioOnly: true });
-      // TEST ONLY: the minimum floor is off unless set, and never below the exchange's 10 USD with room.
-      expect(copy.live?.caps.testMinFloorMaxUsd).toBeUndefined();
-      expect(validateEnvironment({ ...live, COPY_LIVE_TEST_MIN_FLOOR_MAX_USD: "15" }).copy.live?.caps.testMinFloorMaxUsd).toBe(15);
-      expect(() => validateEnvironment({ ...live, COPY_LIVE_TEST_MIN_FLOOR_MAX_USD: "10" })).toThrow("COPY_LIVE_TEST_MIN_FLOOR_MAX_USD");
+      // The retired test floor (D6, 2026-10-23): a leftover COPY_LIVE_TEST_MIN_FLOOR_MAX_USD (Stage set 15) is ignored, never a cap and never a boot failure.
+      expect(validateEnvironment({ ...live, COPY_LIVE_TEST_MIN_FLOOR_MAX_USD: "15" }).copy.live?.caps).toEqual({ maxStrategiesPerUser: 2, ratioOnly: true, maxLeverage: 3 });
+      expect(validateEnvironment({ ...live, COPY_LIVE_TEST_MIN_FLOOR_MAX_USD: "10" }).copy.live?.caps).toEqual({ maxStrategiesPerUser: 2, ratioOnly: true, maxLeverage: 3 });
     });
     it("refuses to boot without the allowlist, on testnet, or with bad caps", () => {
       expect(() => validateEnvironment({ ...live, COPY_LIVE_ALLOWED_PRIVY_USER_IDS: undefined })).toThrow("COPY_LIVE_ALLOWED_PRIVY_USER_IDS");

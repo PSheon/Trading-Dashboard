@@ -85,11 +85,6 @@ export interface LiveCopyCaps {
    * one way to size real-money copies, as CopyDog; an order the exchange's
    * 10 USDC minimum rounds to nothing is skipped and recorded. */
   ratioOnly?: boolean;
-  /** TEST ONLY (COPY_LIVE_TEST_MIN_FLOOR_MAX_USD, unset: off): a ratio open
-   * that scales under the order minimum is raised to it, up to this many
-   * USD, instead of skipped, so a small test budget can copy a large leader
-   * and exercise orders, fills and closes. Never set for real users. */
-  testMinFloorMaxUsd?: number;
   /** Highest leverage a copy may use (COPY_LIVE_MAX_LEVERAGE; default 3 on a
    * `live` deployment, unset on testnet: the risk policy's alone). */
   maxLeverage?: number;
@@ -181,7 +176,6 @@ function liveCaps(source: Environment, mode: "testnet" | "live"): LiveCopyCaps {
     ...(maxAllocation ? { maxAllocationUsd: decimalValue("COPY_LIVE_MAX_ALLOCATION_USD", maxAllocation, 0, 1, 10_000_000) } : {}),
     ...(fixedPerTradeUsd ? { fixedPerTradeUsd } : {}),
     ...(live ? { ratioOnly: true } : {}),
-    ...(optional(source.COPY_LIVE_TEST_MIN_FLOOR_MAX_USD) ? { testMinFloorMaxUsd: decimalValue("COPY_LIVE_TEST_MIN_FLOOR_MAX_USD", source.COPY_LIVE_TEST_MIN_FLOOR_MAX_USD, 15, 11, 100) } : {}),
     ...(live || maxLeverage ? { maxLeverage: integerValue("COPY_LIVE_MAX_LEVERAGE", maxLeverage, 3, 1, 50) } : {}),
   };
 }

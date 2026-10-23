@@ -15,7 +15,7 @@ import { CopyFitSummary } from "../src/components/trader/copy-fit-summary";
 
 const fill = (coin: string, px: number, sz: number, minute: number) =>
   ({ tid: `${coin}${minute}`, coin, side: "buy", dir: "Open Long", px, sz, notionalUsd: px * sz, closedPnl: null, fee: null, ts: new Date(Date.UTC(2026, 9, 10, 1, minute)).toISOString() });
-const render = (allocation: number, floorMaxUsd: number | null = null) => renderToStaticMarkup(<I18nProvider locale="zh-TW" messages={zhTW}><CopyFitSummary address={`0x${"ab".repeat(20)}`} allocation={allocation} floorMaxUsd={floorMaxUsd} /></I18nProvider>);
+const render = (allocation: number) => renderToStaticMarkup(<I18nProvider locale="zh-TW" messages={zhTW}><CopyFitSummary address={`0x${"ab".repeat(20)}`} allocation={allocation} /></I18nProvider>);
 
 beforeEach(() => {
   read.accountValue = 100_000;
@@ -63,12 +63,12 @@ it("suggests an allocation when most opens would be skipped, and not once the am
   expect(render(100)).not.toContain("建議至少");
 });
 
-it("with the TEST ONLY floor, says opens under the minimum are raised to it, not skipped, and suggests nothing (Stage 2026-10-12)", () => {
+it("never says an open under the minimum is raised: the test floor is gone (D6, 2026-10-23)", () => {
   read.accountValue = 1_000_000;
   read.fills = Array.from({ length: 10 }, (_, i) => fill("BTC", 1000, i + 1, i));
-  const html = render(50, 15);
-  expect(html).toContain("測試模式：依比例縮放，最近 10 筆開倉中約 10 筆（100%）低於最低下單額 $10，會提高到最低下單額下單（每筆最多 $15）。");
-  expect(html).not.toContain("不會執行");
-  expect(html).not.toContain("建議至少");
-  expect(html).not.toContain("bg-warning/10");
+  const html = render(50);
+  expect(html).not.toContain("測試模式");
+  expect(html).toContain("不會執行");
+  expect(html).toContain("bg-warning/10");
+  expect((zhTW.trader.copy.fit as Record<string, string>).raised).toBeUndefined();
 });

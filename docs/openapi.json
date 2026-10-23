@@ -40485,12 +40485,6 @@
                                 "maxStrategiesPerUser": {
                                   "type": "integer",
                                   "exclusiveMinimum": 0
-                                },
-                                "testMinFloorMaxUsd": {
-                                  "type": [
-                                    "number",
-                                    "null"
-                                  ]
                                 }
                               },
                               "required": [

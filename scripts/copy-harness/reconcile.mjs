@@ -64,13 +64,10 @@ const since = Date.parse(flag("since", ""));
 const all = (name) => args.flatMap((a, i) => (a === `--${name}` ? [args[i + 1]] : []));
 const num = (name, fallback) => { const v = flag(name); if (v === undefined) return fallback; const n = Number(v); if (!(n > 0)) { console.error(`--${name}: a positive number`); process.exit(2); } return n; };
 const perTradeUsd = num("per-trade-usd", null), maxPerTradeUsd = num("max-per-trade-usd", stage ? 15 : null), minOrderUsd = num("min-order-usd", 10), maxLeverage = num("max-leverage", stage ? 3 : null);
-const ratioFloorMaxUsd = num("ratio-floor-max-usd", null);
 // The copy's source poll interval (COPY_LIVE_TESTNET_SOURCE_INTERVAL_MS): the harness_timing fallback when no coverage row is read.
 const sourcePollMs = num("source-poll-ms", null);
 const rules = { allowedRefusals: [...DEFAULT_ALLOWED_REFUSALS, ...parseAllowedRefusals(all("allow-refusal"))],
-  sizing: perTradeUsd ? { perTradeUsd, maxPerTradeUsd: maxPerTradeUsd ?? perTradeUsd, minOrderUsd } : null, maxLeverage,
-  // TEST ONLY minimum floor: every ratio open went out at least at the minimum.
-  ratioFloor: ratioFloorMaxUsd ? { maxUsd: ratioFloorMaxUsd, minOrderUsd } : null };
+  sizing: perTradeUsd ? { perTradeUsd, maxPerTradeUsd: maxPerTradeUsd ?? perTradeUsd, minOrderUsd } : null, maxLeverage };
 const db = flag("db", stage ? "none" : "ssh"), portfolioUrl = flag("portfolio-url", stage && process.env.HARNESS_BEARER ? "https://web-staging-9f98.up.railway.app/api/hl/me/copy/live/portfolio" : undefined);
 if (!["testnet", "mainnet"].includes(leaderNet) || !["testnet", "mainnet"].includes(net)) { console.error("--network and --leader-network: mainnet or testnet"); process.exit(2); }
 if (!/^0x[0-9a-f]{40}$/.test(leader ?? "") || !/^0x[0-9a-f]{40}$/.test(follower ?? "") || !Number.isFinite(since)) {

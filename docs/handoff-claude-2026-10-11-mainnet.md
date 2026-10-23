@@ -76,7 +76,7 @@ Telegram 已正式啟用（保留）：兩服務 `TELEGRAM_BOT_USERNAME=orbie_fu
 
 - Stage 已部署 `167c6d34`（三服務）＋網頁 `f238c57d`（不顯示先前網路的跟單與資金紀錄）＋`77e3cfda`（內部轉帳入金不重複）。Stage 暫時設定已還原（BACKGROUND_REST_CAP=400、worker 五個 *_WEIGHT_PER_MIN 已刪），API／worker 重部署成功。
 - Paul 已在 `.claude/settings.local.json` 允許 `Bash(bash .claude/codex-verification/recovery/deploy-stage-*.sh)`：Stage 部署／設定一律包成該名稱的腳本由 Claude 執行。
-- 測試用「補到最低額」（`c4c5d626`）：`COPY_LIVE_TEST_MIN_FLOOR_MAX_USD`（未設＝關）。比例開倉低於 10 USD 時補到 10（上限 15），讓 50 USDC 能跟大交易員測完整流程；部分平倉低於最低額原本就會補到 10 或整筆平。harness 新增 `ratio-floor` profile 與 `ratio_floor_below_minimum` 檢查。
+- ~~測試用「補到最低額」~~（2026-10-23 D6 已移除：比例跟單低於 10 USD 的加倉直接拒絕 `below_min_notional`，不放大；變數留在 Stage 會被忽略）（`c4c5d626`）：`COPY_LIVE_TEST_MIN_FLOOR_MAX_USD`（未設＝關）。比例開倉低於 10 USD 時補到 10（上限 15），讓 50 USDC 能跟大交易員測完整流程；部分平倉低於最低額原本就會補到 10 或整筆平。harness 新增 `ratio-floor` profile 與 `ratio_floor_below_minimum` 檢查。
 - 擬跟交易員：`0x010461c14e146ac35fe42271bdc1134ee31c703a`（帳戶約 320 萬、歷史獲利約 4600 萬、回撤約 18%、槓桿 1.3x、30 天約 935 次開倉、無 HIP-3）。
 - 下一步：本機 ratio-floor 端到端（base、reduce-min、stop-open、burst）全綠 → API 全套 → CI → Stage 設 `COPY_LIVE_TEST_MIN_FLOOR_MAX_USD=15` 並部署 → Paul 開始跟單（真錢需他確認）。測完要刪掉這個變數。
 

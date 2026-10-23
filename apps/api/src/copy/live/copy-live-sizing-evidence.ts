@@ -25,12 +25,9 @@ export interface LiveSourceSizingBasisV1 {
   /** A fixed open's ceiling when its lot rounding is rounded up to the order
    * minimum: the deployment's per-trade maximum (COPY_LIVE_FIXED_PER_TRADE_MAX_USD). */
   readonly fixedMaxUsd?: string;
-  /** TEST ONLY: a ratio open under the order minimum is raised to it within
-   * this ceiling (COPY_LIVE_TEST_MIN_FLOOR_MAX_USD); absent: skipped. The
-   * size it would have had is the planner's ratio size from this basis. */
-  readonly ratioFloorMaxUsd?: string;
   /** The planner applies the exchange's order minimum (a fixed open rounded
-   * up to it, a reduction under it rounded up or closing the position);
+   * up to it, a ratio open under it refused, a reduction under it rounded up
+   * or closing the position);
    * absent on orders admitted before, which replay unchanged. */
   readonly exchangeMinimum?: true;
   readonly market: LiveMarketIdentity;

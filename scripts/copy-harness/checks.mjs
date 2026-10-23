@@ -16,7 +16,6 @@ import { harnessTimingCause } from "./criteria.mjs";
 //   executed_without_follower_fill   an execution says filled, the follower has no fill;
 //   follower_side_mismatch           an open filled on the other side;
 //   fixed_size_mismatch              an open's fill is not per-trade USD / limit price at szDecimals;
-//   ratio_floor_below_minimum        (--ratio-floor-max-usd) a ratio open was sent under the order minimum;
 //   follower_leverage_above_cap      the follower's leverage on a coin is above the cap;
 //   direction_mismatch               a coin's position has the other direction;
 //   follower_not_flat                the leader ended flat and the follower holds a position;
@@ -171,11 +170,6 @@ export function evaluate(input) {
       const exact = rules.sizing.perTradeUsd / Number(d.limitPx), expected = fixedOrderSize(rules.sizing, Number(d.limitPx), dec);
       const ok = Math.abs(filled - exact) <= lot + 1e-9 || (expected !== null && Math.abs(filled - Number(expected)) <= 1e-9);
       if (!ok) fail("fixed_size_mismatch", { dispatch: d.id, coin: d.coin, filled: fmt(filled, dec), expected, limitPx: d.limitPx, perTradeUsd: rules.sizing.perTradeUsd });
-    }
-    // The TEST ONLY minimum floor: a ratio open is sent at least at the minimum (never a sub-minimum order).
-    if (rules.ratioFloor && d.leg === "open" && Number(d.limitPx) > 0 && d.orderSize) {
-      const notional = Number(d.orderSize) * Number(d.limitPx);
-      if (notional < rules.ratioFloor.minOrderUsd - 1e-9) fail("ratio_floor_below_minimum", { dispatch: d.id, coin: d.coin, size: d.orderSize, limitPx: d.limitPx, notional: notional.toFixed(4) });
     }
   }
 

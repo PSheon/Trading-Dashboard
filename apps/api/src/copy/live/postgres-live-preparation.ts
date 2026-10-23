@@ -248,14 +248,12 @@ export class PostgresLivePreparation {
     const dependency = dependsOn ? withCarry.journals.find(v => v.leg?.id === dependsOn && v.leg.executionKey === v.journal.key) : null;
     // A fixed open rounded up to the order minimum stays within the deployment's per-trade maximum.
     const fixedMax = binding.leg === 'open' && local.settings.sizingMode === 'fixed' ? liveDeploymentPolicy()?.caps.fixedPerTradeUsd?.max : undefined;
-    // TEST ONLY: a ratio open under the minimum is raised to it (COPY_LIVE_TEST_MIN_FLOOR_MAX_USD).
-    const ratioFloor = binding.leg === 'open' && local.settings.sizingMode === 'ratio' ? liveDeploymentPolicy()?.caps.testMinFloorMaxUsd : undefined;
     const sizing: LiveSourceSizingEnvelopeV1 = { version: 1, basis: { version: 1, mandateId: binding.mandateId, mandateRevision: local.mandate.revision,
       settingsDigest: local.consent.settingsDigest, sourceFillId: source.fill.id, sourceDigest: source.fill.sourceDigest, network, accountAddress: local.account.address!,
       coin: source.fill.coin, leg: binding.leg, direction: local.settings.direction, sizingMode: local.settings.sizingMode, budgetUsd: local.consent.budgetUsd,
       perTradeUsd: local.settings.perTradeUsd === null ? null : Dec.from(local.settings.perTradeUsd).toString(),
       ...(fixedMax !== undefined ? { fixedMaxUsd: Dec.from(String(fixedMax)).toString() } : {}),
-      ...(ratioFloor !== undefined ? { ratioFloorMaxUsd: Dec.from(String(ratioFloor)).toString() } : {}), exchangeMinimum: true, market,
+      exchangeMinimum: true, market,
       quote: { midPrice: quote.quote.midPrice, slippageBps: Dec.min(Dec.from(this.options.slippageBps), Dec.from(local.limits.maxSlippageBps)).toString(), observedAt: quote.quote.observedAt, completedAt: quote.completedAt, sourceDigest: quote.quote.sourceDigest },
       follower: { network, accountAddress: follower.accountAddress, equity: follower.perpEquity, positionSize, observedAt: follower.observedAt, completedAt: follower.completedAt,
         sourceDigest: follower.sourceDigest, snapshotDigest: followerReceiptDigestV1(follower), positionsDigest: projection.positionsDigest },

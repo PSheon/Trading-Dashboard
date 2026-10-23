@@ -699,7 +699,7 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName, li
       </div>
 
       {/* Ratio sizing only: a fixed amount per trade is checked against the minimum by its own field. */}
-      {!testnet || (!fixedOnly && sizing === "ratio") ? <CopyFitSummary address={address} allocation={Number.isFinite(value) ? value : 0} floorMaxUsd={deployment?.caps?.testMinFloorMaxUsd ?? null} /> : null}
+      {!testnet || (!fixedOnly && sizing === "ratio") ? <CopyFitSummary address={address} allocation={Number.isFinite(value) ? value : 0} /> : null}
 
       {tooActive ? (
         <p role="alert" data-testid="copy-leader-too-active" className="flex items-start gap-2 rounded-xl bg-warning/10 px-3 py-2.5 text-xs leading-relaxed text-warning">

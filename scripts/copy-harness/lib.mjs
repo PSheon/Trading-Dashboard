@@ -150,8 +150,9 @@ export function lastStartRtt(text) {
 export function termsFor(profile = "default") {
   if (profile === "default") return { ...TERMS, maxPerTradeUsd: TERMS.perTradeUsd, maxLeverage: 3, profile };
   if (profile === "stage-caps") return { ...TERMS, budgetUsd: 50, maxPerTradeUsd: 15, maxLeverage: 3, profile };
-  // The planned mainnet functional test: ratio sizing with the TEST ONLY minimum floor (ratio-floor.env).
-  if (profile === "ratio-floor") return { ...TERMS, budgetUsd: 50, sizingMode: "ratio", ratioFloorMaxUsd: 15, maxPerTradeUsd: 15, maxLeverage: 3, profile };
+  // The mainnet functional test: ratio sizing, 50 USDC a copy (ratio-floor.env). An open under the order
+  // minimum is refused (below_min_notional), never raised: the test floor was retired (D6, 2026-10-23).
+  if (profile === "ratio-floor") return { ...TERMS, budgetUsd: 50, sizingMode: "ratio", maxPerTradeUsd: 15, maxLeverage: 3, profile };
   // The pre-mainnet gate: ratio-floor with Stage's 8 ms database round trip (stage-like.env).
   if (profile === "stage-like") return { ...termsFor("ratio-floor"), profile };
   throw new Error(`unknown profile ${profile} (default | stage-caps | ratio-floor | stage-like)`);

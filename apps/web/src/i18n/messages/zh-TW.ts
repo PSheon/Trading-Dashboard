@@ -1820,7 +1820,6 @@ export const zhTW = {
         title: "跟單適配估算",
         belowMin: "依比例縮放，最近 {opens} 筆開倉中約 {below} 筆（{pct}%）會低於最低下單額 ${min}，不會執行。",
         allFit: "最近 {opens} 筆開倉依比例縮放後都達到最低下單額 ${min}。",
-        raised: "測試模式：依比例縮放，最近 {opens} 筆開倉中約 {below} 筆（{pct}%）低於最低下單額 ${min}，會提高到最低下單額下單（每筆最多 ${max}）。",
         suggested: "想讓約 {pct}% 的單能下出，跟單資金建議至少 ${amount}。",
         hip3: "另有 {count} 筆是 HIP-3 市場，可能因平台風控不跟單。",
         sample: "樣本 {from} – {to}（UTC）的成交。估算不含之後的損益、上限與訊號時效，實際以訂單紀錄為準。",

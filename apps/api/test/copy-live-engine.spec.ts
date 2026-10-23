@@ -670,6 +670,76 @@ describe('testnet copy execution engine', () => {
     expect((await dispatches()).find(r => r.sourceFillId === close)).toMatchObject({ state: 'pending', reason: 'live_risk_busy', attempts: CLOSE_ATTEMPT_LIMIT - 1 });
   });
 
+  /** The leader's stream row (`mainnet:<leader>`). */
+  const stream = async () => (await db.select().from(schema.copyLiveSourceStreams))[0]!;
+  /** A BTC open filled, its BTC close and an ETH open pending behind it, all ingested while the stream was ready; then the
+   * stream falls to `gap` (Stage mainnet 2026-10-22 18:02Z, strategy 14: a fast read slower than LIVE_EVIDENCE_MAX_AGE_MS,
+   * source_unavailable) and the watcher verifies nothing further, so no pass read moves the stream until the test does.
+   * `others` answers the pending close and open (the BTC open's outcome stays unknown for the first pass, which holds
+   * the close behind it; a requested manual close of ETH holds the ETH open). */
+  async function legsPendingInGap(others: Runtime) {
+    await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
+    const open = await leaderFill(90, now + 100, 'B', '1', '0', 'BTC'), close = await leaderFill(91, now + 200, 'A', '1', '1', 'BTC'), add = await leaderFill(92, now + 300, 'B', '1', '0', 'ETH');
+    await db.insert(schema.copyLiveManualCloses).values({ id: 'held-eth', userId: 1, accountId: 'account', strategyId: 9, idempotencyKey: 'reconcile:held-eth', coin: 'ETH', createdAt: new Date(now), updatedAt: new Date(now) });
+    runtimeImpl = async (request, hooks) => {
+      if (request.sourceFillId !== open) return others(request, hooks);
+      runtimeCalls.push(request); const key = keyOf(open, 'open');
+      hooks.onExchange?.({ phase: 'request', at: clock + 10 }); hooks.onExchange?.({ phase: 'response', at: clock + 40 });
+      await journal(key, 'unknown'); return { key, state: 'unknown' } as LiveExecutionRecord;
+    };
+    const worker = engine(), logs: string[] = [];
+    (worker as unknown as { deps: { log?: (m: string) => void } }).deps.log = message => { logs.push(message); };
+    clock = now + 1000; await worker.tick();
+    const rowOf = async (fill: string) => (await dispatches()).find(r => r.sourceFillId === fill)!;
+    expect(await rowOf(close)).toMatchObject({ state: 'pending', attempts: 0, reason: null });
+    expect(await rowOf(add)).toMatchObject({ state: 'pending', attempts: 0, reason: null });
+    expect(runtimeCalls).toHaveLength(1); expect((await stream()).state).toBe('ready');
+    await journal(keyOf(open, 'open'), 'filled');
+    await db.update(schema.fillCoverage).set({ verifiedThrough: (await stream()).coverageThrough! });
+    await db.update(schema.copyLiveSourceStreams).set({ state: 'gap', lastIssue: 'source_unavailable' });
+    await db.update(schema.copyLiveManualCloses).set({ state: 'refused', reason: 'leader_reopened' });
+    clock = now + 6000;
+    return { worker, close, add, logs, closeRow: () => rowOf(close), addRow: () => rowOf(add) };
+  }
+  /** What the authority refused the incident's legs with while the stream was in gap (postgres-live-risk-authority.ts). */
+  const sourceRefusal = (code: string): Runtime => async request => { runtimeCalls.push(request); throw new LiveBoundaryError(code); };
+
+  it('D10: while the leader\'s stream is in gap a pending close is sent (on the copy\'s own evidence) and a pending open waits with no attempt spent and no runtime call, then is sent exactly once when the stream is ready (Stage mainnet 2026-10-22 18:02Z, strategy 14)', async () => {
+    // What the old authority refused every leg with while the stream was in gap (nine counted attempts in ~27 s); a close now goes.
+    const { worker, close, add, logs, closeRow, addRow } = await legsPendingInGap(async (request, hooks) => request.leg === 'close' ? filled(request, hooks) : sourceRefusal('live_risk_source_changed')(request, hooks));
+    for (let pass = 1; pass <= 9; pass++) {
+      clock += 3000; await worker.tick();
+      expect(await addRow(), `pass ${pass}`).toMatchObject({ state: 'pending', attempts: 0, reason: 'live_risk_source_not_ready' });
+    }
+    expect(await closeRow()).toMatchObject({ state: 'settled', executionKey: keyOf(close, 'close'), attempts: 1, reason: null });
+    expect(runtimeCalls.filter(r => r.sourceFillId === close)).toEqual([{ userId: 1, accountId: 'account', mandateId: 'mandate', sourceFillId: close, leg: 'close' }]);
+    expect(runtimeCalls.filter(r => r.sourceFillId === add)).toHaveLength(0);
+    expect(logs.filter(m => m.includes('live_risk_source_not_ready') && m.includes(`leg mandate|${add}|open`))).toHaveLength(1);
+    // Ready again, but the stream falls back to gap between the engine's check and the authority's: still a wait, not an attempt.
+    runtimeImpl = sourceRefusal('live_risk_source_not_ready');
+    await db.update(schema.copyLiveSourceStreams).set({ state: 'ready', lastIssue: null });
+    clock += 3000; await worker.tick();
+    expect(await addRow()).toMatchObject({ state: 'pending', attempts: 0, reason: 'live_risk_source_not_ready' });
+    expect(runtimeCalls.filter(r => r.sourceFillId === add)).toHaveLength(1);
+    runtimeImpl = filled; runtimeCalls.length = 0;
+    clock += 3000; await worker.tick();
+    expect(await addRow()).toMatchObject({ state: 'submitted', executionKey: keyOf(add, 'open'), attempts: 1, reason: null });
+    clock += 3000; await worker.tick();
+    expect(runtimeCalls).toHaveLength(1);
+  });
+
+  it('a close the authority still holds for the stream (live_risk_source_not_ready: a fill beyond the proven coverage, a stream unproven) never reaches CLOSE_ATTEMPT_LIMIT by that alone, and goes once admitted', async () => {
+    const { worker, close, closeRow } = await legsPendingInGap(sourceRefusal('live_risk_source_not_ready'));
+    await db.update(schema.copyLiveDispatches).set({ attempts: CLOSE_ATTEMPT_LIMIT - 1 }).where(eq(schema.copyLiveDispatches.sourceFillId, close));
+    for (let pass = 1; pass <= 3; pass++) { clock += 3000; await worker.tick(); }
+    expect(await closeRow()).toMatchObject({ state: 'pending', attempts: CLOSE_ATTEMPT_LIMIT - 1, reason: 'live_risk_source_not_ready' });
+    // Each pass asked the authority (a wait a second apart, never an attempt); nothing was sent.
+    expect(runtimeCalls.filter(r => r.sourceFillId === close)).toHaveLength(3);
+    runtimeImpl = filled;
+    clock += 3000; await worker.tick();
+    expect(await closeRow()).toMatchObject({ state: 'submitted', executionKey: keyOf(close, 'close'), attempts: CLOSE_ATTEMPT_LIMIT });
+  });
+
   it('refuses a close that keeps failing after CLOSE_ATTEMPT_LIMIT attempts, never retrying it for ever', async () => {
     await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
     const open = await leaderFill(25, now + 100, 'B', '1', '0', 'ETH'), close = await leaderFill(26, now + 200, 'A', '1', '1', 'ETH');

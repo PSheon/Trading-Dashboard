@@ -66,7 +66,7 @@ export interface LiveEngineDependencies {
   /** Realtime mainnet source for COPY_LIVE_FAST_SOURCE leaders; read on a
    * kick, and by the pass while the trade feed is down. */
   readonly fast?: {
-    readonly source: Pick<FastMainnetSource, 'read' | 'witness' | 'followUp' | 'nextReadAt' | 'graceMs'> & Partial<Pick<FastMainnetSource, 'lastTiming'>>;
+    readonly source: Pick<FastMainnetSource, 'read' | 'witness' | 'followUp' | 'nextReadAt' | 'graceMs'> & Partial<Pick<FastMainnetSource, 'lastTiming' | 'readOutcome'>>;
     readonly leaders: 'all' | ReadonlySet<string>;
     /** Whether the trade feed (kicks) is up; leaders are polled while it is not. */
     readonly feedUp?: () => boolean;
@@ -117,6 +117,7 @@ export { describeUnexpected, safeErrorText } from '../../runtime/safe-error-text
 import { LIVE_STANDBY_RENEW_MS, SHARED_CAPACITY_RETRY_MS } from '../../config/constants/hyperliquid.js';
 import { ABSTRACTION_ATTEMPT_LIMIT, CLOSE_ATTEMPT_LIMIT, MAX_LIVE_LEG_ATTEMPTS } from '../../config/constants/limits.js';
 import { HOLD_MARGIN_MS, PLANNING_MARGIN_MS, TESTNET_SOURCE_RETRY_MS } from '../../config/constants/timings.js';
+import { liveSourceStreamAdmits } from '../live/postgres-live-risk-authority.js';
 const reasonOf = (error: unknown) => errorCode(error);
 /** A source read's failure for the log: its code, and which evidence check refused it (if one did). */
 const sourceReason = (error: unknown) => [reasonOf(error), liveSourceEvidenceDetail(error)].filter(Boolean).join(' ');
@@ -362,6 +363,9 @@ export class CopyLiveEngine {
     if (applied.stream.state === 'gap' && applied.stream.lastIssue !== current.lastIssue)
       this.deps.log?.(`source ${key} in gap (${applied.stream.lastIssue}): read [${new Date(read.from).toISOString()}, ${new Date(read.to).toISOString()}] ${viaFast ? 'fast' : 'watched'}, ` +
         `fresh ${read.fresh}, complete ${read.complete}, ${read.completedAt - read.observedAt} ms`);
+    // A fast read that left the stream in gap is followed up G after it (the
+    // kick's follow-up), not at the leader's next trade.
+    if (viaFast) this.deps.fast!.source.readOutcome?.(leaderAddress, applied.stream.state === 'gap');
     return { fast: viaFast, fills: read.fills.length, kind: applied.kind, state: applied.stream.state, through: applied.stream.coverageThrough?.getTime() ?? null };
   }
 
@@ -586,7 +590,36 @@ export class CopyLiveEngine {
     if (await this.deps.repository.unsettledOnAccount(row)) return;
     // Honour retryDelayMs after a failed attempt.
     if ((this.legRetryAt.get(row.id) ?? 0) > this.now()) return;
+    // The leader's stream does not admit the leg yet: wait, not an attempt.
+    if (!await this.sourceReady(row, m)) return;
     await this.execute(row, m, row.leg === 'open' ? row.leaderTime.getTime() + signalAgeMs : undefined, attempt);
+  }
+
+  /**
+   * Whether the leader's source stream admits this leg now (THE rule:
+   * liveSourceStreamAdmits, D10: `ready` admits every leg, `gap` a close only,
+   * with its coverage from before the copy's cursor). One SQL read, before
+   * any evidence is spent; the authority requires the same. While it does
+   * not, the leg waits with the reason and no attempt is spent (Stage mainnet
+   * 2026-10-22 18:02Z, strategy 14: a ~60 s gap cost a close nine counted
+   * attempts; CLOSE_ATTEMPT_LIMIT would have refused it in a ~90 s one). The
+   * wait is bounded: an open by its signal age (signal_expired), and the
+   * stream recovers on its next complete read (the next pass, or a kick's
+   * follow-up read G after the one that fell short: FastMainnetSource.readOutcome).
+   * A close is not held here (D10): it goes on the copy's own fresh account
+   * evidence while the stream is in gap; one the authority still refuses (a
+   * stream unproven or quarantined, a fill beyond the proven coverage) waits
+   * as the same `budget`-class wait, never a counted attempt.
+   */
+  private async sourceReady(row: DispatchRow, m: LiveMandateWork): Promise<boolean> {
+    const stream = await this.deps.repository.stream(m.sourceNetwork, m.leaderAddress);
+    if (stream && liveSourceStreamAdmits(stream, row.leg) && stream.coverageFrom.getTime() <= m.cursor.getTime()) return true;
+    const reason = 'live_risk_source_not_ready';
+    if (row.reason !== reason) {
+      this.deps.log?.(`leg ${row.id} waits: ${reason} (source ${m.sourceNetwork}:${m.leaderAddress} ${stream?.state ?? 'missing'}${stream?.lastIssue ? ` (${stream.lastIssue})` : ''}); no attempt spent`);
+      await this.deps.repository.update(row, { reason });
+    }
+    return false;
   }
 
   /** Submits or reconciles the leg's order; a first submission's budget wait ends at `signalDeadline`. */

@@ -18,6 +18,7 @@ import type { HlUserFill } from '../src/hyperliquid/types.js';
 import { preparationFixture } from './copy-live-preparation-test-utils.js';
 import { now } from './copy-live-risk-test-utils.js';
 import { closeTestDb, getTestDb, type TestDb } from './db-test-utils.js';
+import { FOLLOW_UP_MAX_MS } from '../src/config/constants/timings.js';
 
 // Real SQL, sources and repositories; the exchange runtime and settler are
 // doubles, the provider is a fake `userFillsByTime` / TWAP reader.
@@ -136,6 +137,46 @@ describe('realtime copy signal (fast mainnet source)', () => {
     result = await fast.read(leader, 4000);
     expect(result!.to).toBe(11_000 - G); expect(result!.fills.map(f => f.tid)).toEqual(['2']);
     expect(fast.followUp(leader)).toBeNull();
+  });
+
+  it('a read that left the stream in gap is followed up G after it, backed off while reads keep falling short, and not once the stream is ready (Stage mainnet 2026-10-22 18:02Z)', async () => {
+    const fills: HlUserFill[] = [rest(1, 1000)], { read } = reader(() => fills), fast = new FastMainnetSource(read, G, () => clock);
+    clock = 10_000; await fast.read(leader, 500);
+    // Nothing witnessed and nothing beyond: no follow-up of its own.
+    expect(fast.followUp(leader)).toBeNull();
+    // The stream fell to gap on this read (slower than the evidence window): read again G after it.
+    fast.readOutcome(leader, true);
+    expect(fast.followUp(leader)).toBe(10_000 + G); expect(fast.nextReadAt(leader)).toBe(10_000 + G);
+    clock = 12_000; await fast.read(leader, 500); fast.readOutcome(leader, true);
+    expect(fast.followUp(leader)).toBe(12_000 + G);
+    clock = 14_000; await fast.read(leader, 500); fast.readOutcome(leader, true);
+    expect(fast.followUp(leader)).toBe(14_000 + 4000);
+    clock = 18_000; await fast.read(leader, 500); fast.readOutcome(leader, true);
+    expect(fast.followUp(leader)).toBe(18_000 + FOLLOW_UP_MAX_MS);
+    // A witnessed trade due sooner than the recovery read wins; the recovery read never waits for one.
+    fast.witness(leader, 2, 18_500);
+    expect(fast.followUp(leader)).toBe(18_500 + G + 100);
+    // Ready again: only what is witnessed asks for a read (the trade REST has not returned yet, a second apart), then nothing.
+    clock = 26_000; await fast.read(leader, 500); fast.readOutcome(leader, false);
+    expect(fast.followUp(leader)).toBe(26_000 + G);
+    fills.push(rest(2, 18_500)); clock = 28_000; await fast.read(leader, 500); fast.readOutcome(leader, false);
+    expect(fast.followUp(leader)).toBeNull();
+  });
+
+  it('the engine reports a fast read\'s outcome: a read slower than the evidence window puts the stream in gap and asks for a follow-up read G later', async () => {
+    await credit(); await engine().tick();
+    // The read leaves at once but its answer takes 5.16 s (the incident): fresh is false, the stream goes to gap (source_unavailable).
+    const { read } = reader(() => [rest(1, now + 3000)]); let slowOnce = true;
+    const slow: FastSourceReader = { ...read, fills: async (l, from) => { const answer = await read.fills(l, from); if (slowOnce) { slowOnce = false; clock += 5160; } return answer; } };
+    const fast = new FastMainnetSource(slow, G, () => clock), worker = engine(fast);
+    clock = now + 6000; await worker.kick(leader);
+    const readAt = now + 6000;
+    expect((await db.select().from(schema.copyLiveSourceStreams))[0]).toMatchObject({ state: 'gap', lastIssue: 'source_unavailable' });
+    expect(worker.followUp(leader)).toBe(readAt + G);
+    // The follow-up read answers in time: ready, and nothing more to follow up.
+    clock += G; await worker.kick(leader);
+    expect((await db.select().from(schema.copyLiveSourceStreams))[0]).toMatchObject({ state: 'ready', lastIssue: null });
+    expect(worker.followUp(leader)).toBeNull();
   });
 
   it('certifies that much less when our clock runs ahead of Hyperliquid\'s (O9)', async () => {

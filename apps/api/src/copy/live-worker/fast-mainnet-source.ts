@@ -35,6 +35,8 @@ interface LeaderState {
   lastReadAt: number;
   /** Consecutive reads after which a witnessed trade was still missing. */
   misses: number;
+  /** Consecutive reads that left the stream in gap (readOutcome): the next read is due G after the last, backed off. */
+  gaps: number;
 }
 
 /**
@@ -70,7 +72,7 @@ export class FastMainnetSource {
 
   private state(leader: string): LeaderState {
     let state = this.leaders.get(leader);
-    if (!state) { state = { witnessed: new Map(), beyond: null, lastReadAt: 0, misses: 0 }; this.leaders.set(leader, state); }
+    if (!state) { state = { witnessed: new Map(), beyond: null, lastReadAt: 0, misses: 0, gaps: 0 }; this.leaders.set(leader, state); }
     return state;
   }
 
@@ -95,15 +97,31 @@ export class FastMainnetSource {
     return { ...(this.counters.get(address(leader)) ?? { reads: 0, twapReads: 0, weight: 0, rows: 0 }) };
   }
 
+  /** What the leader's last read did to its stream (CopyLiveEngine.ingest):
+   * `gap` when the stream is in gap after it (the read was slower than the
+   * evidence window, or incomplete: nothing certified, coverage unmoved). The
+   * stream recovers only on a complete read, so one is due G after the last
+   * (followUp), backed off while reads keep falling short, instead of at the
+   * leader's next trade or the watched source's verification (Stage mainnet
+   * 2026-10-22 18:02Z: ~60 s in gap, a close waiting on it). Weight: the same
+   * one read per G at most (nextReadAt), counted as every read is. */
+  readOutcome(leader: string, gap: boolean): void {
+    const state = this.state(address(leader));
+    state.gaps = gap ? state.gaps + 1 : 0;
+  }
+
   /** When another read of this leader would certify something new, or null. */
   followUp(leader: string): number | null {
     const state = this.leaders.get(address(leader));
     if (!state) return null;
-    const witnessed = [...state.witnessed.values()], earliest = Math.min(...witnessed, state.beyond ?? Infinity);
-    if (!Number.isFinite(earliest)) return null;
     // Never within G of the last read (nextReadAt); a second apart, doubling, while a witnessed trade stays missing.
-    const gap = Math.max(this.graceMs, Math.min(FOLLOW_UP_MAX_MS, FOLLOW_UP_MIN_MS * 2 ** state.misses));
-    return Math.max(earliest + this.graceMs + 100, state.lastReadAt + gap);
+    const backoff = (count: number) => Math.max(this.graceMs, Math.min(FOLLOW_UP_MAX_MS, FOLLOW_UP_MIN_MS * 2 ** count));
+    // The last read left the stream in gap: read again (from the same coverage) G after it, doubling per consecutive gap.
+    const recover = state.gaps > 0 ? state.lastReadAt + backoff(state.gaps - 1) : null;
+    const witnessed = [...state.witnessed.values()], earliest = Math.min(...witnessed, state.beyond ?? Infinity);
+    if (!Number.isFinite(earliest)) return recover;
+    const pending = Math.max(earliest + this.graceMs + 100, state.lastReadAt + backoff(state.misses));
+    return recover === null ? pending : Math.min(recover, pending);
   }
 
   /** Reads from `from` to now; null when nothing can be certified yet. */

@@ -9,7 +9,7 @@ import type { DbExecutor } from '../../db/unit-of-work.js';
 import { allocateSignerNonce } from '../signer-nonce.js';
 import { Dec } from '../../common/decimal/dec.js';
 import { assertOriginalLiveRiskSession, type LiveRiskDatabaseSession } from './postgres-live-risk-scope.js';
-import { loadLivePreparationAuthority, riskSourceDigest, riskSourceRequire } from './postgres-live-risk-authority.js';
+import { liveSourceStreamAdmits, loadLivePreparationAuthority, riskSourceDigest, riskSourceRequire } from './postgres-live-risk-authority.js';
 import { loadLiveGenerationManifest } from './postgres-live-generation-manifest.js';
 import { canonicalLiveSourceLegs, decodeLiveSourceFill, liveSourceLegId } from './copy-live-source-evidence.js';
 import { planLiveSourceOrder } from './copy-live-source-planner.js';
@@ -115,9 +115,13 @@ export class PostgresLivePreparation {
       const [row] = await this.checked(session, db.select().from(copyLiveSourceFills).where(eq(copyLiveSourceFills.id, binding.sourceFillId)));
       riskSourceRequire(row, 'live_preparation_source');
       const fill = decodeLiveSourceFill(row), [stream] = await this.checked(session, db.select().from(copyLiveSourceStreams).where(eq(copyLiveSourceStreams.id, fill.streamId)));
-      riskSourceRequire(stream?.state === 'ready' && stream.network === local.consent.sourceNetwork && stream.leaderAddress === local.consent.leaderAddress &&
+      // The stream admits this leg now (liveSourceStreamAdmits, D10: a close while the stream is in gap), else a
+      // wait; a close whose fill a gap read stored beyond the proven coverage waits for the stream too.
+      riskSourceRequire(stream && liveSourceStreamAdmits(stream, binding.leg), 'live_risk_source_not_ready');
+      riskSourceRequire(stream.network === local.consent.sourceNetwork && stream.leaderAddress === local.consent.leaderAddress &&
         fill.leaderAddress === local.consent.leaderAddress && fill.network === local.consent.sourceNetwork && fill.providerTime > local.mandate.activationCursor!.getTime() &&
-        stream.coverageFrom && stream.coverageThrough && stream.coverageDigest && stream.coverageFrom.getTime() <= local.mandate.activationCursor!.getTime() && stream.coverageThrough.getTime() >= fill.providerTime, 'live_preparation_source');
+        stream.coverageFrom.getTime() <= local.mandate.activationCursor!.getTime(), 'live_preparation_source');
+      riskSourceRequire(stream.coverageThrough.getTime() >= fill.providerTime, stream.state === 'ready' ? 'live_preparation_source' : 'live_risk_source_not_ready');
       const leg = canonicalLiveSourceLegs(fill).find(v => v.leg === binding.leg);
       riskSourceRequire(leg, 'live_preparation_source');
       // A merged adjustment's other legs: the same stream, coin, kind and

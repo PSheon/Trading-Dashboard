@@ -511,6 +511,17 @@ describe('durable local actual source authority before remote reads',()=>{
     }finally{registerLiveDeployment(undefined);}
     expect(fetcher).not.toHaveBeenCalled();
   });
+  it('D10: the leader\'s stream in gap admits a reduce-only intent (a close) and refuses an open as live_risk_source_not_ready; unproven or quarantined it admits neither',async()=>{
+    const hold=async(reason:string)=>{await scopes.run(id(),async(_scope,session)=>{await expect(source.bind(session,{accountId:'account',key:f.reservations.own.key}).forHold()).rejects.toThrow(reason);});};
+    await db.update(copyLiveSourceStreams).set({state:'gap',lastIssue:'source_unavailable'});
+    await hold('live_risk_source_not_ready');
+    // The reduce-only intent passes the stream check and reaches the record check (its record is not reduce-only).
+    const [provenance]=await db.select().from(copyLiveIntentProvenance);
+    await db.update(copyLiveIntentProvenance).set({intent:{...(provenance!.intent as object),reduceOnly:true}}).where(eq(copyLiveIntentProvenance.key,provenance!.key));
+    await hold('live_risk_record_mismatch');
+    for(const state of ['unproven','quarantined'] as const){await db.update(copyLiveSourceStreams).set({state});await hold('live_risk_source_not_ready');}
+    expect(fetcher).not.toHaveBeenCalled();
+  });
   it('requires a durable first-empty baseline even for the genuine authority chain',async()=>{
     await scopes.run(id(),async(_scope,session)=>{await expect(source.bind(session,{accountId:'account',key:f.reservations.own.key}).forHold()).rejects.toThrow('live_risk_baseline_unproven');});
     expect(fetcher).not.toHaveBeenCalled();
@@ -528,7 +539,8 @@ describe('durable local actual source authority before remote reads',()=>{
     if(change==='strategy')await db.update(copyStrategies).set({status:'paused'});
     if(change==='mandate')await db.update(copyLiveMandates).set({state:'paused'});
     if(change==='grant'){await db.update(copyWalletAuthorizations).set({revokedAt:new Date(now)});reason='wallet_authorization_revoked';}
-    if(change==='source'){await db.update(copyLiveSourceStreams).set({state:'gap'});reason='live_risk_source_changed';}
+    // A stream not ready (in gap) is a wait, not a change: its own code (Stage mainnet 2026-10-22, strategy 14).
+    if(change==='source'){await db.update(copyLiveSourceStreams).set({state:'gap'});reason='live_risk_source_not_ready';}
     if(change==='leg'){await db.update(copyLiveSignalLegs).set({sign:-1});reason='live_risk_source_changed';}
     if(change==='budget')await db.update(copyLiveStrategyConfigs).set({budgetUsd:'101'});
     if(change==='platform'){await db.update(appSettings).set({value:{copyTradingEnabled:false}});reason='live_risk_platform_disabled';}

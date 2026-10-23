@@ -107,6 +107,13 @@ describe('the gate of 2026-10-13 11:15 (7th run): what an order and a stop waite
     expect(classify(unavailable(new TypeError('fetch failed')))).toMatchObject({ class: 'transient', code: 'live_account_observation_unavailable', exhausts: true });
     expect(classify(new LiveBoundaryError('live_account_observation_unavailable'))).toMatchObject({ class: 'transient' });
   });
+  it("the leader's source stream not ready (in gap) is a wait of a second, never an attempt: a close waiting on it can't reach CLOSE_ATTEMPT_LIMIT (Stage mainnet 2026-10-22 18:02Z, strategy 14)", () => {
+    expect(classify(new LiveBoundaryError('live_risk_source_not_ready'))).toEqual({ class: 'budget', code: 'live_risk_source_not_ready', source: 'boundary' });
+    expect(exhausted(classify(new LiveBoundaryError('live_risk_source_not_ready')), 99, 3)).toBe(false);
+    expect(liveRetryDelayMs(new LiveBoundaryError('live_risk_source_not_ready'))).toBe(1_000);
+    // A stream whose coverage changed under an admitted order is still a failure of its own.
+    expect(classify(new LiveBoundaryError('live_risk_source_changed'))).toMatchObject({ class: 'transient', exhausts: true });
+  });
   it('one retry policy for a leg and a stop: a wait when it said (at least 1 s), a failed provider read 10 s, else 3 s', () => {
     expect(liveRetryDelayMs(unavailable(new HyperliquidRestCapacityError(4_000)))).toBe(4_250);
     expect(liveRetryDelayMs(new LiveBoundaryError('live_risk_busy'))).toBe(1_000);

@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BackgroundJobs } from '../src/runtime/background-jobs.service.js';
 import { CopyLiveEngine } from '../src/copy/live-worker/copy-live-engine.js';
@@ -5,7 +6,7 @@ import { CopyLiveWorkerService } from '../src/copy/live-worker/copy-live-worker.
 import { testConfig } from './config-test-utils.js';
 
 const T0 = 1_790_000_000_000, leader = `0x${'44'.repeat(20)}`, G = 2000;
-afterEach(() => { vi.useRealTimers(); });
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 function setup(network?: 'testnet' | 'mainnet') {
   const log: string[] = [];
@@ -99,6 +100,16 @@ describe('copy live worker: realtime kicks', () => {
     service.onLeaderVerified({ address: leader });
     await vi.advanceTimersByTimeAsync(0);
     expect(engine.audit).toHaveBeenCalledWith(leader);
+    service.onModuleDestroy();
+  });
+
+  it('a failed pass is reported on the deployment\'s source network (Stage mainnet logged "Testnet copy pass failed")', async () => {
+    const error = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const { service, engine } = setup('mainnet');
+    engine.tick.mockRejectedValue(new Error('pass broke'));
+    await service.tick();
+    expect(error).toHaveBeenCalledExactlyOnceWith(expect.stringMatching(/^Copy pass on mainnet failed: /));
+    expect(error.mock.calls[0]![0]).not.toMatch(/testnet/i);
     service.onModuleDestroy();
   });
 

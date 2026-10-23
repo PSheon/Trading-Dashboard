@@ -110,6 +110,16 @@ Design §8 I-15. `off` (default), `observe` (every process learns and reports it
 
 - Runbook: if every echo is down while deploying worker-copy under `enforce` (its log shows `egress_identity_unknown` for all three and the lease is refused), set `HL_EGRESS_IDENTITY=observe` on worker-copy. That removes the lease gate at once (the redeploy takes the lease as usual); the api's `egress_identity_shared` alert still compares the sets. Set `enforce` again once the echoes answer.
 
+## Live leg events (worker-copy log)
+
+Beside its prose lines, worker-copy logs one JSON line per dispatch-row transition (`apps/api/src/copy/live/live-leg-event.ts`), exactly once per write that changed a leg's state or reason:
+
+`{"ev":"copy_leg","legId","strategyId","accountId","leader","coin","leg":"open|close","from":"pending|submitted","to":"pending|submitted|settled|refused|waiting","reason","attempt","ms","corr"}`
+
+- `legId` = `copy_live_dispatches.id`; `corr` = the leader fill id (`copy_live_dispatches.source_fill_id` = `copy_live_source_fills.id`), shared by every leg and copy of that fill: what `scripts/ops/copy-acceptance.mjs` joins on.
+- `to: waiting` is the same state with a new reason (`live_risk_source_not_ready`, a retry, a pending settlement); `reason` and `attempt` are the row's after the write; `ms` is elapsed since the leader's fill.
+- No wallet ids, account addresses or execution keys.
+
 ## Variables
 
 Secrets are set in Railway per service and per environment; nothing here belongs in git. "ref" means a Railway reference variable.

@@ -16,6 +16,7 @@ import { decodeLiveCopyMandate } from '../copy-live-mandate-evidence.js';
 import { liveCopySettingsDigest } from '../copy-live-mandate-consent.js';
 import { canonicalLiveSourceLegs, decodeLiveSourceFill, liveSourceLegId } from '../live/copy-live-source-evidence.js';
 import { liveSourceExecutionAttempt } from '../live/copy-live-leg-attempt.js';
+import type { LiveLegRow } from '../live/live-leg-event.js';
 
 // Unresolved: in flight, never-placed awaiting release, or a reservation not yet
 // released (a terminal journal alone is not a release proof).
@@ -157,11 +158,13 @@ export class CopyLiveWorkerRepository {
       return true;
     }).catch(error => { if (error instanceof Error && error.message === 'adjustment_merge_conflict') return false; throw error; });
   }
-  /** Refuses unsent pending legs: too small (below_min_notional) or aged out waiting to merge. */
-  async refusePending(ids: readonly string[], reason: 'below_min_notional' | 'merged_signal_expired'): Promise<void> {
-    if (!ids.length) return;
-    await this.db.update(copyLiveDispatches).set({ state: 'refused', reason, updatedAt: new Date() })
-      .where(and(inArray(copyLiveDispatches.id, [...ids]), eq(copyLiveDispatches.state, 'pending'), isNull(copyLiveDispatches.adjustmentId)));
+  /** Refuses unsent pending legs: too small (below_min_notional) or aged out waiting to merge. Returns the ids it refused. */
+  async refusePending(ids: readonly string[], reason: 'below_min_notional' | 'merged_signal_expired'): Promise<string[]> {
+    if (!ids.length) return [];
+    const rows = await this.db.update(copyLiveDispatches).set({ state: 'refused', reason, updatedAt: new Date() })
+      .where(and(inArray(copyLiveDispatches.id, [...ids]), eq(copyLiveDispatches.state, 'pending'), isNull(copyLiveDispatches.adjustmentId)))
+      .returning({ id: copyLiveDispatches.id });
+    return rows.map(row => row.id);
   }
   /** An earlier same-coin leg is still pending or unresolved: this one waits. */
   async earlierPending(row: Pick<DispatchRow, 'id' | 'mandateId' | 'coin' | 'leaderTime'>): Promise<boolean> {
@@ -187,15 +190,18 @@ export class CopyLiveWorkerRepository {
     return rows.map(row => row.fill);
   }
   /** Undoes an unjournaled adjustment below the minimum: its legs wait again as
-   * `below_min_notional`, so later legs can join them. */
-  async dissolve(lead: Pick<DispatchRow, 'id' | 'state' | 'attempts' | 'reason'>, attempts: number): Promise<boolean> {
+   * `below_min_notional`, so later legs can join them. Returns the member rows
+   * as they were (refused, merged) before the undo, or null when the lead moved on. */
+  async dissolve(lead: Pick<DispatchRow, 'id' | 'state' | 'attempts' | 'reason'>, attempts: number): Promise<DispatchRow[] | null> {
     return this.uow.run(async tx => {
       const led = await tx.update(copyLiveDispatches).set({ adjustmentId: null, reason: 'below_min_notional', attempts, updatedAt: new Date() })
         .where(and(eq(copyLiveDispatches.id, lead.id), eq(copyLiveDispatches.state, 'pending'), eq(copyLiveDispatches.attempts, lead.attempts))).returning({ id: copyLiveDispatches.id });
-      if (led.length !== 1) return false;
-      await tx.update(copyLiveDispatches).set({ state: 'pending', reason: 'below_min_notional', adjustmentId: null, updatedAt: new Date() })
+      if (led.length !== 1) return null;
+      const members = await tx.select().from(copyLiveDispatches)
         .where(and(eq(copyLiveDispatches.adjustmentId, lead.id), ne(copyLiveDispatches.id, lead.id), eq(copyLiveDispatches.state, 'refused'), eq(copyLiveDispatches.reason, MERGED_REASON)));
-      return true;
+      if (members.length) await tx.update(copyLiveDispatches).set({ state: 'pending', reason: 'below_min_notional', adjustmentId: null, updatedAt: new Date() })
+        .where(inArray(copyLiveDispatches.id, members.map(row => row.id)));
+      return members;
     });
   }
 
@@ -224,8 +230,10 @@ export class CopyLiveWorkerRepository {
         sql`not exists (select 1 from ${copyLiveDispatches} d where d.mandate_id = ${m.mandateId} and d.source_fill_id = ${copyLiveSourceFills.id})`))
       .orderBy(asc(copyLiveSourceFills.providerTime), asc(copyLiveSourceFills.tid)).limit(limit);
   }
-  async record(rows: (typeof copyLiveDispatches.$inferInsert)[]): Promise<void> {
-    if (rows.length) await this.db.insert(copyLiveDispatches).values(rows).onConflictDoNothing();
+  /** Returns the rows this call inserted (a leg recorded by an earlier pass is not among them). */
+  async record(rows: (typeof copyLiveDispatches.$inferInsert)[]): Promise<DispatchRow[]> {
+    if (!rows.length) return [];
+    return this.db.insert(copyLiveDispatches).values(rows).onConflictDoNothing().returning();
   }
   /** Order: unresolved legs blocking a pending same-coin leg, then pending legs
    * (and a flip's close whose open is pending), then other reconciliation. */
@@ -266,8 +274,9 @@ export class CopyLiveWorkerRepository {
     return row ?? null;
   }
   /** CAS on the row as read (state, attempts, reason), never from a terminal
-   * state: a stale or concurrent pass changes nothing. */
-  async update(read: Pick<DispatchRow, 'id' | 'state' | 'attempts' | 'reason'>, patch: Partial<typeof copyLiveDispatches.$inferInsert>): Promise<boolean> {
+   * state: a stale or concurrent pass changes nothing. `read` carries the
+   * row's identity fields too: a write that moved it is a leg event (live/live-leg-event.ts). */
+  async update(read: LiveLegRow, patch: Partial<typeof copyLiveDispatches.$inferInsert>): Promise<boolean> {
     if (read.state !== 'pending' && read.state !== 'submitted') return false;
     const { id: _id, mandateId: _m, sourceFillId: _f, leg: _l, ...allowed } = patch;
     const rows = await this.db.update(copyLiveDispatches).set({ ...allowed, updatedAt: new Date() })

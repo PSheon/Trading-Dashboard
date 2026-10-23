@@ -17,6 +17,7 @@ import { buildOrderAction } from '../src/copy/live/live-order.js';
 import { planLiveReservation } from '../src/copy/live/live-risk-reservation.js';
 import type { LiveExecutionHooks, LiveExecutionRequest } from '../src/copy/live/live-execution-runtime.js';
 import { CopyLiveEngine, type LiveEngineDependencies } from '../src/copy/live-worker/copy-live-engine.js';
+import type { LiveLegEvent } from '../src/copy/live/live-leg-event.js';
 import { CopyLiveWorkerRepository } from '../src/copy/live-worker/copy-live-worker.repository.js';
 import { WatchedMainnetSource } from '../src/copy/live-worker/watched-mainnet-source.js';
 import type { LiveSettleOutcome, LiveSettleRequest } from '../src/copy/live-worker/copy-live-settler.js';
@@ -398,6 +399,25 @@ describe('testnet copy execution engine', () => {
     expect(runtimeCalls).toHaveLength(1); expect(settleCalls).toHaveLength(1);
   });
 
+  it('emits one structured copy_leg event per transition: a leg submitted then settled is exactly two, pending → submitted → settled, and a pass that moves nothing emits nothing', async () => {
+    const events: LiveLegEvent[] = [];
+    const run = engine({ event: event => events.push(event) });
+    await credit(); await coverage(now - 10_000, now + 5000); await run.tick();
+    expect(events).toEqual([]);
+    const fill = await leaderFill(2, now + 500, 'B', '1', '0');
+    clock = now + 1200; await run.tick();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toEqual({ ev: 'copy_leg', legId: `mandate|${fill}|open`, strategyId: 9, accountId: 'account', leader, coin: 'BTC', leg: 'open',
+      from: 'pending', to: 'submitted', reason: null, attempt: 1, ms: 700, corr: fill });
+    clock += 3000; await run.tick();
+    expect(events).toHaveLength(2);
+    expect(events[1]).toMatchObject({ ev: 'copy_leg', legId: `mandate|${fill}|open`, from: 'submitted', to: 'settled', reason: null, attempt: 1, ms: 3700, corr: fill });
+    expect(Object.keys(events[1]!)).toEqual(Object.keys(events[0]!));
+    clock += 3000; await run.tick();
+    expect(events).toHaveLength(2);
+    expect((await dispatches())[0]).toMatchObject({ state: 'settled', attempts: 1 });
+  });
+
   it('waits for a prior never-placed release, on its coin and on another, without spending a new attempt', async () => {
     await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
     const first = await leaderFill(20, now + 100, 'B', '1', '0');
@@ -728,6 +748,16 @@ describe('testnet copy execution engine', () => {
     expect(await addRow()).toMatchObject({ state: 'submitted', executionKey: keyOf(add, 'open'), attempts: 1, reason: null });
     clock += 3000; await worker.tick();
     expect(runtimeCalls).toHaveLength(1);
+  });
+
+  it('copy_leg events: an open held by the pre-check (live_risk_source_not_ready) is one waiting event over nine passes, the close that went is submitted then settled', async () => {
+    const { worker, close, add } = await legsPendingInGap(async (request, hooks) => request.leg === 'close' ? filled(request, hooks) : sourceRefusal('live_risk_source_changed')(request, hooks));
+    const events: LiveLegEvent[] = [];
+    (worker as unknown as { deps: { event?: (event: LiveLegEvent) => void } }).deps.event = event => { events.push(event); };
+    for (let pass = 1; pass <= 9; pass++) { clock += 3000; await worker.tick(); }
+    const of = (legId: string) => events.filter(event => event.legId === legId);
+    expect(of(`mandate|${add}|open`)).toEqual([expect.objectContaining({ ev: 'copy_leg', from: 'pending', to: 'waiting', reason: 'live_risk_source_not_ready', attempt: 0, leader, coin: 'ETH', corr: add })]);
+    expect(of(`mandate|${close}|close`).map(event => [event.from, event.to, event.reason, event.attempt])).toEqual([['pending', 'submitted', null, 1], ['submitted', 'settled', null, 1]]);
   });
 
   it('a close the authority still holds for the stream (live_risk_source_not_ready: a fill beyond the proven coverage, a stream unproven) never reaches CLOSE_ATTEMPT_LIMIT by that alone, and goes once admitted', async () => {

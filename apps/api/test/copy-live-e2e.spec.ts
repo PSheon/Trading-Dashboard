@@ -555,7 +555,8 @@ describe('testnet copy of a mainnet leader, end to end against provider doubles'
         }
       }
     } finally { pg.Client.prototype.query = original; shared.dexes = 0; resetLiveReadCaches(); }
-    expect((await db.select().from(schema.copyLiveDispatches)).map(r => [r.leg, r.state])).toEqual([['open', 'settled'], ['close', 'settled']]);
+    // Ordered by the leader's time: a settled row is a new tuple version, so heap order is not insertion order (CI run 39955599718).
+    expect((await db.select().from(schema.copyLiveDispatches).orderBy(schema.copyLiveDispatches.leaderTime)).map(r => [r.leg, r.state])).toEqual([['open', 'settled'], ['close', 'settled']]);
     process.stdout.write(`order database round trips, preparation to POST: ${JSON.stringify(orders)}\n`);
     expect(orders).toHaveLength(2);
     for (const order of orders) { expect(order.roundTrips).toBeLessThanOrEqual(160); expect(order.statements).toBeLessThanOrEqual(950); }
@@ -799,7 +800,11 @@ describe('testnet copy of a mainnet leader, end to end against provider doubles'
     ['the platform set reduce-only', 'platform_reduce_only'],
     ['copy trading is switched off', 'live_risk_platform_disabled'],
   ] as const)('%s: the leader\'s add is refused, its close is still mirrored reduce-only', async (_control, refusal) => {
-    let e = engine(); await e.tick(); await leaderOpens(1001); await e.tick(); await new Promise(resolve => setTimeout(resolve, 5)); await e.tick();
+    let e = engine(); await e.tick(); await leaderOpens(1001); await e.tick();
+    // Settlement is a later pass; under load it may take more than one (local run 2026-10-23).
+    for (let pass = 0; pass < 5 && (await db.select().from(schema.copyLiveDispatches)).some(r => r.state !== 'settled'); pass++) {
+      await new Promise(resolve => setTimeout(resolve, 5)); await e.tick();
+    }
     expect((await db.select().from(schema.copyLiveDispatches))[0]).toMatchObject({ state: 'settled' });
     expect(shared.position).toBe('0.19');
     if (refusal === 'strategy_paused') await new UnitOfWork(db).run(tx => new CopyLiveMandateRepository(db, testConfig()).barrier(tx, 1, 'mandate', 'paused', Date.now));

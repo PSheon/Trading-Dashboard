@@ -40,23 +40,29 @@ export function BoardCard({ trader, pnlLabel, roiLabel, roiHint, now, accessory,
   const { t, locale } = useI18n();
   const router = useRouter();
   const ago = timeAgo(trader.lastTradeAt, now, locale);
+  // The card is not a link: its name is, stretched over the card by its
+  // `::after` (so a click anywhere opens the trader and the link's name is
+  // the trader's). Everything that reacts on its own (跟單, the stale tip,
+  // the tooltips, an accessory) sits above the stretch on `relative z-10`.
   return (
-    <Link
-      href={traderHref(trader.address)}
-      className="orbit-card orbit-lift group flex min-w-0 flex-col gap-3 p-[18px] outline-none focus-visible:ring-2 focus-visible:ring-ring"
-    >
+    <article className="orbit-card orbit-lift group relative flex min-w-0 flex-col gap-3 p-[18px] has-[a:focus-visible]:ring-2 has-[a:focus-visible]:ring-ring">
       <div className="flex min-h-[52px] min-w-0 items-center gap-2.5">
         <TraderAvatar trader={trader} size={44} />
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="flex min-w-0 items-center gap-1.5">
-            <span className="truncate text-[0.9375rem] leading-5 font-extrabold">{boardName(trader)}</span>
+            <Link
+              href={traderHref(trader.address)}
+              className="truncate text-[0.9375rem] leading-5 font-extrabold outline-none after:absolute after:inset-0 after:z-0 after:content-['']"
+            >
+              {boardName(trader)}
+            </Link>
             {trader.verified ? <VerifiedTick /> : null}
-            <MetricsStamp at={trader.metricsUpdatedAt} now={now} />
+            <MetricsStamp at={trader.metricsUpdatedAt} now={now} className="relative z-10" />
           </span>
-          <CoinStack coins={trader.topCoins} size={16} />
+          <CoinStack coins={trader.topCoins} size={16} className="relative z-10 w-fit" />
           {tags}
         </div>
-        {accessory}
+        {accessory ? <span className="relative z-10 flex shrink-0">{accessory}</span> : null}
         <ScoreRing score={trader.copyScore} />
       </div>
       <BoardSparkline values={trader.sparkline} height={72} plain />
@@ -67,7 +73,7 @@ export function BoardCard({ trader, pnlLabel, roiLabel, roiHint, now, accessory,
         </div>
       </div>
       <div className="flex min-w-0 items-center justify-between gap-2">
-        <span className={cn("num chip-md min-w-0 gap-1 truncate", (trader.roi ?? 0) >= 0 ? "bg-tag-profit text-tag-profit-foreground" : "bg-tag-loss text-tag-loss-foreground")}>
+        <span className={cn("num chip-md relative z-10 min-w-0 gap-1 truncate", (trader.roi ?? 0) >= 0 ? "bg-tag-profit text-tag-profit-foreground" : "bg-tag-loss text-tag-loss-foreground")}>
           {roiHint ? (
             <Tooltip content={roiHint}>
               <span tabIndex={0} className="cursor-help underline decoration-dotted underline-offset-2 outline-none">{roiLabel}</span>
@@ -79,7 +85,7 @@ export function BoardCard({ trader, pnlLabel, roiLabel, roiHint, now, accessory,
         </span>
         {ago ? (
           <Tooltip variant="chip" side="top" content={`${t("discover.lastTrade")} · ${trader.lastTradeAt ? lastTradeStamp(trader.lastTradeAt) : ""}`}>
-            <span className="num flex shrink-0 items-center gap-1 text-xs font-bold text-muted-foreground">
+            <span className="num relative z-10 flex shrink-0 items-center gap-1 text-xs font-bold text-muted-foreground">
               <Clock3 className="size-3" strokeWidth={2.4} aria-hidden />
               {ago}
             </span>
@@ -88,16 +94,12 @@ export function BoardCard({ trader, pnlLabel, roiLabel, roiHint, now, accessory,
       </div>
       <button
         type="button"
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          router.push(`${traderHref(trader.address)}#copy-amount`);
-        }}
-        className="orbit-press mt-auto h-11 w-full rounded-full bg-primary text-[15px] font-extrabold text-primary-foreground outline-none hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
+        onClick={() => router.push(`${traderHref(trader.address)}#copy-amount`)}
+        className="orbit-press relative z-10 mt-auto h-11 w-full rounded-full bg-primary text-[15px] font-extrabold text-primary-foreground outline-none hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
       >
         {t("discover.copy")}
       </button>
-    </Link>
+    </article>
   );
 }
 

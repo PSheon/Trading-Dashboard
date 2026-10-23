@@ -117,7 +117,7 @@ import { LIVE_STANDBY_RENEW_MS, SHARED_CAPACITY_RETRY_MS } from '../../config/co
 import { SOURCE_STUCK_ALERT_MS } from '../../config/constants/alerts.js';
 import { ABSTRACTION_ATTEMPT_LIMIT, CLOSE_ATTEMPT_LIMIT, MAX_LIVE_LEG_ATTEMPTS } from '../../config/constants/limits.js';
 import { HOLD_MARGIN_MS, PLANNING_MARGIN_MS, TESTNET_SOURCE_RETRY_MS } from '../../config/constants/timings.js';
-import { liveSourceStreamAdmits } from '../live/postgres-live-risk-authority.js';
+import { liveSourceAdmission } from '../live/postgres-live-risk-authority.js';
 const reasonOf = (error: unknown) => errorCode(error);
 /** A source read's failure for the log: its code, and which evidence check refused it (if one did). */
 const sourceReason = (error: unknown) => [reasonOf(error), liveSourceEvidenceDetail(error)].filter(Boolean).join(' ');
@@ -635,10 +635,10 @@ export class CopyLiveEngine {
   }
 
   /**
-   * Whether the leader's source stream admits this leg now (THE rule:
-   * liveSourceStreamAdmits, D10: `ready` admits every leg, `gap` a close only,
+   * Whether the leader's source stream admits this leg now (THE decision:
+   * liveSourceAdmission, D10: `ready` admits every leg, `gap` a close only,
    * with its coverage from before the copy's cursor). One SQL read, before
-   * any evidence is spent; the authority requires the same. While it does
+   * any evidence is spent; the authority asks the same. While it does
    * not, the leg waits with the reason and no attempt is spent (Stage mainnet
    * 2026-10-22 18:02Z, strategy 14: a ~60 s gap cost a close nine counted
    * attempts; CLOSE_ATTEMPT_LIMIT would have refused it in a ~90 s one). The
@@ -652,15 +652,15 @@ export class CopyLiveEngine {
    */
   private async sourceReady(row: DispatchRow, m: LiveMandateWork): Promise<boolean> {
     const stream = await this.deps.repository.stream(m.sourceNetwork, m.leaderAddress);
-    // Held only for what the authority answers with a wait (live_risk_source_not_ready): a stream row that exists
-    // and does not admit the leg, or, in gap, one whose kept coverage does not reach the leg's fill (a gap read
-    // stores its fills beyond it; the preparation waits on that too). No row, or coverage that starts after the
-    // copy's cursor, is the authority's to refuse (live_risk_source_changed, counted) as before D10: not held here
-    // (CI 2026-10-23, copy-live-network.spec: a cursor before the coverage held the leg for ever).
-    if (!stream || liveSourceStreamAdmits(stream, row.leg) && (stream.state === 'ready' || stream.coverageThrough.getTime() >= row.leaderTime.getTime())) return true;
-    const reason = 'live_risk_source_not_ready';
+    // Held only for what the authority answers with a wait (live_risk_source_not_ready); an admitted leg goes, and a
+    // refused one (no row, coverage starting after the copy's cursor) is the authority's to count
+    // (live_risk_source_changed) as before D10, never held here (CI 2026-10-23, copy-live-network.spec: a cursor before
+    // the coverage held the leg for ever).
+    const admission = liveSourceAdmission(stream, row.leg, m.cursor, row.leaderTime);
+    if (admission.verdict !== 'wait') return true; // a wait always has a stream row
+    const reason = admission.code;
     if (row.reason !== reason) {
-      this.deps.log?.(`leg ${row.id} waits: ${reason} (source ${m.sourceNetwork}:${m.leaderAddress} ${stream?.state ?? 'missing'}${stream?.lastIssue ? ` (${stream.lastIssue})` : ''}); no attempt spent`);
+      this.deps.log?.(`leg ${row.id} waits: ${reason} (source ${m.sourceNetwork}:${m.leaderAddress} ${stream!.state}${stream!.lastIssue ? ` (${stream!.lastIssue})` : ''}); no attempt spent`);
       await this.deps.repository.update(row, { reason });
     }
     return false;

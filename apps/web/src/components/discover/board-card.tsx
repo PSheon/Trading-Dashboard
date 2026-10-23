@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDownRight, ArrowUpRight, Clock3, ClockAlert } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Clock3, TriangleAlert } from "lucide-react";
 import { Link, useRouter } from "@/i18n/navigation";
 import { cn } from "cn";
 
@@ -236,7 +236,8 @@ export function BoardMobileRow({ trader }: { trader: BoardTrader }) {
 
 
 /** Nothing while the metrics are fresh: an update time helps no one choosing
- * a trader, an outdated one does. Past 24 h, a small clock whose tip gives
+ * a trader, an outdated one does. Past 24 h, a small warning triangle (not a
+ * clock: the clock beside "29 天前" is the last trade) whose tip gives
  * the time (UTC). Age refers to the metrics read, never the browser's most
  * recent fetch; nothing until the clock is known (server render, hydration). */
 export function MetricsStamp({ at, now, className }: { at?: string | null; now?: number; className?: string }) {
@@ -244,7 +245,7 @@ export function MetricsStamp({ at, now, className }: { at?: string | null; now?:
   const ticking = useNow(), clock = now ?? ticking;
   if (!at || clock <= 0 || clock - Date.parse(at) < 24 * 60 * 60 * 1000) return null;
   return (
-    <InfoTip label={t("discover.metricsStale")} icon={ClockAlert} className={cn("text-tag-alert-foreground hover:text-tag-alert-foreground data-[state=open]:text-tag-alert-foreground", className)}>
+    <InfoTip label={t("discover.metricsStale")} icon={TriangleAlert} className={cn("text-tag-alert-foreground hover:text-tag-alert-foreground data-[state=open]:text-tag-alert-foreground", className)}>
       <span className="block">{t("discover.metricsStale")}</span>
       {t("discover.metricsUpdated")} · <time dateTime={at}>{format.dateTime(at)} (UTC)</time>
     </InfoTip>

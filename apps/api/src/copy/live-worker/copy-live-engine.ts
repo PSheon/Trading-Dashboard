@@ -657,10 +657,10 @@ export class CopyLiveEngine {
     // (live_risk_source_changed) as before D10, never held here (CI 2026-10-23, copy-live-network.spec: a cursor before
     // the coverage held the leg for ever).
     const admission = liveSourceAdmission(stream, row.leg, m.cursor, row.leaderTime);
-    if (admission.verdict !== 'wait') return true;
+    if (admission.verdict !== 'wait') return true; // a wait always has a stream row
     const reason = admission.code;
     if (row.reason !== reason) {
-      this.deps.log?.(`leg ${row.id} waits: ${reason} (source ${m.sourceNetwork}:${m.leaderAddress} ${stream?.state ?? 'missing'}${stream?.lastIssue ? ` (${stream.lastIssue})` : ''}); no attempt spent`);
+      this.deps.log?.(`leg ${row.id} waits: ${reason} (source ${m.sourceNetwork}:${m.leaderAddress} ${stream!.state}${stream!.lastIssue ? ` (${stream!.lastIssue})` : ''}); no attempt spent`);
       await this.deps.repository.update(row, { reason });
     }
     return false;

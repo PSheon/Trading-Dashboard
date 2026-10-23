@@ -47,14 +47,16 @@ export type LiveSourceAdmission={verdict:'admit'}|{verdict:'wait';code:'live_ris
  * THE decision of whether a leg of `leg` may proceed against the leader's source stream now, for every site that asks
  * (one function since 2bc22705 left the rule in three copies and one drifted: CI 2026-10-23, copy-live-network.spec):
  * - no stream row at all (the leader was never ingested): `refuse` (live_risk_source_changed), as before D10, never a wait.
+ * - coverage that starts after the copy's cursor (`coverageFrom` > `cursor`): `refuse` (live_risk_source_changed), the
+ *   authority's counted refusal as before D10, never a hold. This comes before every wait: coverageFrom never moves
+ *   back, so such a stream can never admit the copy, and a wait (the pre-check once gave one) would hold the leg for
+ *   ever instead of spending its counted attempts and giving it up.
  * - a row that does not admit the leg (liveSourceStreamAdmits, D10: `unproven` after a restart, `quarantined`, no
  *   coverage yet, or `gap` for an open): `wait` (live_risk_source_not_ready, a `budget`-class wait of its own:
  *   error-class.ts, never a counted attempt), so a leg waiting on the stream cannot reach CLOSE_ATTEMPT_LIMIT (Stage
  *   mainnet 2026-10-22 18:02Z, strategy 14: nine counted attempts in a ~60 s gap).
  * - in `gap`, kept coverage that does not reach the leg's fill (`leaderTime`; a gap read stores its fills beyond it):
  *   `wait` for the stream too.
- * - coverage that starts after the copy's cursor (`coverageFrom` > `cursor`): `refuse` (live_risk_source_changed), the
- *   authority's counted refusal as before D10, never a hold (the pre-check once held such a leg for ever).
  * - else `admit`.
  * `leaderTime` is the leg's fill time when the caller knows it (the engine's dispatch row, the preparation's fill); the
  * preparation authority, which runs before any fill is read, passes none and the coverage-reach check does not apply.
@@ -64,9 +66,9 @@ export type LiveSourceAdmission={verdict:'admit'}|{verdict:'wait';code:'live_ris
  */
 export function liveSourceAdmission(stream:LiveSourceStreamAdmissionRow|null|undefined,leg:'open'|'close'|undefined,cursor:Date,leaderTime?:Date):LiveSourceAdmission {
   if(!stream)return {verdict:'refuse',code:'live_risk_source_changed'};
+  if(stream.coverageFrom&&stream.coverageFrom.getTime()>cursor.getTime())return {verdict:'refuse',code:'live_risk_source_changed'};
   if(!liveSourceStreamAdmits(stream,leg))return {verdict:'wait',code:'live_risk_source_not_ready'};
   if(stream.state==='gap'&&leaderTime&&stream.coverageThrough.getTime()<leaderTime.getTime())return {verdict:'wait',code:'live_risk_source_not_ready'};
-  if(stream.coverageFrom.getTime()>cursor.getTime())return {verdict:'refuse',code:'live_risk_source_changed'};
   return {verdict:'admit'};
 }
 /** liveSourceAdmission as a boundary check: throws the verdict's code unless the stream admits the leg (a `refuse`
@@ -269,6 +271,8 @@ export async function loadLiveRiskAuthority(session: LiveRiskDatabaseSession, db
   const fill=decodeLiveSourceFill(row.fill),canonical=canonicalLiveSourceLegs(fill).find(l=>l.leg===leg.leg);
   // The stream admits this leg now (D10: a close while the stream is in gap); its coverage still holds the
   // order's own fill (the coverage a gap keeps is the one the fill was certified in).
+  // Not liveSourceAdmission: after the preparation certified the fill inside the coverage, a coverage that no longer
+  // holds it is a counted change (live_risk_source_changed, below), never the wait liveSourceAdmission gives a gap read's fill.
   riskSourceRequire(liveSourceStreamAdmits(stream,leg.leg),'live_risk_source_not_ready');
   riskSourceRequire(canonical&&leg.id===liveSourceLegId(m.id,fill.id,leg.leg)&&leg.mandateId===m.id&&leg.executionKey===binding.key&&leg.state==='prepared'&&
     leg.sign===canonical.sign&&leg.size===canonical.size&&leg.fraction===canonical.fraction&&leg.tradeKey===canonical.tradeKey&&p.sourceDigest===fill.sourceDigest&&

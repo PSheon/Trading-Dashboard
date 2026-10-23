@@ -836,6 +836,26 @@ describe('testnet copy execution engine', () => {
     expect((await dispatches()).find(r => r.sourceFillId === open)).toMatchObject({ state: 'pending', attempts: 1, reason: 'live_risk_source_changed' });
   });
 
+  it('a gap stream whose coverage starts after the copy\'s cursor is not held by the pre-check either: coverageFrom never moves back, so the leg can never be admitted and the authority counts its refusal (live_risk_source_changed) instead of a hold for ever', async () => {
+    await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
+    const open = await leaderFill(90, now + 100, 'B', '1', '0', 'BTC');
+    // Ingested and held behind a requested manual close of BTC, so it is still pending when the stream falls to gap.
+    await db.insert(schema.copyLiveManualCloses).values({ id: 'held-btc', userId: 1, accountId: 'account', strategyId: 9, idempotencyKey: 'reconcile:held-btc', coin: 'BTC', createdAt: new Date(now), updatedAt: new Date(now) });
+    clock = now + 1000; await engine().tick();
+    expect(runtimeCalls).toEqual([]);
+    // The watcher verifies nothing further, so no pass read moves the stream (legsPendingInGap); in gap an open would
+    // wait (D10), but a coverage starting after the cursor can never admit the copy: the refusal comes first.
+    const [m] = await db.select().from(schema.copyLiveMandates), from = new Date(m!.activationCursor!.getTime() + 500);
+    await db.update(schema.fillCoverage).set({ verifiedThrough: (await stream()).coverageThrough! });
+    await db.update(schema.copyLiveSourceStreams).set({ state: 'gap', lastIssue: 'source_unavailable', coverageFrom: from });
+    await db.update(schema.copyLiveManualCloses).set({ state: 'refused', reason: 'leader_reopened' });
+    runtimeImpl = sourceRefusal('live_risk_source_changed');
+    clock = now + 2000; await engine().tick();
+    expect(await stream()).toMatchObject({ state: 'gap', coverageFrom: from });
+    expect(runtimeCalls).toEqual([expect.objectContaining({ sourceFillId: open, leg: 'open' })]);
+    expect((await dispatches()).find(r => r.sourceFillId === open)).toMatchObject({ state: 'pending', attempts: 1, reason: 'live_risk_source_changed' });
+  });
+
   it('a leg of a generation whose leader has no stream row is not held by the pre-check: it reaches the runtime, where the authority refuses it as before D10', async () => {
     await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
     const open = await leaderFill(90, now + 100, 'B', '1', '0', 'BTC');

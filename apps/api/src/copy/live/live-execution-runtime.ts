@@ -64,8 +64,12 @@ const id = z.string().min(1).max(160).regex(/^[^\s\p{Cc}\p{Cf}]+$/u);
 const requestSchema = z.object({ userId: z.number().int().positive().max(2147483647), accountId: id,
   mandateId: id, sourceFillId: id, leg: z.enum(['open', 'close']), members: z.array(id).min(1).max(63).optional(),
   signalDeadline: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
-  attempt: z.number().int().min(1).max(MAX_LIVE_LEG_ATTEMPTS - 1).optional() }).strict()
-  .refine(request => request.attempt === undefined || request.members === undefined);
+  // A later attempt of a merged lead carries its members again (the released
+  // order's exact membership: PostgresLivePreparation checks it against the
+  // previous attempt's provenance). Before 2026-10-23 members with an attempt
+  // were refused here (live_runtime_request), so a merged order released as
+  // never sent was never placed again (gate 13 follow-up).
+  attempt: z.number().int().min(1).max(MAX_LIVE_LEG_ATTEMPTS - 1).optional() }).strict();
 const bps = z.string().max(80).regex(/^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/).refine(v => {
   try { return Dec.from(v).gte(0) && Dec.from(v).lte(10000); } catch { return false; }
 });

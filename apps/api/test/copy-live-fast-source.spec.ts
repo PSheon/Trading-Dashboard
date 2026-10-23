@@ -18,6 +18,7 @@ import type { HlUserFill } from '../src/hyperliquid/types.js';
 import { preparationFixture } from './copy-live-preparation-test-utils.js';
 import { now } from './copy-live-risk-test-utils.js';
 import { closeTestDb, getTestDb, type TestDb } from './db-test-utils.js';
+import { FOLLOW_UP_MAX_MS, GAP_FOLLOW_UP_EXPIRY_MS } from '../src/config/constants/timings.js';
 
 // Real SQL, sources and repositories; the exchange runtime and settler are
 // doubles, the provider is a fake `userFillsByTime` / TWAP reader.
@@ -136,6 +137,121 @@ describe('realtime copy signal (fast mainnet source)', () => {
     result = await fast.read(leader, 4000);
     expect(result!.to).toBe(11_000 - G); expect(result!.fills.map(f => f.tid)).toEqual(['2']);
     expect(fast.followUp(leader)).toBeNull();
+  });
+
+  it('a read that left the stream in gap is followed up G after it, backed off while reads keep falling short, and not once the stream is ready (Stage mainnet 2026-10-22 18:02Z)', async () => {
+    const fills: HlUserFill[] = [rest(1, 1000)], { read } = reader(() => fills), fast = new FastMainnetSource(read, G, () => clock);
+    clock = 10_000; await fast.read(leader, 500);
+    // Nothing witnessed and nothing beyond: no follow-up of its own.
+    expect(fast.followUp(leader)).toBeNull();
+    // The stream fell to gap on this read (slower than the evidence window): read again G after it.
+    fast.readOutcome(leader, true);
+    expect(fast.followUp(leader)).toBe(10_000 + G); expect(fast.nextReadAt(leader)).toBe(10_000 + G);
+    clock = 12_000; await fast.read(leader, 500); fast.readOutcome(leader, true);
+    expect(fast.followUp(leader)).toBe(12_000 + G);
+    clock = 14_000; await fast.read(leader, 500); fast.readOutcome(leader, true);
+    expect(fast.followUp(leader)).toBe(14_000 + 4000);
+    clock = 18_000; await fast.read(leader, 500); fast.readOutcome(leader, true);
+    expect(fast.followUp(leader)).toBe(18_000 + FOLLOW_UP_MAX_MS);
+    // A witnessed trade due sooner than the recovery read wins; the recovery read never waits for one.
+    fast.witness(leader, 2, 18_500);
+    expect(fast.followUp(leader)).toBe(18_500 + G + 100);
+    // Ready again: only what is witnessed asks for a read (the trade REST has not returned yet, a second apart), then nothing.
+    clock = 26_000; await fast.read(leader, 500); fast.readOutcome(leader, false);
+    expect(fast.followUp(leader)).toBe(26_000 + G);
+    fills.push(rest(2, 18_500)); clock = 28_000; await fast.read(leader, 500); fast.readOutcome(leader, false);
+    expect(fast.followUp(leader)).toBeNull();
+  });
+
+  it('a gap follow-up ends when the engine reports any other outcome, and GAP_FOLLOW_UP_EXPIRY_MS after the first gap read at the latest (review of c888f6c5)', async () => {
+    const { read } = reader(() => []), fast = new FastMainnetSource(read, G, () => clock);
+    clock = 10_000; await fast.read(leader, 500); fast.readOutcome(leader, true);
+    expect(fast.followUp(leader)).toBe(10_000 + G);
+    fast.readOutcome(leader, false); expect(fast.followUp(leader)).toBeNull();
+    // Reads keep falling short (or none runs at all): the follow-up is bounded by the expiry, measured from the first gap.
+    fast.readOutcome(leader, true);
+    clock = 10_000 + GAP_FOLLOW_UP_EXPIRY_MS; expect(fast.followUp(leader)).toBe(10_000 + G);
+    clock += 1; expect(fast.followUp(leader)).toBeNull();
+  });
+
+  /** The worker service's loop (schedule -> signal -> followUp), simulated: how many signals until no follow-up is due (at most 20). */
+  async function drain(worker: CopyLiveEngine) {
+    let signals = 0;
+    for (let next = worker.followUp(leader); next !== null && signals < 20; next = worker.followUp(leader)) { clock = Math.max(clock, next); await worker.signal(leader); signals++; }
+    return signals;
+  }
+  /** A fast source whose first read answers 5.16 s late (the incident), the rest at once. */
+  function slowOnceSource() {
+    const { read } = reader(() => [rest(1, now + 3000)]); let slowOnce = true;
+    const slow: FastSourceReader = { ...read, fills: async (l, from) => { const answer = await read.fills(l, from); if (slowOnce) { slowOnce = false; clock += 5160; } return answer; } };
+    return new FastMainnetSource(slow, G, () => clock);
+  }
+  it('no hot loop after a gap read: a stream quarantined before the follow-up ends it (review of c888f6c5: a 0 ms timer fired until restart)', async () => {
+    await credit(); await engine().tick();
+    const fast = slowOnceSource(), worker = engine(fast);
+    clock = now + 6000; await worker.kick(leader);
+    expect((await db.select().from(schema.copyLiveSourceStreams))[0]).toMatchObject({ state: 'gap' }); expect(worker.followUp(leader)).toBe(now + 6000 + 5160 + G);
+    await db.update(schema.copyLiveSourceStreams).set({ state: 'quarantined', lastIssue: 'invalid_fill' });
+    expect(await drain(worker)).toBe(1); expect(worker.followUp(leader)).toBeNull();
+  });
+  it('no hot loop after a gap read: a leader whose copy is gone ends it; one whose reads keep failing backs off and ends at the expiry', async () => {
+    await credit(); await engine().tick();
+    const fast = slowOnceSource(), worker = engine(fast);
+    clock = now + 6000; await worker.kick(leader);
+    expect(worker.followUp(leader)).toBe(now + 6000 + 5160 + G);
+    // The copy's generation expires (well before the follow-up's own expiry): no stream to read for this leader.
+    await db.update(schema.copyLiveMandates).set({ expiresAt: new Date(now + 40_000) });
+    clock = now + 41_000;
+    expect(await drain(worker)).toBe(1); expect(worker.followUp(leader)).toBeNull();
+    // A read that throws every time: counted as a gap, backed off (G, G, 4 s, 8 s, ...), over within the expiry.
+    await db.update(schema.copyLiveMandates).set({ expiresAt: new Date(now + 600_000) });
+    const failing = new FastMainnetSource({ ...reader(() => []).read, fills: async () => { throw new Error('fast source down'); } }, G, () => clock), broken = engine(failing);
+    clock = now + 50_000; await broken.kick(leader);
+    const first = broken.followUp(leader); expect(first).toBe(now + 50_000 + G);
+    const signals = await drain(broken);
+    expect(signals).toBeGreaterThan(1); expect(signals).toBeLessThan(20); expect(broken.followUp(leader)).toBeNull();
+    expect(clock - (now + 50_000)).toBeLessThanOrEqual(GAP_FOLLOW_UP_EXPIRY_MS + FOLLOW_UP_MAX_MS);
+  });
+
+  it('no hot loop after a gap read: a throw before the read (ensure) or after it (apply) counts as a gap, so the follow-up backs off and ends (review of 078c7e94)', async () => {
+    await credit(); await engine().tick();
+    const fast = slowOnceSource(), worker = engine(fast);
+    clock = now + 6000; await worker.kick(leader);
+    expect(worker.followUp(leader)).toBe(now + 6000 + 5160 + G);
+    // The stream row cannot be locked: nothing is read, lastReadAt stays, yet the follow-up must not fire at 0 ms for ever.
+    const ensure = vi.spyOn(CopyLiveSourceRepository.prototype, 'ensure').mockRejectedValue(new Error('database down'));
+    try {
+      const before = clock, signals = await drain(worker);
+      expect(signals).toBeGreaterThan(1); expect(signals).toBeLessThan(12); expect(worker.followUp(leader)).toBeNull();
+      expect(clock - before).toBeLessThanOrEqual(GAP_FOLLOW_UP_EXPIRY_MS + FOLLOW_UP_MAX_MS);
+    } finally { ensure.mockRestore(); }
+    // A read that lands but whose apply throws: the same back-off (before: every G, thirty follow-ups a minute).
+    await db.update(schema.copyLiveMandates).set({ expiresAt: new Date(now + 600_000) });
+    const other = slowOnceSource(), again = engine(other);
+    clock = now + 120_000; await again.kick(leader);
+    expect(again.followUp(leader)).toBe(now + 120_000 + 5160 + G);
+    const apply = vi.spyOn(CopyLiveSourceRepository.prototype, 'apply').mockRejectedValue(new Error('database down'));
+    try {
+      const asked = await drain(again);
+      expect(asked).toBeGreaterThan(1); expect(asked).toBeLessThan(12); expect(again.followUp(leader)).toBeNull();
+    } finally { apply.mockRestore(); }
+  });
+
+  it('the engine reports a fast read\'s outcome: a read slower than the evidence window puts the stream in gap and asks for a follow-up read G later', async () => {
+    await credit(); await engine().tick();
+    // The read leaves at once but its answer takes 5.16 s (the incident): fresh is false, the stream goes to gap (source_unavailable).
+    const { read } = reader(() => [rest(1, now + 3000)]); let slowOnce = true;
+    const slow: FastSourceReader = { ...read, fills: async (l, from) => { const answer = await read.fills(l, from); if (slowOnce) { slowOnce = false; clock += 5160; } return answer; } };
+    const fast = new FastMainnetSource(slow, G, () => clock), worker = engine(fast);
+    clock = now + 6000; await worker.kick(leader);
+    const readAt = now + 6000;
+    expect((await db.select().from(schema.copyLiveSourceStreams))[0]).toMatchObject({ state: 'gap', lastIssue: 'source_unavailable' });
+    // G after the gap was noted (the read answered 5.16 s after it was asked), never a time already past.
+    expect(worker.followUp(leader)).toBe(readAt + 5160 + G);
+    // The follow-up read answers in time: ready, and nothing more to follow up.
+    clock += G; await worker.kick(leader);
+    expect((await db.select().from(schema.copyLiveSourceStreams))[0]).toMatchObject({ state: 'ready', lastIssue: null });
+    expect(worker.followUp(leader)).toBeNull();
   });
 
   it('certifies that much less when our clock runs ahead of Hyperliquid\'s (O9)', async () => {

@@ -1019,6 +1019,39 @@ describe('a testnet copy of a MAINNET leader', () => {
       await expect(mainnetRuntime({ reference: equity('1000') }).execute({ ...request(), sourceFillId: members[2]!, members: [members[0]!, members[1]!] })).rejects.toThrow('live_preparation_claim_conflict');
       expect(await db.select().from(schema.copyLiveExecutions)).toHaveLength(0); expect(await db.select().from(schema.copySignerNonces)).toHaveLength(0);
     });
+    it('a merged lead whose first order was released as never sent is placed on attempt 1 carrying the same members, and no other membership (gate 13 follow-up: the engine re-plans the lead with its members and attempt 1)', async () => {
+      await mainnetFixture(null, 'ratio'); const later = await adds(), lead = later[2]!, members = [seed.fill.id, later[0]!, later[1]!];
+      const merged = (attempt?: number, carried = members) => ({ ...request(), sourceFillId: lead, members: carried, ...(attempt ? { attempt } : {}) });
+      // Attempt 0's final check fails (the clock stalls 5 s inside the submitting save): marked unsent before any POST.
+      const save = ScopedLiveExecutionJournal.prototype.save; let stalled = false;
+      const stall = vi.spyOn(ScopedLiveExecutionJournal.prototype, 'save').mockImplementation(async function(this: ScopedLiveExecutionJournal, record) {
+        await save.call(this, record); if (record.state === 'submitting' && !stalled) { stalled = true; clock += 5001; } });
+      await expect(mainnetRuntime({ reference: equity('1000') }).execute(merged())).rejects.toThrow();
+      stall.mockRestore();
+      const [first] = await db.select().from(schema.copyLiveExecutions);
+      expect(first).toMatchObject({ state: 'rejected', record: { errorCode: 'exchange_order_never_placed', unsent: 'request_never_began' } });
+      expect(exchangeCalls()).toHaveLength(0);
+      // Real time catches up with the stalled test clock (the shared quota reads the database's).
+      while (Date.now() < clock) await new Promise(resolve => setTimeout(resolve, 100)); clock = Date.now();
+      const settler = new CopyLiveSettler('testnet', pool, global, budget, { runFor: async () => {} }, () => clock);
+      expect(await settler.settle({ userId: 1, accountId: 'account', accountAddress: seed.consent.accountAddress, sourceNetwork: 'mainnet', leaderAddress: seed.consent.leaderAddress, key: first!.key }))
+        .toEqual({ kind: 'unplaced', unsent: true });
+      // The released order's members are the only legs this lead may carry again: another membership is refused before any journal.
+      raw.mockClear();
+      await expect(mainnetRuntime({ reference: equity('1000') }).execute(merged(1, [later[0]!, later[1]!]))).rejects.toThrow('live_preparation_claim_conflict');
+      expect((await db.select().from(schema.copyLiveExecutions)).map(j => j.key)).toEqual([first!.key]); expect(exchangeCalls()).toHaveLength(0);
+      const retried = await mainnetRuntime({ reference: equity('1000') }).execute(merged(1));
+      expect(retried).toMatchObject({ state: 'filled', action: { orders: [{ s: '0.4', c: liveSourceExecutionCloid('mandate', lead, 'open', 1) }] } });
+      expect(retried.key).not.toBe(first!.key); expect(exchangeCalls()).toHaveLength(1);
+      const provenance = await db.select().from(schema.copyLiveIntentProvenance);
+      expect(Object.fromEntries(provenance.map(p => [p.key, p.attempt]))).toEqual({ [first!.key]: 0, [retried.key]: 1 });
+      // The same sizing basis: the same four legs, in the same order, re-validated against their stored fills.
+      const membersOf = (key: string) => (provenance.find(p => p.key === key)!.sizingBasis as { basis: { merged: { members: { sourceFillId: string }[] } } }).basis.merged.members.map(m => m.sourceFillId);
+      expect(membersOf(retried.key)).toEqual([...members, lead]); expect(membersOf(retried.key)).toEqual(membersOf(first!.key));
+      const legs = await db.select().from(schema.copyLiveSignalLegs);
+      expect(legs.find(l => l.sourceFillId === lead)).toMatchObject({ state: 'prepared', executionKey: retried.key });
+      expect(legs.filter(l => members.includes(l.sourceFillId))).toEqual(members.map(() => expect.objectContaining({ state: 'skipped', executionKey: null })));
+    }, 20_000);
   });
   it('never takes a testnet fill as a mainnet leader signal', async () => {
     await mainnetFixture();

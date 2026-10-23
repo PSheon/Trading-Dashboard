@@ -38,6 +38,14 @@ export const ALERT_MAX_AGE_MS = 10 * MINUTE_MS;
  */
 export const FEED_DOWN_ALERT_MS = 10 * MINUTE_MS;
 
+/** basis: guessed — a leader's copy stream not `ready` for 5 min (five of the ~60 s gap of Stage mainnet 2026-10-22 18:02Z) alerts; verify: Stage gap durations (copy_live_source_streams gap -> ready)
+ * While a stream is in gap, unproven or quarantined its copies' opens wait
+ * (live_risk_source_not_ready) and a close whose fill lies beyond the proven
+ * coverage too, with no bound of their own: `ALERT copy source stuck`
+ * (CopyLiveEngine.watchStuck), once per stream per episode, so someone looks.
+ */
+export const SOURCE_STUCK_ALERT_MS = 5 * MINUTE_MS;
+
 /** basis: derived — three missed 5 min snapshot runs
  * Snapshots run every 5 minutes (SchedulerService.snapshotAll).
  */

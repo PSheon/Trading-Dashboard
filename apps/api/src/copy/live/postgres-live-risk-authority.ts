@@ -21,6 +21,26 @@ import { Dec } from '../../common/decimal/dec.js';
 import { address, assertSameAuthorization, assertWalletAuthorization, LiveBoundaryError } from './wallet-authorization.js';
 
 export function riskSourceRequire(value: unknown, code: string): asserts value { if (!value) throw new LiveBoundaryError(code); }
+type LiveSourceStreamRow=typeof copyLiveSourceStreams.$inferSelect;
+/**
+ * THE rule of when the leader's source stream admits an order of `leg` (decision D10, 2026-10-23):
+ * - `ready` (coverage proven to now): every leg.
+ * - `gap` (the last read was slower than the evidence window or incomplete: nothing certified, the proven
+ *   coverage kept): a close only. A close is reduce-only, sized from the copy's own account evidence, which
+ *   must itself be fresh (LIVE_EVIDENCE_MAX_AGE_MS: live_account_evidence_expired at the observer, live_risk_stale
+ *   at the epoch and the preparation; both counted attempts, as today); the stream's lag costs the follower
+ *   nothing a later leader fill could undo, where an open or add on an unproven stream could mirror a
+ *   position the leader has since closed. The close's own fill must lie inside the proven coverage (the
+ *   provenance check, live_risk_source_changed; a fill a gap read stored beyond it waits for the stream).
+ * - anything else (`unproven` after a restart, `quarantined`, no coverage yet): no leg.
+ * An unknown leg (no `leg`) is an open: every check applies. The engine's pre-check (CopyLiveEngine.sourceReady)
+ * and the preparation's source check (PostgresLivePreparation.prepare) apply this same rule.
+ */
+export function liveSourceStreamAdmits(stream:Pick<LiveSourceStreamRow,'state'|'coverageFrom'|'coverageThrough'|'coverageDigest'>,leg:'open'|'close'|undefined):
+  stream is Pick<LiveSourceStreamRow,'state'|'coverageFrom'|'coverageThrough'|'coverageDigest'>&{coverageFrom:Date;coverageThrough:Date;coverageDigest:string} {
+  if(!stream.coverageFrom||!stream.coverageThrough||!stream.coverageDigest)return false;
+  return stream.state==='ready'||leg==='close'&&stream.state==='gap';
+}
 export const riskSourceDigest = (value: unknown) => liveSourceDigest(JSON.parse(JSON.stringify(value)) as unknown);
 /** Shared current authority, before an execution journal/provenance exists.
  * Requires the original source/account lock and performs only SQL reads.
@@ -140,7 +160,12 @@ export async function loadLivePreparationAuthority(session:LiveRiskDatabaseSessi
   // The scope's source is the consent's (checked above, live_risk_source_scope_missing).
   riskSourceRequire(streamWork,'live_risk_source_scope_missing');
   const [sourceStream]=await streamWork;
-  riskSourceRequire(sourceStream&&sourceStream.state==='ready'&&sourceStream.coverageFrom&&sourceStream.coverageThrough&&sourceStream.coverageDigest&&sourceStream.coverageFrom.getTime()<=m.activationCursor!.getTime(),'live_risk_source_changed');
+  // The stream must admit the leg (liveSourceStreamAdmits, D10): a wait with its own code (error-class.ts, never
+  // an attempt) while it does not, so a leg waiting on it cannot reach CLOSE_ATTEMPT_LIMIT (Stage mainnet
+  // 2026-10-22 18:02Z, strategy 14: nine counted attempts in a ~60 s gap). The engine checks the same for an
+  // open before it spends evidence (CopyLiveEngine.sourceReady).
+  riskSourceRequire(sourceStream&&liveSourceStreamAdmits(sourceStream,binding.leg),'live_risk_source_not_ready');
+  riskSourceRequire(sourceStream.coverageFrom.getTime()<=m.activationCursor!.getTime(),'live_risk_source_changed');
   const identity={accountId:a.id,userId:a.userId,strategyId:s.id,strategyVersion:s.version,policyVersion:policy.version,authorizationVersion:g.version,
     authorizationId:g.id,walletId:w.privyWalletId,network:a.network,accountAddress:a.address,dedicated:true as const};
   // Authentication refreshes this audit timestamp independently of orders.
@@ -208,10 +233,13 @@ export async function loadLiveRiskAuthority(session: LiveRiskDatabaseSession, db
     record.createdAt<=now&&record.updatedAt>=record.createdAt&&record.expiresAfter>now&&record.expiresAfter<=record.createdAt+60000&&p.admittedAt.getTime()<=record.createdAt,'live_risk_record_mismatch');
   assertSameAuthorization(record.authorization,assertWalletAuthorization(prep.currentAuthorization,intent,now));
   const fill=decodeLiveSourceFill(row.fill),canonical=canonicalLiveSourceLegs(fill).find(l=>l.leg===leg.leg);
+  // The stream admits this leg now (D10: a close while the stream is in gap); its coverage still holds the
+  // order's own fill (the coverage a gap keeps is the one the fill was certified in).
+  riskSourceRequire(liveSourceStreamAdmits(stream,leg.leg),'live_risk_source_not_ready');
   riskSourceRequire(canonical&&leg.id===liveSourceLegId(m.id,fill.id,leg.leg)&&leg.mandateId===m.id&&leg.executionKey===binding.key&&leg.state==='prepared'&&
     leg.sign===canonical.sign&&leg.size===canonical.size&&leg.fraction===canonical.fraction&&leg.tradeKey===canonical.tradeKey&&p.sourceDigest===fill.sourceDigest&&
     fill.network===consent.sourceNetwork&&fill.leaderAddress===consent.leaderAddress&&fill.providerTime>m.activationCursor!.getTime()&&fill.receivedAt<=p.admittedAt.getTime()&&
-    stream.state==='ready'&&stream.network===fill.network&&stream.leaderAddress===fill.leaderAddress&&stream.coverageFrom&&stream.coverageThrough&&stream.coverageDigest&&
+    stream.network===fill.network&&stream.leaderAddress===fill.leaderAddress&&
     stream.coverageFrom.getTime()<=m.activationCursor!.getTime()&&stream.coverageThrough.getTime()>=fill.providerTime,'live_risk_source_changed');
   const {policy,limits,platform,user,accounts,states,general,revenue,controlsRows:controls}=prep;
   riskSourceRequire(intent.builder?intent.builder.address===consent.builderAddress&&intent.builder.feeTenthsBps<=consent.builderMaxFeeTenthsOfBps:consent.builderMaxFeeTenthsOfBps===0,'live_risk_builder_changed');

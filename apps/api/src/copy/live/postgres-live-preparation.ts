@@ -9,7 +9,7 @@ import type { DbExecutor } from '../../db/unit-of-work.js';
 import { allocateSignerNonce } from '../signer-nonce.js';
 import { Dec } from '../../common/decimal/dec.js';
 import { assertOriginalLiveRiskSession, type LiveRiskDatabaseSession } from './postgres-live-risk-scope.js';
-import { loadLivePreparationAuthority, riskSourceDigest, riskSourceRequire } from './postgres-live-risk-authority.js';
+import { liveSourceStreamAdmits, loadLivePreparationAuthority, riskSourceDigest, riskSourceRequire } from './postgres-live-risk-authority.js';
 import { loadLiveGenerationManifest } from './postgres-live-generation-manifest.js';
 import { canonicalLiveSourceLegs, decodeLiveSourceFill, liveSourceLegId } from './copy-live-source-evidence.js';
 import { planLiveSourceOrder } from './copy-live-source-planner.js';
@@ -86,7 +86,7 @@ export class PostgresLivePreparation {
     riskSourceRequire(binding && ['open', 'close'].includes(binding.leg) && [binding.accountId, binding.mandateId, binding.sourceFillId].every(v => typeof v === 'string' && v.length > 0 && v.length <= 160) &&
       (binding.members === undefined || Array.isArray(binding.members) && binding.members.length >= 1 && binding.members.length < MAX_MERGED_LEGS &&
         binding.members.every(v => typeof v === 'string' && v.length > 0 && v.length <= 160 && v !== binding.sourceFillId) && new Set(binding.members).size === binding.members.length) &&
-      (binding.attempt === undefined || Number.isSafeInteger(binding.attempt) && binding.attempt >= 0 && binding.attempt < MAX_LIVE_LEG_ATTEMPTS && (binding.attempt === 0 || binding.members === undefined)), 'live_preparation_binding');
+      (binding.attempt === undefined || Number.isSafeInteger(binding.attempt) && binding.attempt >= 0 && binding.attempt < MAX_LIVE_LEG_ATTEMPTS), 'live_preparation_binding');
     const attempt = binding.attempt ?? 0;
     const local = await session.read(db => loadLivePreparationAuthority(session, db, binding, started));
     mark('preparation_local_authority');
@@ -115,9 +115,13 @@ export class PostgresLivePreparation {
       const [row] = await this.checked(session, db.select().from(copyLiveSourceFills).where(eq(copyLiveSourceFills.id, binding.sourceFillId)));
       riskSourceRequire(row, 'live_preparation_source');
       const fill = decodeLiveSourceFill(row), [stream] = await this.checked(session, db.select().from(copyLiveSourceStreams).where(eq(copyLiveSourceStreams.id, fill.streamId)));
-      riskSourceRequire(stream?.state === 'ready' && stream.network === local.consent.sourceNetwork && stream.leaderAddress === local.consent.leaderAddress &&
+      // The stream admits this leg now (liveSourceStreamAdmits, D10: a close while the stream is in gap), else a
+      // wait; a close whose fill a gap read stored beyond the proven coverage waits for the stream too.
+      riskSourceRequire(stream && liveSourceStreamAdmits(stream, binding.leg), 'live_risk_source_not_ready');
+      riskSourceRequire(stream.network === local.consent.sourceNetwork && stream.leaderAddress === local.consent.leaderAddress &&
         fill.leaderAddress === local.consent.leaderAddress && fill.network === local.consent.sourceNetwork && fill.providerTime > local.mandate.activationCursor!.getTime() &&
-        stream.coverageFrom && stream.coverageThrough && stream.coverageDigest && stream.coverageFrom.getTime() <= local.mandate.activationCursor!.getTime() && stream.coverageThrough.getTime() >= fill.providerTime, 'live_preparation_source');
+        stream.coverageFrom.getTime() <= local.mandate.activationCursor!.getTime(), 'live_preparation_source');
+      riskSourceRequire(stream.coverageThrough.getTime() >= fill.providerTime, stream.state === 'ready' ? 'live_preparation_source' : 'live_risk_source_not_ready');
       const leg = canonicalLiveSourceLegs(fill).find(v => v.leg === binding.leg);
       riskSourceRequire(leg, 'live_preparation_source');
       // A merged adjustment's other legs: the same stream, coin, kind and
@@ -345,18 +349,27 @@ export class PostgresLivePreparation {
       }
       // The merged legs are claimed by this order: planned, then skipped (never
       // sent on their own); one already claimed elsewhere refuses the merge.
+      // A later attempt of the lead finds them skipped already (claimed by its
+      // released attempt, whose provenance must name exactly them: below) and
+      // still without an order of their own.
       const memberWorks = source.members.map(member => {
         const id = liveSourceLegId(binding.mandateId, member.fill.id, member.leg.leg);
         return { member,
           current: sent(this.checked(session, tx.select().from(copyLiveSourceFills).where(eq(copyLiveSourceFills.id, member.fill.id)))),
           inserted: sent(this.checked(session, tx.insert(copyLiveSignalLegs).values({ id, mandateId: binding.mandateId, sourceFillId: member.fill.id, ...member.leg, dependsOnId: null, createdAt: new Date(now), updatedAt: new Date(now) }).onConflictDoNothing())),
-          skipped: sent(this.checked(session, tx.update(copyLiveSignalLegs).set({ state: 'skipped', revision: sql`${copyLiveSignalLegs.revision} + 1`, updatedAt: new Date(now) })
-            .where(and(eq(copyLiveSignalLegs.id, id), eq(copyLiveSignalLegs.state, 'planned'), sql`${copyLiveSignalLegs.executionKey} is null`)).returning({ id: copyLiveSignalLegs.id }))) };
+          skipped: sent(this.checked(session, attempt === 0
+            ? tx.update(copyLiveSignalLegs).set({ state: 'skipped', revision: sql`${copyLiveSignalLegs.revision} + 1`, updatedAt: new Date(now) })
+              .where(and(eq(copyLiveSignalLegs.id, id), eq(copyLiveSignalLegs.state, 'planned'), sql`${copyLiveSignalLegs.executionKey} is null`)).returning({ id: copyLiveSignalLegs.id })
+            : tx.select({ id: copyLiveSignalLegs.id }).from(copyLiveSignalLegs)
+              .where(and(eq(copyLiveSignalLegs.id, id), eq(copyLiveSignalLegs.state, 'skipped'), sql`${copyLiveSignalLegs.executionKey} is null`)).for('update'))) };
       });
       const legWork = sent(this.checked(session, tx.select().from(copyLiveSignalLegs).where(eq(copyLiveSignalLegs.id, legId)).for('update')));
       // A later attempt: the previous one is terminal and released as never
-      // sent (its request never began), with no fill, oid or evidence of one.
+      // sent (its request never began), with no fill, oid or evidence of one;
+      // its provenance names the members this attempt carries again.
       const previousWork = previousKey ? sent(this.checked(session, tx.select({ journal: copyLiveExecutions, reservation: copyLiveRiskReservations,
+        members: sql<string[] | null>`(select coalesce(jsonb_agg(m->>'sourceFillId'), '[]'::jsonb) from ${copyLiveIntentProvenance} p, jsonb_array_elements(coalesce(p.sizing_basis->'basis'->'merged'->'members', '[]'::jsonb)) m where p.key = ${previousKey})`,
+        hasProvenance: sql<boolean>`exists(select 1 from ${copyLiveIntentProvenance} where ${copyLiveIntentProvenance.key} = ${previousKey})`,
         hasReceipt: sql<boolean>`exists(select 1 from ${copyFollowerReceipts} where ${copyFollowerReceipts.executionKey} = ${previousKey})`,
         hasEvidenceOid: sql<boolean>`exists(select 1 from copy_live_execution_evidence e where e.key = ${previousKey} and e.exchange_order_id is not null)` })
         .from(copyLiveExecutions).innerJoin(copyLiveRiskReservations, eq(copyLiveRiskReservations.key, copyLiveExecutions.key)).where(eq(copyLiveExecutions.key, previousKey)))) : undefined;
@@ -375,7 +388,13 @@ export class PostgresLivePreparation {
         const [previous] = await previousWork;
         riskSourceRequire(previous && isDefinitelyUnsent(decodeLiveExecutionRow(previous.journal)) && previous.reservation.state === 'released' &&
           previous.reservation.releaseReason === 'expired_unplaced' && previous.reservation.exchangeOrderId === null && previous.hasReceipt === false &&
-          previous.hasEvidenceOid === false, 'live_preparation_claim_conflict');
+          previous.hasEvidenceOid === false && previous.hasProvenance === true, 'live_preparation_claim_conflict');
+        // The same sizing basis: this attempt carries exactly the legs the
+        // released order carried (its provenance's merged members, the lead
+        // among them), so no member is dropped (left skipped, with no order)
+        // or added (claimed by another order) between attempts.
+        const carried = new Set((previous.members ?? []).filter(id => id !== source.fill.id)), again = new Set(source.members.map(member => member.fill.id));
+        riskSourceRequire(carried.size === again.size && [...again].every(id => carried.has(id)), 'live_preparation_claim_conflict');
       }
       riskSourceRequire(leg && (attempt === 0 ? leg.state === 'planned' && leg.executionKey === null : leg.state === 'skipped' && leg.executionKey === previousKey) && leg.mandateId === binding.mandateId && leg.sourceFillId === source.fill.id &&
         leg.tradeKey === source.leg.tradeKey && leg.sign === source.leg.sign && leg.size === source.leg.size && leg.fraction === source.leg.fraction && leg.dependsOnId === plan.dependsOnLegId, 'live_preparation_claim_conflict');

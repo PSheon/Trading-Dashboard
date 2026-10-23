@@ -394,6 +394,53 @@ describe('testnet copy of a mainnet leader, end to end against provider doubles'
     expect(close).toMatchObject({ state: 'planned', executionKey: null });
     expect(legs.find(l => l.leg === 'open')).toMatchObject({ state: 'settled', dependsOnId: close!.id });
   });
+  it('D10 (Stage mainnet 2026-10-22 18:02Z, strategy 14): while the leader\'s stream is in gap, a leader close is sent reduce-only on the copy\'s own fresh evidence, a leader open waits as live_risk_source_not_ready with no attempt spent, and a close on stale own evidence is refused (live_account_evidence_expired), nothing sent', { timeout: 60_000 }, async () => {
+    const e = engine(), streams = () => db.select().from(schema.copyLiveSourceStreams), rows = () => db.select().from(schema.copyLiveDispatches);
+    const rowOf = async (tid: number) => (await rows()).find(r => r.sourceFillId.endsWith(`:${tid}`))!;
+    await e.tick(); await leaderOpens(1001); await e.tick(); await new Promise(resolve => setTimeout(resolve, 5)); await e.tick();
+    expect(await rowOf(1001)).toMatchObject({ leg: 'open', state: 'settled' }); expect(shared.position).toBe('0.19');
+    const repository = new CopyLiveWorkerRepository(db, new UnitOfWork(db), testConfig());
+    /** Ingests the leader's new fills while the stream is ready, then the stream falls to gap and the watcher verifies nothing further. */
+    const ingestThenGap = async () => {
+      await db.update(schema.fillCoverage).set({ verifiedThrough: new Date(Date.now() + 60_000) });
+      await db.update(schema.copyLiveSourceStreams).set({ state: 'ready', lastIssue: null });
+      const mandates = await repository.mandates(Date.now());
+      await e.ingest({ network: 'mainnet', leaderAddress: leader, earliestCursor: mandates[0]!.cursor }, mandates);
+      const [stream] = await streams(); expect(stream).toMatchObject({ state: 'ready' });
+      await db.update(schema.fillCoverage).set({ verifiedThrough: stream!.coverageThrough! });
+      await db.update(schema.copyLiveSourceStreams).set({ state: 'gap', lastIssue: 'source_unavailable' });
+    };
+    // The leader closes half of its BTC and opens ETH; the stream is in gap when both are worked.
+    await leaderTrades(1002, 'Close Long', '0.5', '1'); await leaderOpens(1003, 'ETH');
+    await ingestThenGap();
+    const sent = exchangeBodies.length; await e.tick();
+    expect(await rowOf(1002)).toMatchObject({ leg: 'close', state: 'submitted', attempts: 1, reason: null });
+    expect(exchangeBodies).toHaveLength(sent + 1);
+    expect(exchangeBodies.at(-1)).toMatchObject({ action: { orders: [{ a: 0, b: false, r: true }] } });
+    // The open waits behind the account's unsettled close this pass (unsettledOnAccount), then on the stream.
+    expect(await rowOf(1003)).toMatchObject({ leg: 'open', state: 'pending', attempts: 0 });
+    expect(logs.filter(l => l.includes('attempt') && l.includes('failed'))).toEqual([]);
+    // The close settles while the stream is still in gap; the open waits on the stream, no attempt spent.
+    await new Promise(resolve => setTimeout(resolve, 5)); await e.tick();
+    expect(await rowOf(1002)).toMatchObject({ state: 'settled', reason: null });
+    // The pass after the settlement: the open is checked against the stream before any evidence is read.
+    await e.tick();
+    expect(await rowOf(1003)).toMatchObject({ state: 'pending', attempts: 0, reason: 'live_risk_source_not_ready' });
+    expect((await streams())[0]).toMatchObject({ state: 'gap' }); expect(exchangeBodies).toHaveLength(sent + 1);
+    // The leader closes the rest, but the copy's own account evidence takes longer than LIVE_EVIDENCE_MAX_AGE_MS: refused, nothing sent.
+    await leaderTrades(1004, 'Close Long', '0.5', '0.5'); await ingestThenGap();
+    const observe = HyperliquidLiveAccountObserver.prototype.observe;
+    const slow = vi.spyOn(HyperliquidLiveAccountObserver.prototype, 'observe').mockImplementation(async function (this: HyperliquidLiveAccountObserver, ...args) {
+      await new Promise(resolve => setTimeout(resolve, 5_100)); return observe.apply(this, args);
+    });
+    await e.tick(); slow.mockRestore();
+    // The account observer's own freshness guard (live_account_evidence_expired, the same LIVE_EVIDENCE_MAX_AGE_MS window as
+    // live_risk_stale) refuses first; a counted attempt, as today for any stale own evidence. Nothing was signed or sent.
+    expect(await rowOf(1004)).toMatchObject({ leg: 'close', state: 'pending', reason: 'live_account_evidence_expired', attempts: 1 });
+    expect(await rowOf(1003)).toMatchObject({ state: 'pending', attempts: 0, reason: 'live_risk_source_not_ready' });
+    expect(exchangeBodies).toHaveLength(sent + 1);
+  });
+
   it('thirty settled orders later the copy still opens and closes: each envelope keeps settled proofs by digest, far below 2 MiB (testnet-sized snapshots)', { timeout: 600_000 }, async () => {
     // About 300 listed venues make a testnet account snapshot ~95 KB. Each
     // settled order's proof holds one; inline in every later envelope they

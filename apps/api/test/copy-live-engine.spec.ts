@@ -26,6 +26,8 @@ import { now } from './copy-live-risk-test-utils.js';
 const unavailable = (cause: unknown) => Object.assign(new LiveBoundaryError('live_account_observation_unavailable'), { cause });
 import { closeTestDb, getTestDb, type TestDb } from './db-test-utils.js';
 import { CLOSE_ATTEMPT_LIMIT, MAX_LIVE_LEG_ATTEMPTS } from '../src/config/constants/limits.js';
+import { SOURCE_STUCK_ALERT_MS } from '../src/config/constants/alerts.js';
+import { parseLiveSourceFill } from '../src/copy/live/copy-live-source-evidence.js';
 
 // Real SQL, real watched-source reads and source repository; the runtime
 // (signing/exchange) and the settler are doubles that record their calls.
@@ -668,6 +670,158 @@ describe('testnet copy execution engine', () => {
     await db.update(schema.copyLiveDispatches).set({ attempts: CLOSE_ATTEMPT_LIMIT - 1 }).where(eq(schema.copyLiveDispatches.sourceFillId, close));
     clock = now + 1_000_000; await engine().tick();
     expect((await dispatches()).find(r => r.sourceFillId === close)).toMatchObject({ state: 'pending', reason: 'live_risk_busy', attempts: CLOSE_ATTEMPT_LIMIT - 1 });
+  });
+
+  /** The leader's stream row (`mainnet:<leader>`). */
+  const stream = async () => (await db.select().from(schema.copyLiveSourceStreams))[0]!;
+  /** A BTC open filled, its BTC close and an ETH open pending behind it, all ingested while the stream was ready; then the
+   * stream falls to `gap` (Stage mainnet 2026-10-22 18:02Z, strategy 14: a fast read slower than LIVE_EVIDENCE_MAX_AGE_MS,
+   * source_unavailable) and the watcher verifies nothing further, so no pass read moves the stream until the test does.
+   * `others` answers the pending close and open (the BTC open's outcome stays unknown for the first pass, which holds
+   * the close behind it; a requested manual close of ETH holds the ETH open). */
+  async function legsPendingInGap(others: Runtime) {
+    await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
+    const open = await leaderFill(90, now + 100, 'B', '1', '0', 'BTC'), close = await leaderFill(91, now + 200, 'A', '1', '1', 'BTC'), add = await leaderFill(92, now + 300, 'B', '1', '0', 'ETH');
+    await db.insert(schema.copyLiveManualCloses).values({ id: 'held-eth', userId: 1, accountId: 'account', strategyId: 9, idempotencyKey: 'reconcile:held-eth', coin: 'ETH', createdAt: new Date(now), updatedAt: new Date(now) });
+    runtimeImpl = async (request, hooks) => {
+      if (request.sourceFillId !== open) return others(request, hooks);
+      runtimeCalls.push(request); const key = keyOf(open, 'open');
+      hooks.onExchange?.({ phase: 'request', at: clock + 10 }); hooks.onExchange?.({ phase: 'response', at: clock + 40 });
+      await journal(key, 'unknown'); return { key, state: 'unknown' } as LiveExecutionRecord;
+    };
+    const worker = engine(), logs: string[] = [];
+    (worker as unknown as { deps: { log?: (m: string) => void } }).deps.log = message => { logs.push(message); };
+    clock = now + 1000; await worker.tick();
+    const rowOf = async (fill: string) => (await dispatches()).find(r => r.sourceFillId === fill)!;
+    expect(await rowOf(close)).toMatchObject({ state: 'pending', attempts: 0, reason: null });
+    expect(await rowOf(add)).toMatchObject({ state: 'pending', attempts: 0, reason: null });
+    expect(runtimeCalls).toHaveLength(1); expect((await stream()).state).toBe('ready');
+    await journal(keyOf(open, 'open'), 'filled');
+    await db.update(schema.fillCoverage).set({ verifiedThrough: (await stream()).coverageThrough! });
+    await db.update(schema.copyLiveSourceStreams).set({ state: 'gap', lastIssue: 'source_unavailable' });
+    await db.update(schema.copyLiveManualCloses).set({ state: 'refused', reason: 'leader_reopened' });
+    clock = now + 6000;
+    return { worker, close, add, logs, closeRow: () => rowOf(close), addRow: () => rowOf(add) };
+  }
+  /** What the authority refused the incident's legs with while the stream was in gap (postgres-live-risk-authority.ts). */
+  const sourceRefusal = (code: string): Runtime => async request => { runtimeCalls.push(request); throw new LiveBoundaryError(code); };
+
+  it('D10: while the leader\'s stream is in gap a pending close is sent (on the copy\'s own evidence) and a pending open waits with no attempt spent and no runtime call, then is sent exactly once when the stream is ready (Stage mainnet 2026-10-22 18:02Z, strategy 14)', async () => {
+    // What the old authority refused every leg with while the stream was in gap (nine counted attempts in ~27 s); a close now goes.
+    const { worker, close, add, logs, closeRow, addRow } = await legsPendingInGap(async (request, hooks) => request.leg === 'close' ? filled(request, hooks) : sourceRefusal('live_risk_source_changed')(request, hooks));
+    for (let pass = 1; pass <= 9; pass++) {
+      clock += 3000; await worker.tick();
+      expect(await addRow(), `pass ${pass}`).toMatchObject({ state: 'pending', attempts: 0, reason: 'live_risk_source_not_ready' });
+    }
+    expect(await closeRow()).toMatchObject({ state: 'settled', executionKey: keyOf(close, 'close'), attempts: 1, reason: null });
+    expect(runtimeCalls.filter(r => r.sourceFillId === close)).toEqual([{ userId: 1, accountId: 'account', mandateId: 'mandate', sourceFillId: close, leg: 'close' }]);
+    expect(runtimeCalls.filter(r => r.sourceFillId === add)).toHaveLength(0);
+    expect(logs.filter(m => m.includes('live_risk_source_not_ready') && m.includes(`leg mandate|${add}|open`))).toHaveLength(1);
+    // Ready again, but the stream falls back to gap between the engine's check and the authority's: still a wait, not an attempt.
+    runtimeImpl = sourceRefusal('live_risk_source_not_ready');
+    await db.update(schema.copyLiveSourceStreams).set({ state: 'ready', lastIssue: null });
+    clock += 3000; await worker.tick();
+    expect(await addRow()).toMatchObject({ state: 'pending', attempts: 0, reason: 'live_risk_source_not_ready' });
+    expect(runtimeCalls.filter(r => r.sourceFillId === add)).toHaveLength(1);
+    runtimeImpl = filled; runtimeCalls.length = 0;
+    clock += 3000; await worker.tick();
+    expect(await addRow()).toMatchObject({ state: 'submitted', executionKey: keyOf(add, 'open'), attempts: 1, reason: null });
+    clock += 3000; await worker.tick();
+    expect(runtimeCalls).toHaveLength(1);
+  });
+
+  it('a close the authority still holds for the stream (live_risk_source_not_ready: a fill beyond the proven coverage, a stream unproven) never reaches CLOSE_ATTEMPT_LIMIT by that alone, and goes once admitted', async () => {
+    const { worker, close, closeRow } = await legsPendingInGap(sourceRefusal('live_risk_source_not_ready'));
+    await db.update(schema.copyLiveDispatches).set({ attempts: CLOSE_ATTEMPT_LIMIT - 1 }).where(eq(schema.copyLiveDispatches.sourceFillId, close));
+    for (let pass = 1; pass <= 3; pass++) { clock += 3000; await worker.tick(); }
+    expect(await closeRow()).toMatchObject({ state: 'pending', attempts: CLOSE_ATTEMPT_LIMIT - 1, reason: 'live_risk_source_not_ready' });
+    // Each pass asked the authority (a wait a second apart, never an attempt); nothing was sent.
+    expect(runtimeCalls.filter(r => r.sourceFillId === close)).toHaveLength(3);
+    runtimeImpl = filled;
+    clock += 3000; await worker.tick();
+    expect(await closeRow()).toMatchObject({ state: 'submitted', executionKey: keyOf(close, 'close'), attempts: CLOSE_ATTEMPT_LIMIT });
+  });
+
+  it('a close whose fill a gap read stored beyond the proven coverage waits at the pre-check: one reason write, no runtime call, no per-second log (review of c888f6c5)', async () => {
+    await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
+    const open = await leaderFill(90, now + 100, 'B', '1', '0', 'BTC');
+    const worker = engine(), logs: string[] = [];
+    (worker as unknown as { deps: { log?: (m: string) => void } }).deps.log = message => { logs.push(message); };
+    clock = now + 1000; await worker.tick(); clock = now + 2000; await worker.tick();
+    expect((await dispatches()).find(r => r.sourceFillId === open)).toMatchObject({ state: 'settled' });
+    // The stream falls to gap; the gap read stored the leader's close beyond coverageThrough (apply inserts fills before its freshness check).
+    const through = (await stream()).coverageThrough!.getTime();
+    await db.update(schema.fillCoverage).set({ verifiedThrough: new Date(through) });
+    await db.update(schema.copyLiveSourceStreams).set({ state: 'gap', lastIssue: 'source_unavailable' });
+    const late = parseLiveSourceFill({ coin: 'BTC', px: '100', sz: '1', side: 'A', time: through + 500, startPosition: '1', dir: 'Close Long', closedPnl: '0', hash: `0x${'12'.repeat(32)}`, oid: 1093, crossed: true, fee: '0.01', tid: 93, feeToken: 'USDC' },
+      { network: 'mainnet', leaderAddress: leader, from: through + 1, to: through + 1000, receivedAt: through + 1000, kind: 'fills' });
+    await db.insert(schema.copyLiveSourceFills).values({ ...late, normalized: { ...late.normalized }, providerTime: new Date(late.providerTime), receivedAt: new Date(late.receivedAt) });
+    // What the preparation refuses such a close with (live_risk_source_not_ready) if asked.
+    runtimeImpl = sourceRefusal('live_risk_source_not_ready'); runtimeCalls.length = 0;
+    clock = now + 6000; await worker.tick();
+    const first = (await dispatches()).find(r => r.sourceFillId === late.id)!;
+    expect(first).toMatchObject({ leg: 'close', state: 'pending', attempts: 0, reason: 'live_risk_source_not_ready' });
+    for (let pass = 1; pass <= 5; pass++) { clock += 3000; await worker.tick(); }
+    const after = (await dispatches()).find(r => r.sourceFillId === late.id)!;
+    expect(after).toMatchObject({ state: 'pending', attempts: 0, reason: 'live_risk_source_not_ready' });
+    expect(after.updatedAt).toEqual(first.updatedAt);
+    expect(runtimeCalls).toHaveLength(0);
+    expect(logs.filter(m => m.includes(`leg ${late.id}`) || m.includes(`leg mandate|${late.id}|close`))).toEqual([expect.stringContaining('waits: live_risk_source_not_ready')]);
+    // Coverage reaches the fill: sent.
+    runtimeImpl = filled;
+    await db.update(schema.copyLiveSourceStreams).set({ state: 'ready', lastIssue: null, coverageThrough: new Date(through + 1000) });
+    clock += 3000; await worker.tick();
+    expect((await dispatches()).find(r => r.sourceFillId === late.id)).toMatchObject({ state: 'submitted', attempts: 1 });
+  });
+
+  it('the same wait again (the authority still holds the leg) is neither logged as a failure nor written to the row again (review of c888f6c5)', async () => {
+    const { worker, close, logs, closeRow } = await legsPendingInGap(sourceRefusal('live_risk_source_not_ready'));
+    for (let pass = 1; pass <= 5; pass++) { clock += 3000; await worker.tick(); }
+    const row = await closeRow();
+    expect(row).toMatchObject({ state: 'pending', attempts: 0, reason: 'live_risk_source_not_ready' });
+    expect(runtimeCalls.filter(r => r.sourceFillId === close)).toHaveLength(5);
+    expect(logs.filter(m => m.includes(`leg mandate|${close}|close`) && m.includes('failed: live_risk_source_not_ready'))).toHaveLength(1);
+    clock += 3000; await worker.tick();
+    expect((await closeRow()).updatedAt).toEqual(row.updatedAt);
+  });
+
+  it('ALERT copy source stuck once a leader\'s stream has not been ready for SOURCE_STUCK_ALERT_MS, once per episode (review of c888f6c5)', async () => {
+    const { worker } = await legsPendingInGap(filled), alerts: string[] = [];
+    (worker as unknown as { deps: { alert?: (m: string) => void } }).deps.alert = message => { alerts.push(message); };
+    await db.update(schema.copyLiveMandates).set({ expiresAt: new Date(now + 4 * SOURCE_STUCK_ALERT_MS) });
+    const started = clock; await worker.tick();
+    while (clock + 60_000 < started + SOURCE_STUCK_ALERT_MS) { clock += 60_000; await worker.tick(); }
+    expect(alerts).toEqual([]);
+    clock = started + SOURCE_STUCK_ALERT_MS; await worker.tick();
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toContain('ALERT copy source stuck'); expect(alerts[0]).toContain(`"source":"mainnet:${leader}"`); expect(alerts[0]).toContain('"state":"gap"'); expect(alerts[0]).toContain('"lastIssue":"source_unavailable"');
+    for (let pass = 1; pass <= 3; pass++) { clock += 60_000; await worker.tick(); }
+    expect(alerts).toHaveLength(1);
+    // Ready again ends the episode; a new one alerts again after its own SOURCE_STUCK_ALERT_MS.
+    await db.update(schema.copyLiveSourceStreams).set({ state: 'ready', lastIssue: null });
+    clock += 3000; await worker.tick();
+    await db.update(schema.copyLiveSourceStreams).set({ state: 'unproven' });
+    const again = clock; await worker.tick();
+    clock = again + SOURCE_STUCK_ALERT_MS - 1000; await worker.tick(); expect(alerts).toHaveLength(1);
+    clock = again + SOURCE_STUCK_ALERT_MS; await worker.tick();
+    expect(alerts).toHaveLength(2); expect(alerts[1]).toContain('"state":"unproven"');
+  });
+
+  it('a stuck episode ends when no copy reads the stream any more: a leader copied again later starts a fresh one (review of 078c7e94)', async () => {
+    const { worker } = await legsPendingInGap(filled), alerts: string[] = [];
+    (worker as unknown as { deps: { alert?: (m: string) => void } }).deps.alert = message => { alerts.push(message); };
+    await db.update(schema.copyLiveMandates).set({ expiresAt: new Date(now + 4 * SOURCE_STUCK_ALERT_MS) });
+    const started = clock; await worker.tick();
+    clock = started + 3 * 60_000; await worker.tick(); expect(alerts).toEqual([]);
+    // The copy's generation expires: the stream is in no pass for a while.
+    await db.update(schema.copyLiveMandates).set({ expiresAt: new Date(clock) });
+    clock += 60_000; await worker.tick();
+    // Copied again: the stream, still in gap, is a fresh episode, not one 5 min old.
+    await db.update(schema.copyLiveMandates).set({ expiresAt: new Date(now + 4 * SOURCE_STUCK_ALERT_MS) });
+    const again = clock + 60_000; clock = again; await worker.tick();
+    expect(alerts).toEqual([]);
+    clock = again + SOURCE_STUCK_ALERT_MS - 60_000; await worker.tick(); expect(alerts).toEqual([]);
+    clock = again + SOURCE_STUCK_ALERT_MS; await worker.tick(); expect(alerts).toHaveLength(1);
   });
 
   it('refuses a close that keeps failing after CLOSE_ATTEMPT_LIMIT attempts, never retrying it for ever', async () => {

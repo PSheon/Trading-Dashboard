@@ -62,6 +62,14 @@ const BUDGET_CODES: ReadonlyMap<string, number | undefined> = new Map([
   // The live-risk scope's advisory try-lock was busy: nothing was read,
   // reserved or sent, so it is not an attempt (gate 2026-10-13 11:15).
   ['live_risk_busy', LIVE_RISK_BUSY_RETRY_MS],
+  // The leader's source stream does not admit the leg (liveSourceStreamAdmits:
+  // an open while the stream is in gap after a slow or incomplete read; any
+  // leg while it is unproven or quarantined): nothing was read, reserved or
+  // sent, and the stream's next complete read (the next pass, a kick's
+  // follow-up) admits it again. Back after the policy's default (a second);
+  // an open is bounded by its signal age, never by attempts (Stage mainnet
+  // 2026-10-22 18:02Z, strategy 14).
+  ['live_risk_source_not_ready', undefined],
 ]);
 /** Codes that wrap what failed underneath (`cause`): a wait underneath (the
  * shared meter refused a socket connect or a read) makes them a wait too

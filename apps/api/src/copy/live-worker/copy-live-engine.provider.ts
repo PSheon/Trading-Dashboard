@@ -46,6 +46,7 @@ import { HyperliquidInfoClient, twapSliceToFill } from '../../hyperliquid/hyperl
 import { TradeFeedService } from '../../watcher/trade-feed.service.js';
 import { FastMainnetSource } from './fast-mainnet-source.js';
 import { clockSkew } from '../live/clock-skew.js';
+import { legEventLine } from '../live/live-leg-event.js';
 import { CopyFollowerSnapshotRepository } from '../copy-follower-snapshot.repository.js';
 
 export const LIVE_ENGINE = Symbol('LIVE_ENGINE');
@@ -135,6 +136,8 @@ export const liveEngineProvider: FactoryProvider<CopyLiveEngine | null> = {
       settlementObservation: key => snapshots.saveSettlement(key),
       log: message => logger.warn(message), alert: message => logger.error(message),
       trace: message => logger.log(message),
+      // One JSON line per dispatch-row transition (docs/railway-deploy.md, "Live leg events").
+      event: event => logger.log(legEventLine(event)),
       // Cached leader capital (paper copier's), for holding too-small opens.
       leaderEquity: async leader => { const equity = await market.leaderEquity(leader); return equity.state === 'known' ? equity.value.toString() : null; },
       ...(fast ? { fast } : {}),

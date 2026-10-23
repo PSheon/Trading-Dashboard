@@ -10,7 +10,8 @@ import { describeUnexpected, errorCode } from '../../runtime/safe-error-text.js'
 import { TERMINAL_STATES, type LiveQuarantineOutcome, type LiveSettleOutcome, type LiveSettleRequest } from './copy-live-settler.js';
 import { SETTLEMENT_NEEDS_OWNER, SettlementRetries, type SettlementVerdict } from './settlement-retries.js';
 import { SettlementPendingLog } from './settlement-pending-log.js';
-import { UNSENT_RETRY, type CopyLiveWorkerRepository, type DispatchRow, type LiveMandateWork, type LiveStreamWork } from './copy-live-worker.repository.js';
+import { MERGED_REASON, UNSENT_RETRY, type CopyLiveWorkerRepository, type DispatchRow, type LiveMandateWork, type LiveStreamWork } from './copy-live-worker.repository.js';
+import { legEvent, legTransitioned, type LiveLegEvent, type LiveLegRow, type LiveLegWrite } from '../live/live-leg-event.js';
 import { openNotionalCeiling, planAdjustments, type PendingLeg } from './copy-live-adjustments.js';
 import { MAX_ACCUMULATE_MS } from '../live/copy-live-source-planner.js';
 import type { WatchedMainnetSource } from './watched-mainnet-source.js';
@@ -59,6 +60,8 @@ export interface LiveEngineDependencies {
   readonly alert?: (message: string) => void;
   /** Info-level timing lines (order sent). */
   readonly trace?: (message: string) => void;
+  /** One structured `copy_leg` event per dispatch-row transition (live/live-leg-event.ts), beside the prose lines. */
+  readonly event?: (event: LiveLegEvent) => void;
   /** A mainnet leader's account value (ratio denominator, cached); used to
    * hold an open too small for the exchange until more legs join it. */
   readonly leaderEquity?: (leader: string) => Promise<string | null>;
@@ -140,8 +143,33 @@ export class CopyLiveEngine {
   private readonly pendingSettlements = new SettlementPendingLog(message => this.deps.log?.(message), () => this.now());
   /** Failed settlement passes per order (SETTLEMENT_RETRY_POLICY). */
   private readonly settlementRetries: SettlementRetries;
-  constructor(private readonly deps: LiveEngineDependencies, private readonly options: LiveEngineOptions = DEFAULT_ENGINE_OPTIONS,
-    private readonly now: () => number = Date.now) { this.settlementRetries = new SettlementRetries(() => this.now()); }
+  private readonly deps: LiveEngineDependencies;
+  /** The leader of each generation worked (for the leg events: work() notes it before any row write). */
+  private readonly leaders = new Map<string, string>();
+  constructor(deps: LiveEngineDependencies, private readonly options: LiveEngineOptions = DEFAULT_ENGINE_OPTIONS,
+    private readonly now: () => number = Date.now) {
+    this.settlementRetries = new SettlementRetries(() => this.now());
+    this.deps = { ...deps, repository: this.eventing(deps.repository) };
+  }
+
+  /**
+   * Every single-row write of the engine goes through repository.update (CAS):
+   * the one that moved the row and changed its state or reason is a `copy_leg`
+   * event, exactly once, whichever method wrote it. The multi-row writes
+   * (merge, dissolve, record) emit theirs where they are made.
+   */
+  private eventing(repository: CopyLiveWorkerRepository): CopyLiveWorkerRepository {
+    const update: CopyLiveWorkerRepository['update'] = async (read, patch) => {
+      const moved = await repository.update(read, patch);
+      if (moved) this.legMoved(read, this.leaders.get(read.mandateId) ?? null, patch);
+      return moved;
+    };
+    return new Proxy(repository, { get: (target, property, receiver) => property === 'update' ? update : Reflect.get(target, property, receiver) });
+  }
+  /** Emits the row's transition, if `write` is one (a write that changed neither state nor reason is not). */
+  private legMoved(row: LiveLegRow, leader: string | null, write: LiveLegWrite): void {
+    if (this.deps.event && legTransitioned(row, write)) this.deps.event(legEvent(row, leader, write, this.now()));
+  }
 
   /** Source evidence only, beside a blocked order/settlement pass: no setup,
    * activation, dispatch, signing or settlement runs here. */
@@ -457,11 +485,16 @@ export class CopyLiveEngine {
     const windowMs = Math.max(0, Math.min(this.options.accumulateMs ?? MAX_ACCUMULATE_MS, limits.maxSignalAgeSeconds * 1000 - PLANNING_MARGIN_MS));
     const plan = planAdjustments(legs, this.now(), windowMs,
       run => { const ceiling = equity && m.budgetUsd ? openNotionalCeiling(run, m.budgetUsd, equity) : null; return ceiling !== null && ceiling.lt(minimum); });
-    if (plan.expired.size) await this.deps.repository.refusePending([...plan.expired], 'merged_signal_expired');
-    if (plan.refused.size) await this.deps.repository.refusePending([...plan.refused], 'below_min_notional');
+    const byId = new Map(rows.map(({ dispatch }) => [dispatch.id, dispatch]));
+    const refused = async (ids: ReadonlySet<string>, reason: 'below_min_notional' | 'merged_signal_expired') => {
+      for (const id of await this.deps.repository.refusePending([...ids], reason)) this.legMoved(byId.get(id)!, m.leaderAddress, { state: 'refused', reason });
+    };
+    if (plan.expired.size) await refused(plan.expired, 'merged_signal_expired');
+    if (plan.refused.size) await refused(plan.refused, 'below_min_notional');
     for (const run of plan.merges) {
       const lead = run.legs.at(-1)!, members = run.legs.slice(0, -1);
-      await this.deps.repository.merge({ id: lead.id, mandateId: m.mandateId }, members.map(leg => leg.id));
+      if (await this.deps.repository.merge({ id: lead.id, mandateId: m.mandateId }, members.map(leg => leg.id)))
+        for (const member of members) this.legMoved(byId.get(member.id)!, m.leaderAddress, { state: 'refused', reason: MERGED_REASON });
     }
     return [...plan.held];
   }
@@ -478,12 +511,15 @@ export class CopyLiveEngine {
       if (isHip3(row.coin)) return legs.map(leg => ({ ...base, id: `${m.mandateId}|${row.id}|${leg.leg}`, leg: leg.leg, state: 'refused' as const, reason: HIP3_REFUSAL }));
       return legs.map(leg => ({ ...base, id: `${m.mandateId}|${row.id}|${leg.leg}`, leg: leg.leg }));
     });
-    await this.deps.repository.record(insert);
+    // A leg planned refused (nothing copyable, HIP-3) never waited: its one transition is pending → refused at enqueue.
+    for (const row of await this.deps.repository.record(insert))
+      if (row.state === 'refused') this.legMoved({ ...row, state: 'pending', reason: null }, m.leaderAddress, { state: 'refused', reason: row.reason });
   }
 
   async work(row: DispatchRow, m: LiveMandateWork | null, signalAgeMs: number): Promise<void> {
     const mandate = m ?? await this.mandateOf(row);
     if (!mandate) return;
+    this.leaders.set(mandate.mandateId, mandate.leaderAddress);
     if (row.state === 'pending') {
       // Original order, or the attempt after one released as never sent (copy-live-leg-attempt.ts).
       const attempt = this.pendingAttempt(row, mandate);
@@ -717,7 +753,12 @@ export class CopyLiveEngine {
       const signalAgeMs = await this.deps.repository.signalAgeLimitMs();
       if (row.state === 'pending' && row.leg === 'open' && reason === 'below_min_notional' && journal === null &&
         this.now() - row.leaderTime.getTime() < Math.max(0, signalAgeMs - HOLD_MARGIN_MS)) {
-        await this.deps.repository.dissolve(row, row.attempts + 1); return;
+        const members = await this.deps.repository.dissolve(row, row.attempts + 1);
+        if (members) {
+          this.legMoved(row, m.leaderAddress, { reason: 'below_min_notional', attempts: row.attempts + 1 });
+          for (const member of members) this.legMoved(member, m.leaderAddress, { state: 'pending', reason: 'below_min_notional' });
+        }
+        return;
       }
       const attempts = waiting ? row.attempts : row.attempts + 1;
       // Right after a setup the exchange may still report the old mode (testnet 2026-10-12): final only at the limit.

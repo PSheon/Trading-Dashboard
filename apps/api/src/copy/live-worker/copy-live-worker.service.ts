@@ -148,7 +148,7 @@ export class CopyLiveWorkerService implements OnApplicationBootstrap, OnModuleDe
         if (this.passDue || Date.now() - this.lastPassAt >= this.intervalMs) {
           this.passDue = false; this.lastPassAt = Date.now();
           try { await this.jobs.run(() => engine.tick()); }
-          catch (error) { this.logger.error(`Testnet copy pass failed: ${safeErrorText(error)}`); }
+          catch (error) { this.logger.error(`Copy pass on ${this.config.value.copy.live?.network ?? 'unknown network'} failed: ${safeErrorText(error)}`); }
           continue;
         }
         const [leader] = this.kicks;

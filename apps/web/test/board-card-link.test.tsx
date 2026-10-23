@@ -66,11 +66,12 @@ it("the card's link is named after the trader only, and 跟單 is not inside it"
  * (`absolute inset-0`); the visible names are plain spans and every control
  * sits above the link, outside it.
  */
-for (const [what, node] of [
-  ["HomeCard", <HomeCard trader={trader} />],
-  ["BoardMobileRow", <ul><BoardMobileRow trader={trader} /></ul>],
-] as const) it(`${what}: one trader link, named after the trader, no control inside it`, async () => {
-  await act(async () => root.render(<I18nProvider locale="en" messages={en}>{node}</I18nProvider>));
+const siblings: Array<[string, () => React.ReactNode]> = [
+  ["HomeCard", () => <HomeCard trader={trader} />],
+  ["BoardMobileRow", () => <ul><BoardMobileRow trader={trader} /></ul>],
+];
+for (const [what, node] of siblings) it(`${what}: one trader link, named after the trader, no control inside it`, async () => {
+  await act(async () => root.render(<I18nProvider locale="en" messages={en}>{node()}</I18nProvider>));
   const links = [...container.querySelectorAll("a[href]")];
   expect(links.map((a) => a.getAttribute("href"))).toEqual([`/en/trader/${trader.address}`]);
   const link = links[0]!;

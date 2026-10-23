@@ -60,6 +60,26 @@ it("the card's link is named after the trader only, and 跟單 is not inside it"
 });
 
 /**
+ * The favorites card passes its group chips and the "Add to group" button
+ * through `tags`; left on the card's base layer they sat under the stretched
+ * link and took no clicks (research-flow e2e, 2026-10-23). The slot sits
+ * above the stretch like every other control.
+ */
+it("the tags slot (group chips, add-to-group) sits above the stretched link and takes the click", async () => {
+  const added: string[] = [];
+  await act(async () => root.render(<I18nProvider locale="en" messages={en}><BoardCard trader={trader} pnlLabel="PnL" roiLabel="ROI" roiHint="PnL ÷ notional" now={NOW}
+    tags={<button type="button" onClick={() => added.push("group")}>Add to group</button>} /></I18nProvider>));
+  const add = [...container.querySelectorAll("button")].find((b) => b.textContent === "Add to group")!;
+  expect(add).toBeDefined();
+  expect(add.closest("a")).toBeNull();
+  const slot = add.parentElement!;
+  expect(slot.className.split(" ")).toEqual(expect.arrayContaining(["relative", "z-10"]));
+  await act(async () => { add.click(); });
+  expect(added).toEqual(["group"]);
+  expect(pushed).toEqual([]);
+});
+
+/**
  * The home card and the phone row were whole-card `<a>` elements too, the
  * stale-metrics tip (a button) inside. Each now has exactly one link, named
  * after the trader by a visually hidden name node, stretched over the card

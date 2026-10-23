@@ -79,7 +79,7 @@ export function BoardCard({ trader, pnlLabel, roiLabel, roiHint, now, accessory,
             <MetricsStamp at={trader.metricsUpdatedAt} now={now} className="relative z-10" />
           </span>
           <CoinStack coins={trader.topCoins} size={16} className="relative z-10 w-fit" />
-          {tags}
+          {tags ? <span className="relative z-10 flex min-w-0 flex-wrap items-center gap-1">{tags}</span> : null}
         </div>
         {accessory ? <span className="relative z-10 flex shrink-0">{accessory}</span> : null}
         <ScoreRing score={trader.copyScore} />

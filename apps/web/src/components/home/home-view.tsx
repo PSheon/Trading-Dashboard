@@ -22,14 +22,32 @@ import { historicalSimulation } from "@/lib/historical-simulation";
 const exploreHref = (board: string, sort: string, market?: "stocks") =>
   `/explore?${new URLSearchParams({ ...(market ? { market } : {}), ...(board !== "top100" ? { board } : {}), ...(sort !== "copyScore" ? { sort } : {}) })}`;
 
+/** The home's rows, each a trader once: one shown in an earlier row is left
+ * out of a later one and the row's next candidate takes the slot, up to
+ * HOME_ROW_SIZE per row. */
+export function homeRows<T extends { items: BoardTrader[] }>(rows: T[]): T[] {
+  const seen = new Set<string>();
+  return rows.map((row) => {
+    const items = row.items.filter((trader) => !seen.has(trader.address)).slice(0, HOME_ROW_SIZE);
+    for (const trader of items) seen.add(trader.address);
+    return { ...row, items };
+  });
+}
+
+/** Cards per home row (CopyDog's seven). */
+export const HOME_ROW_SIZE = 7;
+
 /**
  * Home (Stage 3 §0.5, CopyDog's /hyperliquid): hero and the $1,000
- * calculator (all-time ROI), 依市場瀏覽 tiles, carousel rows (精選 KOLs, top
- * crypto, top stocks, one per market) and the footer. Every row comes from
- * one GET /discover/home, read while the page renders on the server when
- * the api answers in time (`initial`) so the rows are in the first HTML.
- * Phones: compact title, two tile rows, no calculator, three compact cards
- * per screen.
+ * calculator (all-time ROI), 依市場瀏覽 tiles, three carousel rows (精選 KOLs,
+ * top crypto, top stocks) and the footer. The per-market rows are gone
+ * (2026-10-23): the market tiles are the one row that leads to each
+ * market's explore tab, and the response's `markets` is not read. A trader
+ * already in an earlier row is not repeated in a later one; the api's extra
+ * candidates fill the slot. Every row comes from one GET /discover/home,
+ * read while the page renders on the server when the api answers in time
+ * (`initial`) so the rows are in the first HTML. Phones: compact title, two
+ * tile rows, no calculator, three compact cards per screen.
  */
 export function HomeView({ initial }: { initial?: { home: InitialRead<HomeBoardsResponse> | null } } = {}) {
   const home = useHomeBoards(initial?.home);
@@ -53,18 +71,11 @@ function HomeContent({ home }: { home: { data: HomeBoardsResponse | undefined; i
   const label = (coin: string) => boardCoinLabel(coin, t, "home");
 
   const rows = home.data
-    ? [
+    ? homeRows([
         { key: "featured", title: t("home.featured"), href: exploreHref("kol", "copyScore"), items: home.data.featured },
         { key: "crypto", title: t("home.topCrypto"), href: exploreHref("top100", "copyScore"), items: home.data.crypto },
         { key: "stocks", title: t("home.topStock"), href: exploreHref("top100", "pnl", "stocks"), items: home.data.stocks },
-        ...home.data.markets.map((m) => ({
-          key: m.coin,
-          title: label(m.coin),
-          coin: m.coin,
-          href: exploreHref(m.coin, "pnl", m.market === "stocks" ? "stocks" : undefined),
-          items: m.items,
-        })),
-      ]
+      ])
     : null;
 
   return (
@@ -132,7 +143,7 @@ function HomeContent({ home }: { home: { data: HomeBoardsResponse | undefined; i
             .filter((row) => row.items.length > 0)
             .map((row) => (
               <section key={row.key}>
-                <RowHeader title={row.title} coin={"coin" in row ? row.coin : undefined} href={row.href} />
+                <RowHeader title={row.title} href={row.href} />
                 <HScroll label={row.title}>
                   {row.items.map((trader) => <HomeCard key={trader.address} trader={trader} />)}
                 </HScroll>
@@ -214,14 +225,11 @@ function Accented({ text }: { text: string }) {
   );
 }
 
-function RowHeader({ title, coin, href }: { title: string; coin?: string; href: string }) {
+function RowHeader({ title, href }: { title: string; href: string }) {
   const { t } = useI18n();
   return (
     <div className="mb-3.5 flex items-center justify-between gap-3">
-      <h2 className="type-h2 flex items-center gap-2">
-        {coin ? <CoinIcon coin={coin} size={24} /> : null}
-        {title}
-      </h2>
+      <h2 className="type-h2">{title}</h2>
       <Link
         href={href}
         aria-label={`${t("home.seeAll")} · ${title}`}

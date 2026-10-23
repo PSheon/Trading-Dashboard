@@ -114,92 +114,33 @@ Design §8 I-15. `off` (default), `observe` (every process learns and reports it
 
 Secrets are set in Railway per service and per environment; nothing here belongs in git. "ref" means a Railway reference variable.
 
-### api
+**Which variable belongs on which service is `config/services.json`** (names and rules only, never a value): for `api`, `worker-copy` (the Railway service `worker`), `worker-read` and `web`, every variable with `required` or `optional`, the services where it is **forbidden** (refused at startup, a secret the service never uses, retired) and `sameAs` (the services whose value must be identical). `scripts/ops/services-manifest.test.mjs` (CI `checks`) keeps it true to `apps/api/src/config/runtime-config.ts` and the web's `process.env` reads: a name no code reads, or a read the manifest lacks, fails CI. Before and after changing a service's variables, run the read-only checker on the services' variable **names** (it never calls Railway and never sees a value; its header shows the `railway variables --json | node -e '…Object.keys…'` pipeline):
 
-| Variable | Stage | Production | Notes |
-| --- | --- | --- | --- |
-| `IS_WORKER` | unset | unset | replaces `APP_ROLE=api` (delete `APP_ROLE`) |
-| `WORKER_URL` | `http://worker.railway.internal:3000` | same pattern | the api's `/health` reads the worker here (503 without it) |
-| `NODE_ENV` | `staging` | `production` | both enable production-grade validation |
-| `PORT` | `3000` | `3000` | |
-| `DATABASE_URL` | ref → Stage Postgres | ref → production Postgres | never the other environment's |
-| `DATABASE_POOL_MAX` | unset (10) | unset (10) | the api's main pool; see "Database connections" below |
-| `PRIVY_APP_ID`, `PRIVY_APP_SECRET`, `PRIVY_VERIFICATION_KEY` | Stage Privy app | production Privy app | api only |
-| `AUTH_ADMIN_EMAILS` | owner's email(s) | owner's email(s) | bootstrap admins |
-| `AUTH_SERVICE_TOKEN`, `AUTH_SERVICE_PERMISSIONS` | unset | unset unless a service caller exists | ≥ 32 chars when set |
-| `API_CORS_ORIGINS` | `https://stage.orbie.fun` | production origin | exact origins |
-| `API_TRUSTED_PROXY_CIDRS` | as set on Stage (`http-security-and-logs.md`) | same rule | explicit addresses or CIDRs only |
-| `HYPERLIQUID_WEIGHT_BUDGET_PER_MIN` / `HYPERLIQUID_WEIGHT_BURST` | `480` / `200` | `480` / `200` | page traffic; api + worker-copy share one IP limit of 1,200/min and one meter whose background lane holds 840 (D12: the copy side keeps the shared quota and its priority); the two rates add up to 840, rates + bursts stay under 1,200 |
-| `HYPERLIQUID_EGRESS_KEY` | as set on Stage | one value per outbound IP | **required** in staging and production (startup fails without it); the same value on the api and worker-copy: the shared Hyperliquid quota is keyed by it. worker-read gets its own value once it has its own IP (D12) |
-| `HYPERLIQUID_STARTUP_PACE_SECONDS` | `60` (default) | `60` | api and workers: a new process starts with empty buckets at half its rate for this long, so a redeploy that overlaps the old instance does not double the spend on the shared IP limit |
-| `HYPERLIQUID_NETWORK` | `mainnet` | `mainnet` | Stage is Paul's real-money pre-release test (D1); the same on every process of an environment |
-| `COPY_TRADING_MODE` | `live` | `live` | real-money copies by ratio only (D6); `testnet` is for a local or throwaway environment |
+```
+node scripts/ops/services-manifest.mjs --names-from names.tsv   # one `service<TAB>NAME` per line
+```
 
-### worker
+It prints, per service, missing required names, present forbidden names (with the reason) and names the manifest does not know.
 
-| Variable | Stage | Production | Notes |
-| --- | --- | --- | --- |
-| `IS_WORKER` | `true` | `true` | replaces `APP_ROLE=worker` (delete `APP_ROLE`) |
-| `DATABASE_POOL_MAX` | unset (copy 20, read 10; `all` 30) | unset (same) | the worker's main pool, by `WORKER_ROLE` (its lease takes one more connection); see "Database connections" |
-| `NODE_ENV`, `PORT`, `DATABASE_URL` | as api | as api | `WORKER_PORT` wins over `PORT` when set (one machine). `DATABASE_URL` must be the api's exact value: `/health/monitor` (the admin system page's worker telemetry) answers only the key the api derives from it (`src/runtime/worker-calls.ts`); with another value the page shows the worker as unavailable |
-| `HYPERLIQUID_WEIGHT_BUDGET_PER_MIN` / `HYPERLIQUID_WEIGHT_BURST` | worker-copy `360` / `100`; worker-read `900` / `100` | same | worker-copy: 480 + 360 = 840 of the 1,200 it shares with the api. worker-read (D12, being deployed): its own IP's 1,200/min, background jobs held to 900, 300 reserved for the pages' live reads. On one machine with one `.env` (local), the worker reads `HYPERLIQUID_WORKER_WEIGHT_BUDGET_PER_MIN` / `HYPERLIQUID_WORKER_WEIGHT_BURST` instead (as `WORKER_PORT`); not needed on Railway. With both at 840 locally the worker alone filled the background lane: 45–136 `hyperliquid_quota_exhausted` every 10 minutes on 2026-10-04 (`shared-egress-budget.spec.ts`: 167 → 0 in a simulated 10 minutes) |
-| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `TELEGRAM_SYSTEM_CHAT_ID` | Stage bot | production bot | different bots per environment (one poller per token) |
-| `TELEGRAM_DRY_RUN` | `true` | `false` only when alerts go live | |
-| `TELEGRAM_LINK_BASE_URL` | `https://stage.orbie.fun` | production origin | |
-| `S3_ARCHIVE_ENABLED` | `false` until verified, then `true` | `true` after Stage has reconciled | see `s3-archive-ingest.md` |
-| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | IAM user for Stage | a **separate** IAM user for production | worker only; policy in `s3-archive-ingest.md` |
-| `S3_ARCHIVE_MAX_DAILY_USD` | `0.5` (live hours only fit) | `2` during backfill, `0.5` after | hard cap per UTC day |
-| `S3_ARCHIVE_USD_PER_GB` | `0.114` | `0.114` | Tokyo → internet |
-| `S3_ARCHIVE_MAX_BYTES_PER_MINUTE` | `268435456` | `268435456` | |
-| `S3_ARCHIVE_BACKFILL_ENABLED` | `false` | `true` | Stage does not need the full history twice |
-| `S3_ARCHIVE_START` | `2025-05-25` | `2025-05-25` | adjust after the probe |
-| `S3_ARCHIVE_BACKFILL_DAYS` / `S3_ARCHIVE_PASS_INTERVAL_HOURS` | `90` / `168` | `90` / `168` | 90 days = 80 GB = US$9.14 a pass; at most one pass a week |
-| `S3_ARCHIVE_TRUST` | `regular` | `regular` | `all` only after a TWAP reconciliation |
-| `S3_ARCHIVE_SETTLE_MINUTES`, `S3_ARCHIVE_MAX_FILLS_PER_ADDRESS_HOUR` | defaults | defaults | |
+Each variable's purpose, bounds and default are in the manifest and in `.env.example`. What the manifest cannot express:
 
-No Privy secret on the worker (it mounts no user API). No AWS key on api or web.
+- **Stage vs production.** `NODE_ENV` is `staging` on Stage and `production` in production (both enable the production-grade checks); every identity is per environment (D2): its own Privy app (`PRIVY_*`, the web's `NEXT_PUBLIC_PRIVY_APP_ID`), database, Telegram bot and AWS IAM user, and `DATABASE_URL` is a ref to that environment's Postgres, never the other's. Both are `HYPERLIQUID_NETWORK=mainnet`, `COPY_TRADING_MODE=live` (D1, D6).
+- **Budgets.** The api and worker-copy share one outbound IP's 1,200/min and one meter whose background lane is `HYPERLIQUID_BACKGROUND_REST_CAP` (840): their two rates must add up to it (Stage: api 480, worker-copy 360), rates plus bursts stay under 1,200. **A worker on the mainnet wallet network reads `HYPERLIQUID_WORKER_WEIGHT_BUDGET_PER_MIN` / `HYPERLIQUID_WORKER_WEIGHT_BURST`** (defaults `MAINNET_WORKER_WEIGHT`, 360 / 840) **and ignores `HYPERLIQUID_WEIGHT_BUDGET_PER_MIN` / `HYPERLIQUID_WEIGHT_BURST`**; worker-read on its own meter (D12, above) defaults to 900 / 900 and a set value may only lower them. `COPY_LIVE_WEIGHT_PER_MIN` is at most 485 on the api and the workers alike.
+- **Telegram.** One bot per environment; exactly one process polls it (worker-read): `TELEGRAM_BOT_POLLING=false` on every other process that carries the token. The api needs the token and username for the `/me/telegram` link flow; every process sends alerts through it. `TELEGRAM_DRY_RUN` is `true` until alerts go live.
+- **Live copy on every process.** The code requires `PRIVY_AGENT_AUTHORIZATION_KEY` + `PRIVY_AGENT_WORKER_QUORUM_ID`, `PRIVY_APP_ID` + `PRIVY_APP_SECRET`, `HYPERLIQUID_EGRESS_KEY` and `COPY_LIVE_ALLOWED_PRIVY_USER_IDS` on any process whose `COPY_TRADING_MODE` is `live` (the api signs setups under `API_SETUP_DRIVE=local`). worker-read never signs: give it `COPY_TRADING_MODE=live` only together with those, or leave it at paper.
+- **Archive.** `S3_ARCHIVE_*` and `AWS_*` live on worker-read only (the api and worker-copy never download). Stage: `S3_ARCHIVE_MAX_DAILY_USD=0.5`, `S3_ARCHIVE_BACKFILL_ENABLED=false` (live hours only); production: `2` during backfill then `0.5`, backfill on. `S3_ARCHIVE_TRUST=all` only after a TWAP reconciliation. Rollout: "Releasing the archive ingest" below.
+- **Leftovers to delete.** `APP_ROLE` (replaced by `IS_WORKER`), `COPY_LIVE_TEST_MIN_FLOOR_MAX_USD` (retired, D6; ignored), `COPY_LIVE_FIXED_PER_TRADE_MIN_USD` / `_MAX_USD` (ignored under `live`), and on worker-read `HYPERLIQUID_BACKGROUND_REST_CAP` (refused under `HYPERLIQUID_READ_METER=own`).
+- **web.** `NEXT_PUBLIC_*` values are compiled in: changing one needs a rebuild, not a restart. `NEXT_PUBLIC_API_FIXTURES` must never be `1` on a deployed web; `NEXT_TEST_MODE` and `NEXT_DEV_LAB` are never set there.
 
-### web
+### Tuning (environment, worker-read)
 
-| Variable | Stage | Production |
-| --- | --- | --- |
-| `NEXT_API_URL` | `http://api.railway.internal:3000` | same pattern |
-| `NEXT_PUBLIC_APP_URL` | `https://stage.orbie.fun` | production origin |
-| `NEXT_PUBLIC_PRIVY_APP_ID` | Stage Privy app id | production Privy app id |
-| `NEXT_PUBLIC_API_FIXTURES` | `0` | `0` |
-| `NEXT_PRIVY_AUTH_ORIGINS` | as configured in `auth-and-config.md` (Privy custom auth domain) | same |
-
-`NEXT_PUBLIC_*` values are compiled in: changing one needs a rebuild, not a restart.
-
-### Tuning (environment, worker)
-
-The per-job weight caps, the discovery refresh/size knobs and data retention
-are deploy-time variables since 2026-10-05 (they were admin settings; see
-[admin-settings.md](admin-settings.md#moved-to-the-environment-and-removed-paul-2026-10-05)).
-They are read at startup: change one and restart. The worker is the process
-that uses them; the api reads the same names only to show them. Unset = the
-default, which is what Stage and local ran with.
-
-| Variable | Default (Stage, production) | What it bounds |
-| --- | --- | --- |
-| `HYPERLIQUID_POOL_PERFORMANCE_WEIGHT_PER_MIN` | `240` | the pool's `portfolio` reads (12 rows a minute): board / home / card figures |
-| `HYPERLIQUID_POOL_LEDGER_WEIGHT_PER_MIN` | `100` | the pool's trade-ledger builds and refreshes (coin boards, style, last trade); 0 pauses |
-| `HYPERLIQUID_COHORT_WEIGHT_PER_MIN` | `150` | 洞察 member positions |
-| `HYPERLIQUID_HISTORY_WEIGHT_PER_MIN` / `HYPERLIQUID_BACKFILL_WEIGHT_PER_MIN` | `120` / `120` | durable fill-history pages / backward fill backfill |
-| `DISCOVERY_LEADERBOARD_REFRESH_MINUTES` | `15` | official leaderboard import interval |
-| `DISCOVERY_CANDIDATE_POOL_SIZE` | `1000` | pool size (plus every KOL) |
-| `DISCOVERY_COHORT_MEMBERS_PER_TIER` / `DISCOVERY_COHORT_REFRESH_MINUTES` | `500` / `40` | members per 洞察 tier (a safety cap) / member refresh and history row spacing |
-| `RETENTION_ENABLED` | `true` | the daily retention job |
-| `RETENTION_SNAPSHOT_DAYS` / `RETENTION_AUDIT_DAYS` / `RETENTION_ACCOUNT_DELETION_DAYS` | `90` / `365` / `365` | snapshots / admin audit / account-deletion records (the privacy policy's periods) |
-| `RETENTION_QUEUE_DAYS` / `RETENTION_ALERT_DAYS` | `30` / `30` | finished outbox rows / alert delivery records |
-| `RETENTION_COPY_EQUITY_FULL_DAYS` / `RETENTION_COHORT_MEMBER_LIST_DAYS` / `RETENTION_FOLLOWER_OBSERVATION_DAYS` | `31` / `30` / `7` | paper copy valuations at full resolution (older ones thinned; not below 31) / cohort history member lists / superseded follower observations (`data-retention.md`) |
-| `RETENTION_HISTORY_FILL_DAYS` | `90` | traders' stored fill history (`history_fills`, min 30); the archive backfill never goes further back |
+The per-job weight caps (`HYPERLIQUID_*_WEIGHT_PER_MIN`), the discovery knobs (`DISCOVERY_*`) and data retention (`RETENTION_*`) are deploy-time variables since 2026-10-05 (they were admin settings; see [admin-settings.md](admin-settings.md#moved-to-the-environment-and-removed-paul-2026-10-05)). They are read at startup: change one and restart. worker-read runs the jobs; the api reads the same names only to show them. Unset = the default (manifest and `.env.example`), which is what Stage and local ran with. The retention periods are what the privacy policy (§6) states; `RETENTION_HISTORY_FILL_DAYS` is at least 30 (the trader figures' 30-day window) and the archive backfill never goes further back.
 
 The worker reports what it runs with on `/health/monitor` (`tuning`), shown on
 the admin 總覽; `/health` → `budget.consumers` shows who spent the trailing
 minute, `budget.caps` what each job is held to.
 
-**The settings are maxima.** All five are enforced by the budgeter on what is actually sent (one-minute token buckets), and together they may take at most 75 % of the process's *effective* budget; above that they shrink in proportion. So they follow `HYPERLIQUID_WEIGHT_BUDGET_PER_MIN` and a 429 backoff without anyone editing them:
+**The settings are maxima.** All five are enforced by the budgeter on what is actually sent (one-minute token buckets), and together they may take at most 75 % of the process's *effective* budget; above that they shrink in proportion. So they follow the process's weight rate and a 429 backoff without anyone editing them:
 
 | Process budget | performance | ledgers | history | backfill | cohort | Sum | Left for snapshots, sweeps, live, pages |
 | --- | --- | --- | --- | --- | --- | --- | --- |

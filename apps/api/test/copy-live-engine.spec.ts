@@ -824,6 +824,41 @@ describe('testnet copy execution engine', () => {
     clock = again + SOURCE_STUCK_ALERT_MS; await worker.tick(); expect(alerts).toHaveLength(1);
   });
 
+  it('the pre-check holds a leg only for a stream row that exists and does not admit it: coverage starting after the copy\'s cursor is the authority\'s refusal (live_risk_source_changed, counted), not a hold (CI 2026-10-23, copy-live-network.spec)', async () => {
+    await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
+    const open = await leaderFill(90, now + 100, 'B', '1', '0', 'BTC');
+    // The stream's coverage starts after the generation's cursor: what the authority refuses as a change.
+    const [m] = await db.select().from(schema.copyLiveMandates);
+    await db.update(schema.copyLiveSourceStreams).set({ coverageFrom: new Date(m!.activationCursor!.getTime() + 500) });
+    runtimeImpl = sourceRefusal('live_risk_source_changed');
+    clock = now + 1000; await engine().tick();
+    expect(runtimeCalls).toEqual([expect.objectContaining({ sourceFillId: open, leg: 'open' })]);
+    expect((await dispatches()).find(r => r.sourceFillId === open)).toMatchObject({ state: 'pending', attempts: 1, reason: 'live_risk_source_changed' });
+  });
+
+  it('a leg of a generation whose leader has no stream row is not held by the pre-check: it reaches the runtime, where the authority refuses it as before D10', async () => {
+    await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
+    const open = await leaderFill(90, now + 100, 'B', '1', '0', 'BTC');
+    // Ingested and enqueued while the open's outcome is unknown (never worked past its journal check), then the generation names a leader never ingested.
+    runtimeImpl = sourceRefusal('live_risk_source_changed');
+    await db.insert(schema.copyLiveManualCloses).values({ id: 'held-btc', userId: 1, accountId: 'account', strategyId: 9, idempotencyKey: 'reconcile:held-btc', coin: 'BTC', createdAt: new Date(now), updatedAt: new Date(now) });
+    clock = now + 1000; await engine().tick();
+    expect(runtimeCalls).toEqual([]);
+    await db.update(schema.copyLiveManualCloses).set({ state: 'refused', reason: 'leader_reopened' });
+    // A pass would first ensure the new leader's stream row (unproven, held as not ready until its first complete
+    // read); the kick's order half works the leg without ingesting, so the row is absent there.
+    const other = `0x${'77'.repeat(20)}`;
+    await db.update(schema.copyLiveMandates).set({ leaderAddress: other });
+    expect(await new CopyLiveWorkerRepository(db, new UnitOfWork(db), testConfig()).stream('mainnet', other)).toBeNull();
+    clock = now + 2000; await engine().workLeader(other);
+    expect((await dispatches()).find(r => r.sourceFillId === open)).toMatchObject({ state: 'pending', attempts: 1, reason: 'live_risk_source_changed' });
+    expect(runtimeCalls).toEqual([expect.objectContaining({ sourceFillId: open, leg: 'open' })]);
+    // The pass then creates the row, unproven: held as not ready (a wait) until the stream's first complete read.
+    await engine().tick();
+    expect((await dispatches()).find(r => r.sourceFillId === open)).toMatchObject({ state: 'pending', attempts: 1, reason: 'live_risk_source_not_ready' });
+    expect(runtimeCalls).toHaveLength(1);
+  });
+
   it('refuses a close that keeps failing after CLOSE_ATTEMPT_LIMIT attempts, never retrying it for ever', async () => {
     await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
     const open = await leaderFill(25, now + 100, 'B', '1', '0', 'ETH'), close = await leaderFill(26, now + 200, 'A', '1', '1', 'ETH');

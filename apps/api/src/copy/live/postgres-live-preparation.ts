@@ -117,7 +117,8 @@ export class PostgresLivePreparation {
       const fill = decodeLiveSourceFill(row), [stream] = await this.checked(session, db.select().from(copyLiveSourceStreams).where(eq(copyLiveSourceStreams.id, fill.streamId)));
       // The stream admits this leg now (liveSourceStreamAdmits, D10: a close while the stream is in gap), else a
       // wait; a close whose fill a gap read stored beyond the proven coverage waits for the stream too.
-      riskSourceRequire(stream && liveSourceStreamAdmits(stream, binding.leg), 'live_risk_source_not_ready');
+      riskSourceRequire(stream, 'live_preparation_source');
+      riskSourceRequire(liveSourceStreamAdmits(stream, binding.leg), 'live_risk_source_not_ready');
       riskSourceRequire(stream.network === local.consent.sourceNetwork && stream.leaderAddress === local.consent.leaderAddress &&
         fill.leaderAddress === local.consent.leaderAddress && fill.network === local.consent.sourceNetwork && fill.providerTime > local.mandate.activationCursor!.getTime() &&
         stream.coverageFrom.getTime() <= local.mandate.activationCursor!.getTime(), 'live_preparation_source');

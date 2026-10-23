@@ -164,7 +164,9 @@ export async function loadLivePreparationAuthority(session:LiveRiskDatabaseSessi
   // an attempt) while it does not, so a leg waiting on it cannot reach CLOSE_ATTEMPT_LIMIT (Stage mainnet
   // 2026-10-22 18:02Z, strategy 14: nine counted attempts in a ~60 s gap). The engine checks the same for an
   // open before it spends evidence (CopyLiveEngine.sourceReady).
-  riskSourceRequire(sourceStream&&liveSourceStreamAdmits(sourceStream,binding.leg),'live_risk_source_not_ready');
+  // No stream row at all (the leader was never ingested) is a change, as before D10, never a wait.
+  riskSourceRequire(sourceStream,'live_risk_source_changed');
+  riskSourceRequire(liveSourceStreamAdmits(sourceStream,binding.leg),'live_risk_source_not_ready');
   riskSourceRequire(sourceStream.coverageFrom.getTime()<=m.activationCursor!.getTime(),'live_risk_source_changed');
   const identity={accountId:a.id,userId:a.userId,strategyId:s.id,strategyVersion:s.version,policyVersion:policy.version,authorizationVersion:g.version,
     authorizationId:g.id,walletId:w.privyWalletId,network:a.network,accountAddress:a.address,dedicated:true as const};

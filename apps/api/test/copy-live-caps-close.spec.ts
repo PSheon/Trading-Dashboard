@@ -1,7 +1,7 @@
 import { Pool } from 'pg';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { appSettings, copyLiveMandates, copyLiveSourceStreams, copyStrategies, copyStrategyVersions } from '@trading-dashboard/shared/database';
+import { appSettings, copyLiveMandates, copyLiveSourceFills, copyLiveSourceStreams, copyStrategies, copyStrategyVersions } from '@trading-dashboard/shared/database';
 import type { LiveCopyConfig } from '../src/config/runtime-config.js';
 import { registerLiveDeployment } from '../src/copy/live-deployment.js';
 import { PostgresLiveRiskScope } from '../src/copy/live/postgres-live-risk-scope.js';
@@ -74,6 +74,9 @@ describe('tightened caps refuse a running copy\'s opens, not its closes', () => 
     // Coverage that starts after the copy's cursor is a change, not a wait, for a close too (the database admits no gap without coverage).
     await db.update(copyLiveSourceStreams).set({ state: 'gap', coverageFrom: new Date(now - 1000) });
     await expect(authority('close')).rejects.toThrow('live_risk_source_changed');
+    // No stream row for the leader at all (never ingested): a change, as before D10, for every leg.
+    await db.delete(copyLiveSourceFills); await db.delete(copyLiveSourceStreams);
+    for (const leg of ['open', 'close', undefined] as const) await expect(authority(leg)).rejects.toThrow('live_risk_source_changed');
   });
 
   it('a revoked or stopping copy still refuses a close here (its own stop closes it)', async () => {

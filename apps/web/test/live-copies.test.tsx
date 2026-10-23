@@ -431,16 +431,22 @@ it('while a read of the copies fails, the kept answer says when it was read and 
 });
 
 it("D9: a copy whose budget is under the leader's suggested minimum carries one warning pill on its card, with the explanation as its title; at or above it, or without a suggestion, none", async () => {
-  items = [item({ budgetUsd: '100', suggestedMinBudgetUsd: 300 }), item({ strategyId: 98, budgetUsd: '300', suggestedMinBudgetUsd: 300 }), item({ strategyId: 97, budgetUsd: '5', suggestedMinBudgetUsd: null }), item({ strategyId: 96, budgetUsd: '5' })];
+  items = [item({ budgetUsd: '100', suggestedMinBudgetUsd: 300 }), item({ strategyId: 98, budgetUsd: '300', suggestedMinBudgetUsd: 300 }), item({ strategyId: 97, budgetUsd: '5', suggestedMinBudgetUsd: null }), item({ strategyId: 96, budgetUsd: '5' }),
+    // Ended or ending copies carry no warning: nothing can be done about their budget any more.
+    item({ strategyId: 95, budgetUsd: '100', suggestedMinBudgetUsd: 300, stage: 'stopping', status: 'stopping' }), item({ strategyId: 94, budgetUsd: '100', suggestedMinBudgetUsd: 300, stage: 'sweeping', status: 'stopped' })];
   await render('zh-TW', { open: false });
-  expect(cards()).toHaveLength(4);
+  expect(cards()).toHaveLength(6);
   const pills = cards().map(card => card.querySelector<HTMLElement>('[data-testid="live-copy-budget-warning"]'));
-  expect(pills.map(Boolean)).toEqual([true, false, false, false]);
-  expect(pills[0]!.textContent).toBe('建議 ≥ $300');
+  expect(pills.map(Boolean)).toEqual([true, false, false, false, false, false]);
+  const label = '建議 ≥ $300', tip = catalogs['zh-TW'].trader.copy.suggestedMinTip;
   expect(pills[0]!.dataset.below).toBe('true');
   expect(pills[0]!.className).toContain('bg-tag-warning');
-  expect(pills[0]!.title).toBe(catalogs['zh-TW'].trader.copy.suggestedMinTip);
-  // The card stays a single button: the pill nests no button of its own, and the card's text gains no sentence.
+  expect(pills[0]!.title).toBe(tip);
+  // The card stays a single button: the pill nests no button of its own; the explanation reaches screen readers from a
+  // visually hidden span and is otherwise no sentence on the card.
   expect(pills[0]!.querySelector('button')).toBeNull();
-  expect(cards()[0]!.textContent).not.toContain(catalogs['zh-TW'].trader.copy.suggestedMinTip);
+  expect(pills[0]!.textContent).toBe(label + tip);
+  const hidden = pills[0]!.querySelector('.sr-only')!;
+  expect(hidden.textContent).toBe(tip);
+  expect([...pills[0]!.childNodes].filter(node => !(node instanceof HTMLElement && node.classList.contains('sr-only'))).map(node => node.textContent).join('')).toBe(label);
 });

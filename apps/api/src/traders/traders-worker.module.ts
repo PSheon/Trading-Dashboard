@@ -20,8 +20,11 @@ export class TradersWorker implements OnApplicationBootstrap {
   onApplicationBootstrap() { this.ingest.start(); void this.suggestedBudgetTick(); }
   /** Decision D7 (2026-10-23): every leader's suggested minimum budget, from stored fills and equity (no Hyperliquid call). */
   @Cron(CronExpression.EVERY_HOUR) async suggestedBudgetTick() {
-    try { const { leaders, suggested } = await this.suggested.refresh(); this.logger.log(`Suggested budgets: ${leaders} leaders, ${suggested} with a suggestion`); }
-    catch (error) { this.logger.warn(`Suggested budgets failed: ${safeErrorText(error)}`); }
+    try {
+      const result = await this.suggested.refresh();
+      if (result.skipped) { this.logger.warn('Suggested budgets: the previous refresh is still running; this tick skipped'); return; }
+      this.logger.log(`Suggested budgets: ${result.leaders} leaders in ${result.batches} batches, ${result.suggested} with a suggestion, ${result.ms} ms`);
+    } catch (error) { this.logger.warn(`Suggested budgets failed: ${safeErrorText(error)}`); }
   }
   @Cron(CronExpression.EVERY_MINUTE) historyTick() {
     return budgetConsumer("history", async () => {

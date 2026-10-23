@@ -105,3 +105,8 @@ export const LIVE_BUDGET_FEE_BUFFER_USD = 2;
  * allowed, with a warning pill only.
  */
 export const LIVE_BUDGET_MIN_USD = EXCHANGE_MIN_ORDER_NOTIONAL_USD + LIVE_BUDGET_FEE_BUFFER_USD;
+
+/** basis: guessed — 100 leaders a statement keeps one statement's scan to ~100 leaders × 30 days of fills, well under Stage's statement timeout; verify: the hourly log's duration per batch on Stage
+ * The suggested-budget refresh writes its leaders in batches of this many, each its own statement (review of D7).
+ */
+export const SUGGESTED_BUDGET_BATCH_LIMIT = 100;

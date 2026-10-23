@@ -58,7 +58,7 @@ const basisSchema=z.object({version:z.literal(1),mandateId:id,mandateRevision:ve
   quote:z.object({midPrice:positive,slippageBps:nonnegative,observedAt:integer,completedAt:integer,sourceDigest:hash}).strict(),
   follower:z.object({...snapshotIdentity,positionSize:decimal,positionsDigest:hash}).strict(),leader:z.object(snapshotIdentity).strict().nullable(),
   generation:z.object({mandateId:id,baselineDigest:hash,receiptManifestDigest:hash,positionsDigest:hash,positionSize:decimal}).strict(),
-  carry:z.object({amount:nonnegative,revision:version}).strict(),fixedTradeClaim:z.boolean(),fixedMaxUsd:positive.optional(),exchangeMinimum:z.literal(true).optional(),settledDependency:z.object({legId:id,certificateDigest:hash}).strict().nullable(),
+  carry:z.object({amount:nonnegative,revision:version}).strict(),fixedTradeClaim:z.boolean(),fixedMaxUsd:positive.optional(),exchangeMinimum:z.literal(true).optional(),ratioMinimum:z.literal(true).optional(),ratioFloorMaxUsd:positive.optional(),settledDependency:z.object({legId:id,certificateDigest:hash}).strict().nullable(),
   sourceReference:z.object({network,leaderAddress:addr,leaderEquity:positive.nullable(),leaderEquityObservedAt:integer.nullable(),midPrice:positive,midObservedAt:integer,maxDeviationBps:nonnegative}).strict().optional(),
   merged:z.object({members:z.array(z.object({sourceFillId:id,sourceDigest:hash,providerTime:integer,sign:z.union([z.literal(1),z.literal(-1)]),size:positive,px:positive,
     fraction:positive.refine(v=>Dec.from(v).lte(1)).nullable()}).strict()).min(2).max(MAX_MERGED_LEGS)}).strict().optional(),}).strict();
@@ -266,13 +266,26 @@ export function planLiveSourceOrder(raw: LiveSourcePlanInput): PlannedLiveSource
         if(!atMinimum.mul(Dec.max(mid,price)).lte(ceiling))throw new LiveBoundaryError('below_min_notional');
         size=atMinimum;
       }
-    }else if(b.exchangeMinimum&&settings.sizingMode==='ratio'){
+    }else if(b.ratioMinimum&&settings.sizingMode==='ratio'){
       // A ratio open (or add) whose lot-rounded size is worth less than the
       // minimum at the limit price is refused, never raised (D6, 2026-10-23:
       // mainnet copies by ratio only; the merge path may still join it with
-      // later adds of the coin). Zero lots is the same refusal.
+      // later adds of the coin). Zero lots is the same refusal. Keyed by its
+      // own flag, minted by the preparation since D6: a basis planned before
+      // it replays as it was planned (the risk gate refused a small one then).
       const minimum=limits.minOrderNotionalUsd===undefined?Dec.from(EXCHANGE_MIN_ORDER_NOTIONAL_USD):minOrderNotional({minOrderNotionalUsd:limits.minOrderNotionalUsd});
       if(size.mul(price).lt(minimum))throw new LiveBoundaryError('below_min_notional');
+    }else if(b.exchangeMinimum&&b.ratioFloorMaxUsd&&leg.leg==='open'){
+      // LEGACY REPLAY ONLY (never minted since D6, 2026-10-23): a stored basis
+      // of the retired test floor (COPY_LIVE_TEST_MIN_FLOOR_MAX_USD) raised a
+      // ratio open under the minimum to it within its ceiling; its journals
+      // and generations replay to exactly the size that was sent.
+      const minimum=limits.minOrderNotionalUsd===undefined?Dec.from(EXCHANGE_MIN_ORDER_NOTIONAL_USD):minOrderNotional({minOrderNotionalUsd:limits.minOrderNotionalUsd});
+      if(size.mul(price).lt(minimum)){
+        const atMinimum=ceilLots(minimum.div(price));
+        if(!atMinimum.mul(Dec.max(mid,price)).lte(Dec.from(b.ratioFloorMaxUsd)))throw new LiveBoundaryError('below_min_notional');
+        size=atMinimum;
+      }
     }
     requireSizing(size.isPositive);
     return freezeLiveReservation({plannerVersion:1,legId:liveSourceLegId(m.id,fill.id,leg.leg),sourceDigest:fill.sourceDigest,settingsDigest:consent.settingsDigest,sizingBasis:envelope,

@@ -42,7 +42,7 @@ describe("suggested minimum budget per leader", () => {
     await store.insert(rows(A, fills));
     // The same tid from the TWAP stream is the same fill, not a second add.
     await store.insert(rows(A, [{ ...fills[0]!, twapId: 55 }]));
-    expect(await repository.refresh(NOW)).toEqual({ leaders: 3, suggested: 1 });
+    expect(await repository.refresh(NOW)).toMatchObject({ skipped: false, leaders: 3, suggested: 1, batches: 1 });
     // Adds 200, 300, 400, 500, 600: median 400; 10 × 20,000 ÷ 400 = 500.
     expect(await stored(A)).toMatchObject({ suggestedMinBudgetUsd: 500, adds: 5, medianAddNotionalUsd: "400", leaderPerpEquityUsd: "20000" });
     expect((await stored(A))!.windowFrom.getTime()).toBe(NOW.getTime() - 30 * DAY_MS);
@@ -81,6 +81,27 @@ describe("suggested minimum budget per leader", () => {
     expect(await repository.windowFrom(NOW)).toEqual(cut);
   });
 
+  it("writes the leaders in bounded batches, each its own statement, to the same rows as one statement; a refresh that finds one running is skipped", async () => {
+    await db.insert(equitySnapshots).values([{ address: A, ts: NOW, accountValue: "20000" }, { address: B, ts: NOW, accountValue: "3000" }]);
+    await store.insert(rows(A, [200, 300, 400, 500, 600].map((sz, i) => fill(i + 1, "Open Long", 1, sz))));
+    await store.insert(rows(B, [10, 20, 30, 40, 50, 60].map((sz, i) => fill(i + 1, "Open Short", 1, sz))));
+    await store.insert(rows(C, [10, 20, 30].map((sz, i) => fill(i + 1, "Open Long", 1, sz))));
+    const snapshot = async () => (await db.select().from(traderSuggestedBudgets)).map(({ computedAt: _at, ...row }) => row).sort((x, y) => x.address.localeCompare(y.address));
+    expect(await repository.refresh(NOW, 100)).toMatchObject({ skipped: false, leaders: 3, suggested: 2, batches: 1 });
+    const whole = await snapshot();
+    expect(whole.map(row => [row.address, row.suggestedMinBudgetUsd, row.adds])).toEqual([[A, 500, 5], [B, 858, 6], [C, null, 3]]);
+    await db.execute(sql`delete from trader_suggested_budgets`);
+    expect(await repository.refresh(NOW, 1)).toMatchObject({ skipped: false, leaders: 3, suggested: 2, batches: 3 });
+    expect(await snapshot()).toEqual(whole);
+    expect(await repository.refresh(NOW, 2)).toMatchObject({ leaders: 3, batches: 2 });
+    expect(await snapshot()).toEqual(whole);
+    // Two refreshes at once: the second is skipped, the first runs to the end.
+    const [first, second] = await Promise.all([repository.refresh(NOW), repository.refresh(NOW)]);
+    expect(first).toMatchObject({ skipped: false, leaders: 3 });
+    expect(second).toEqual({ skipped: true });
+    expect(await repository.refresh(NOW)).toMatchObject({ skipped: false });
+  });
+
   it("covers watched, copied and pool leaders, and drops the row of one that is none of these any more", async () => {
     await db.execute(sql`delete from leaders`);
     await db.insert(leaders).values({ address: A, active: false });
@@ -91,7 +112,7 @@ describe("suggested minimum budget per leader", () => {
     await db.insert(discoveryTraders).values({ address: E, inPool: true, accountValue: "500" });
     await db.insert(traderSuggestedBudgets).values({ address: B, adds: 9, suggestedMinBudgetUsd: 77, windowFrom: NOW, computedAt: NOW });
     const result = await repository.refresh(NOW);
-    expect(result.leaders).toBe(2);
+    expect(result).toMatchObject({ skipped: false, leaders: 2 });
     expect((await db.select({ address: traderSuggestedBudgets.address }).from(traderSuggestedBudgets)).map(r => r.address).sort()).toEqual([D, E].sort());
     expect(await stored(E)).toMatchObject({ suggestedMinBudgetUsd: null, adds: 0, leaderPerpEquityUsd: "500" });
   });

@@ -26,10 +26,18 @@ export interface LiveSourceSizingBasisV1 {
    * minimum: the deployment's per-trade maximum (COPY_LIVE_FIXED_PER_TRADE_MAX_USD). */
   readonly fixedMaxUsd?: string;
   /** The planner applies the exchange's order minimum (a fixed open rounded
-   * up to it, a ratio open under it refused, a reduction under it rounded up
-   * or closing the position);
+   * up to it, a reduction under it rounded up or closing the position);
    * absent on orders admitted before, which replay unchanged. */
   readonly exchangeMinimum?: true;
+  /** The planner refuses a ratio open under the order minimum (D6,
+   * 2026-10-23), never raising it; minted by the preparation since then.
+   * Absent on a basis planned before: it replays as planned (a small one was
+   * refused by the risk gate at the time). */
+  readonly ratioMinimum?: true;
+  /** LEGACY, never minted since D6: the retired test floor's ceiling
+   * (COPY_LIVE_TEST_MIN_FLOOR_MAX_USD). A stored basis carrying it still
+   * decodes and replays to the raised size that was sent. */
+  readonly ratioFloorMaxUsd?: string;
   readonly market: LiveMarketIdentity;
   readonly quote: {
     readonly midPrice: string;

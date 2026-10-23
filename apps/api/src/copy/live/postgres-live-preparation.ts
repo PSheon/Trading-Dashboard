@@ -253,7 +253,7 @@ export class PostgresLivePreparation {
       coin: source.fill.coin, leg: binding.leg, direction: local.settings.direction, sizingMode: local.settings.sizingMode, budgetUsd: local.consent.budgetUsd,
       perTradeUsd: local.settings.perTradeUsd === null ? null : Dec.from(local.settings.perTradeUsd).toString(),
       ...(fixedMax !== undefined ? { fixedMaxUsd: Dec.from(String(fixedMax)).toString() } : {}),
-      exchangeMinimum: true, market,
+      exchangeMinimum: true, ...(local.settings.sizingMode === 'ratio' ? { ratioMinimum: true as const } : {}), market,
       quote: { midPrice: quote.quote.midPrice, slippageBps: Dec.min(Dec.from(this.options.slippageBps), Dec.from(local.limits.maxSlippageBps)).toString(), observedAt: quote.quote.observedAt, completedAt: quote.completedAt, sourceDigest: quote.quote.sourceDigest },
       follower: { network, accountAddress: follower.accountAddress, equity: follower.perpEquity, positionSize, observedAt: follower.observedAt, completedAt: follower.completedAt,
         sourceDigest: follower.sourceDigest, snapshotDigest: followerReceiptDigestV1(follower), positionsDigest: projection.positionsDigest },

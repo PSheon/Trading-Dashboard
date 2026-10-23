@@ -512,9 +512,66 @@ describe('authoritative dedicated standard account observations', () => {
       await expect(s.observer.observe(account)).rejects.toThrow();
     }
   });
-  it.each([{ coin: '@1' }, { isTrigger: true }, { isPositionTpsl: true }])('refuses unsupported spot or trigger order %j', async (patch) => {
+  it.each([{ isTrigger: true }, { isPositionTpsl: true }])('refuses unsupported trigger order %j', async (patch) => {
     await expect(setup((body, value) => body.type === 'frontendOpenOrders' && !body.dex
       ? [{ ...open, ...patch }] : value).observer.observe(account)).rejects.toThrow();
+  });
+  describe('a spot-pair resting order (mainnet 2026-10-23: a follower-shaped account with 19 on "@260") is foreign to copying, never unavailable', () => {
+    const spotRows = [{ ...open, coin: '@1', oid: 11 }, { ...open, coin: 'PURR/USDC', oid: 12, side: 'A' }, { ...open, coin: '@1', oid: 13 }];
+    it.each([true, false])('excludes the spot orders (order channel %s), keeps the perp ones and every figure of them, and counts the spot ones by pair', async (channel) => {
+      const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+      try {
+        const s = setup((body, value) => body.type === 'frontendOpenOrders' && !body.dex ? [spotRows[0], open, ...spotRows.slice(1)] : value, channel);
+        const snapshot = await s.observer.observe(account);
+        expect(snapshot.restingOrders.map(o => o.oid)).toEqual(['10']);
+        expect(snapshot.restingExposureUsd).toBe('260'); expect(snapshot.grossRestingExposureUsd).toBe('260');
+        expect(snapshot.perpEquity).toBe('990'); expect(snapshot.exposureUsd).toBe('660'); expect(snapshot.positions).toHaveLength(1);
+        expect(snapshot.foreignRestingOrders).toEqual({ count: 3, coins: ['@1', 'PURR/USDC'] });
+        // Without the order channel the unsupported venue's orders are not read (incomplete), as before.
+        expect(snapshot.coverage).toMatchObject({ complete: channel, orderComplete: channel });
+        const lines = warn.mock.calls.map(([line]) => String(line)).filter(line => line.startsWith('live_account_foreign_resting_orders'));
+        expect(lines).toEqual([`live_account_foreign_resting_orders for ${account} (ordering account): {"count":3,"coins":["@1","PURR/USDC"]}`]);
+      } finally { warn.mockRestore(); }
+    });
+    it('a follower without any spot order reports none, and nothing is logged', async () => {
+      const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+      try {
+        const snapshot = await setup().observer.observe(account);
+        expect(snapshot.foreignRestingOrders).toEqual({ count: 0, coins: [] });
+        expect(warn.mock.calls.map(([line]) => String(line)).filter(line => line.startsWith('live_account_foreign_resting_orders'))).toEqual([]);
+      } finally { warn.mockRestore(); }
+    });
+    it('still refuses a perp order on a coin the venue does not list, and a malformed spot row', async () => {
+      await expect(setup((body, value) => body.type === 'frontendOpenOrders' && !body.dex ? [{ ...open, coin: 'ETH' }] : value).observer.observe(account)).rejects.toMatchObject({ code: 'live_account_unknown_market' });
+      await expect(setup((body, value) => body.type === 'frontendOpenOrders' && !body.dex ? [{ ...open, coin: '' }] : value).observer.observe(account)).rejects.toThrow();
+      await expect(setup((body, value) => body.type === 'frontendOpenOrders' && !body.dex ? [{ ...open, coin: '@1', oid: 'x' }, open] : value).observer.observe(account)).resolves.toMatchObject({ foreignRestingOrders: { count: 1 } });
+    });
+    it('a spot order is activity: never a flat setup-abort proof nor a zero-exposure unsetup account', async () => {
+      const flatWithSpot = (body: Record<string, unknown>, value: unknown) => body.type === 'frontendOpenOrders' && !body.dex ? [spotRows[0]]
+        : body.type === 'clearinghouseState' ? state(false) : value;
+      await expect(setup(flatWithSpot).observer.observeSetupAbortFlat(account)).rejects.toMatchObject({ code: 'live_account_setup_abort_not_flat' });
+      const unsetup = setup((body, value) => body.type === 'userRole' ? { role: 'missing' } : body.type === 'userAbstraction' ? 'default' : flatWithSpot(body, value));
+      await expect(unsetup.observer.observe(account, { unsetup: true })).rejects.toMatchObject({ code: 'live_account_unsupported_role' });
+    });
+  });
+  describe('spot balances without a token index (mainnet 2026-10-23: a leader holding prediction-market outcome tokens "+158850", "o458")', () => {
+    const outcome = [{ coin: '+158850', total: '266.0', hold: '0.0', entryNtl: '136.52116' }, { coin: 'o458', total: '0.0', hold: '0.0' }];
+    const withSpot = (balances: unknown[]) => (body: Record<string, unknown>, value: unknown) => body.type === 'spotClearinghouseState' ? { balances } : value;
+    it.each([{ leader: true }, {}])('%j: observed, with the perp equity and positions unchanged (spot balances never enter equity)', async (options) => {
+      const snapshot = await setup(withSpot([{ coin: 'USDC', token: 7, total: '5', hold: '1' }, ...outcome])).observer.observe(account, options);
+      expect(snapshot.perpEquity).toBe('990'); expect(snapshot.exposureUsd).toBe('660'); expect(snapshot.positions).toHaveLength(1);
+      expect(snapshot.foreignRestingOrders).toEqual({ count: 0, coins: [] });
+    });
+    it('an un-indexed balance named like a spotMeta token, or holding more than its total, is still invalid spot evidence', async () => {
+      await expect(setup(withSpot([{ coin: 'USDC', total: '5', hold: '0' }])).observer.observe(account)).rejects.toMatchObject({ code: 'live_account_invalid_spot_evidence' });
+      await expect(setup(withSpot([{ coin: '+1', total: '1', hold: '2' }])).observer.observe(account)).rejects.toMatchObject({ code: 'live_account_invalid_spot_evidence' });
+      await expect(setup(withSpot([{ coin: 'USDC', token: 7, total: '1', hold: '0' }, { coin: 'PURR', token: 9, total: '1', hold: '0' }])).observer.observe(account)).rejects.toMatchObject({ code: 'live_account_invalid_spot_evidence' });
+    });
+    it('an outcome-token balance is a balance: a zero-only (unsetup) account holding one is refused', async () => {
+      const s = setup((body, value) => body.type === 'userRole' ? { role: 'missing' } : body.type === 'userAbstraction' ? 'default'
+        : body.type === 'clearinghouseState' ? state(false) : body.type === 'frontendOpenOrders' ? [] : withSpot(outcome)(body, value));
+      await expect(s.observer.observe(account, { unsetup: true })).rejects.toMatchObject({ code: 'live_account_unsupported_role' });
+    });
   });
 });
 

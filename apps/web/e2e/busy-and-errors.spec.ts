@@ -56,7 +56,7 @@ for (const width of [1440, 390]) {
         const errors = pageErrors(page);
         await testnetPanel(page, width, "setup=busy");
         await slow(page, 2500);
-        await action(page, "開始跟單 $150").click();
+        await page.getByTestId("copy-submit").filter({ visible: true }).click();
         await expect(busyButton(page).locator("[data-orbit-spinner]")).toBeVisible();
         await shot(page, `busy-panel-${width}-${scheme}`);
         const confirm = page.getByRole("dialog", { name: "確認跟單設定" });
@@ -84,7 +84,7 @@ for (const width of [1440, 390]) {
         test.setTimeout(120000);
         const errors = pageErrors(page);
         await testnetPanel(page, width, "setup=uncredited");
-        await action(page, "開始跟單 $150").click();
+        await page.getByTestId("copy-submit").filter({ visible: true }).click();
         const confirm = page.getByRole("dialog", { name: "確認跟單設定" });
         await expect(confirm.getByTestId("live-copy-terms")).toContainText("150 USDC", { timeout: 15000 });
         await confirm.getByRole("button", { name: "確認並開始" }).click();
@@ -143,7 +143,7 @@ test("an account switch in the same tab shows the new person none of the previou
   await context.addCookies([{ name: "locale", value: "zh-TW", url: baseURL! }]);
   await page.setViewportSize({ width: 1440, height: 900 });
   await testnetPanel(page, 1440, "signers=ok");
-  await action(page, "開始跟單 $150").click();
+  await page.getByTestId("copy-submit").filter({ visible: true }).click();
   const confirm = page.getByRole("dialog", { name: "確認跟單設定" });
   await expect(confirm.getByTestId("live-copy-terms")).toContainText("150 USDC", { timeout: 15000 });
   // The sheet is closed unconfirmed; the panel keeps it for this person.
@@ -162,6 +162,8 @@ test("an account switch in the same tab shows the new person none of the previou
   await expect(page.getByTestId("live-copy-terms")).toHaveCount(0);
   await expect(page.getByText("等待你確認")).toHaveCount(0);
   // The new person's panel is the plain start form.
-  await expect(action(page, "請輸入金額")).toBeVisible();
+  const submit = page.getByTestId("copy-submit").filter({ visible: true }).first();
+  await expect(submit).toHaveText("跟單");
+  await expect(submit).toBeDisabled();
   await shot(page, "account-switch-second-person-1440");
 });

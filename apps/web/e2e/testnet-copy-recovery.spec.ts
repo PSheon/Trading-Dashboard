@@ -42,11 +42,11 @@ async function openTrader(page: Page, width: number, flags = "") {
   const panel = await panelOf(page, width);
   return panel;
 }
-/** 開始跟單 $150 from the panel: the confirm sheet. */
+/** 150 USDC then 跟單 from the panel: the confirm sheet. */
 async function startCopy(page: Page, panel: ReturnType<Page["locator"]>, width: number) {
   if (width < 768) {
     for (const key of ["1", "5", "0"]) await panel.getByRole("button", { name: key, exact: true }).click();
-    await action(page, "開始跟單 $150").click();
+    await page.getByTestId("copy-submit").filter({ visible: true }).click();
   } else {
     const amount = page.getByRole("textbox", { name: "跟單金額（USDC）" }).filter({ visible: true });
     await amount.fill("150");
@@ -141,7 +141,9 @@ for (const width of [1440, 390]) {
         if (width < 768) await page.keyboard.press("Escape");
         await page.reload();
         const after = await panelOf(page, width);
-        await expect(after.getByText("最低 $100 才能跟單").or(after.getByText("請輸入金額")).filter({ visible: true }).first()).toBeVisible({ timeout: 15000 });
+        const submit = page.getByTestId("copy-submit").filter({ visible: true }).first();
+        await expect(submit).toHaveText("跟單", { timeout: 15000 });
+        await expect(submit).toBeDisabled();
         await expect(after.getByRole("link", { name: "管理", exact: true }).filter({ visible: true })).toHaveCount(0);
         await shot(page, `testnet-recovery-cancelled-panel-${width}-${scheme}`);
         await page.goto(`/zh-TW/settings?${width < 768 ? "view=account" : "tab=account"}`);

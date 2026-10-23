@@ -115,7 +115,7 @@ async function startCopy(page: Page, width: number, flags: string) {
   }
   if (width < 768) {
     for (const key of ["1", "5", "0"]) await panel.getByRole("button", { name: key, exact: true }).click();
-    await action(page, "開始跟單 $150").click();
+    await page.getByTestId("copy-submit").filter({ visible: true }).click();
   } else {
     const amount = page.getByRole("textbox", { name: "跟單金額（USDC）" }).filter({ visible: true });
     await amount.fill("150");

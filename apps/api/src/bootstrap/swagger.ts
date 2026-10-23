@@ -7,7 +7,6 @@ import type { ZodTypeAny } from "zod";
 import { httpRouteContracts, responseMetaSchema, errorEnvelopeSchema } from "@trading-dashboard/shared/contracts";
 import { IS_PUBLIC_KEY } from "../common/auth/public.decorator.js";
 import { requiredPermissions } from "../common/auth/permissions.js";
-import { ROLES_KEY } from "../common/auth/current-user.js";
 
 const SWAGGER_PATH = "docs";
 /** Zod 3 exports draft-07 tuples; OAS 3.1 uses JSON Schema 2020-12. */
@@ -79,11 +78,9 @@ export function buildOpenApiDocument(app: INestApplication): OpenAPIObject {
       const routeTargets = targets.get(operation.operationId!);
       if (!routeTargets) throw new Error("Missing route metadata for " + operation.operationId);
       const permissions = requiredPermissions(reflector, routeTargets);
-      const roles = reflector.getAllAndOverride<string[]>(ROLES_KEY, routeTargets) ?? [];
-      const publicRoute = reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, routeTargets) && !permissions.length && !roles.length;
+      const publicRoute = reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, routeTargets) && !permissions.length;
       operation.security = publicRoute ? [{}, { bearerAuth: [] }] : [{ bearerAuth: [] }];
       operation["x-required-permissions"] = permissions;
-      operation["x-required-roles"] = roles;
       operation.description = [operation.description, "Access: " + contract.auth, contract.errors?.length ? "Error codes: " + contract.errors.join(", ") : ""].filter(Boolean).join("\n\n");
       if (contract.errors?.length) operation["x-error-codes"] = [...contract.errors];
       const success: ResponseObject & { "x-event-schemas"?: Record<string, SchemaObject> } = contract.status === 204 ? { description: "No content" }

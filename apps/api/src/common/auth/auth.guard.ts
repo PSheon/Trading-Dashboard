@@ -7,11 +7,10 @@ import {
   type ExecutionContext,
 } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
-import type { UserRole } from "@trading-dashboard/shared/contracts";
 import type { Request } from "express";
 
 import { AuthService, type AuthOutcome } from "./auth.service.js";
-import { ROLES_KEY, type RequestUser } from "./current-user.js";
+import type { RequestUser } from "./current-user.js";
 import { requiredPermissions } from "./permissions.js";
 import { IS_PUBLIC_KEY } from "./public.decorator.js";
 import { preferredLocale } from "./request-locale.js";
@@ -27,8 +26,8 @@ function bearerToken(request: Request): string | undefined {
 /**
  * Global guard: sets `request.user` and enforces
  * - `@Public()`: anyone; a token that gives no caller → anonymous (a stale token must not block browsing);
- * - everything else: 401 without a caller (403 `signups_closed` for a new user while closed);
- * - `@Roles(...)`: humans only. Permission metadata overrides @Public; PermissionGuard runs next.
+ * - everything else: 401 without a caller (403 `signups_closed` for a new user while closed).
+ * Permission metadata (`@RequirePermissions`) overrides @Public; PermissionGuard runs next.
  */
 @Injectable()
 export class AuthGuard implements CanActivate {
@@ -42,10 +41,8 @@ export class AuthGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const targets = [context.getHandler(), context.getClass()];
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, targets) ?? false;
-    const roles = this.reflector.getAllAndOverride<UserRole[] | undefined>(ROLES_KEY, targets);
-    const needsRole = roles !== undefined && roles.length > 0;
     const required = requiredPermissions(this.reflector, targets);
-    const open = isPublic && !needsRole && !required?.length;
+    const open = isPublic && !required?.length;
 
     const request = context.switchToHttp().getRequest<Request & { user?: RequestUser }>();
     const token = bearerToken(request);
@@ -68,9 +65,6 @@ export class AuthGuard implements CanActivate {
       throw new ForbiddenException({ statusCode: 403, code: "signups_closed", message: "Sign-ups are closed" });
     }
     if (!user) throw new UnauthorizedException("Sign in required");
-    if (needsRole && (user.kind !== "user" || !roles.includes(user.role))) {
-      throw new ForbiddenException(`Requires role: ${roles.join(" or ")}`);
-    }
     return true;
   }
 }

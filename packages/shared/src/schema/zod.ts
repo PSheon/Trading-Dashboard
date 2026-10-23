@@ -748,18 +748,6 @@ export const traderProfileResponseSchema = z.object({
   /** Watched by the live pipeline (imported or someone's favorite). */
   tracked: z.boolean(),
   isVault: z.boolean(),
-  /** @deprecated Moved to GET /traders/:address/activity; no longer sent.
-   * Kept optional for one step so older clients still parse. */
-  lastTradeAt: z.coerce.date().nullable().optional(),
-  /** @deprecated Moved to GET /traders/:address/activity; no longer sent.
-   * Kept optional for one step so older clients still parse. */
-  sample: z
-    .object({
-      fills30d: z.number().int(),
-      capped: z.boolean(),
-      lowSample: z.boolean(),
-    })
-    .optional(),
   favorite: z.boolean(),
   /** The KOL registry's entry for this address (name, 𝕏 handle, verified
    * badge, cached avatar); null when it is not a KOL. Optional while older
@@ -853,17 +841,6 @@ export type PortfolioQuery = z.infer<typeof portfolioQuerySchema>;
 
 export const seriesPointSchema = z.tuple([z.number(), z.number()]);
 export const portfolioResponseSchema = z.object({
-  /** @deprecated The flow-neutral estimate's disclosure; no longer sent
-   * (metrics follow CopyDog's definitions, see `basis`). Kept optional so
-   * older responses still parse. */
-  methodology: z.object({
-    version: z.literal("flow-neutral-v1"),
-    intervals: z.number().int().nonnegative(),
-    excludedIntervals: z.number().int().nonnegative(),
-    excludedFraction: z.number().min(0).max(1).nullable(),
-    capitalFloorUsd: z.number().nonnegative(),
-    quality: z.enum(["observed", "partial", "unavailable"]),
-  }).optional(),
   /** What the metrics were computed from (CopyDog's definitions, verified
    * against its public API 2026-09-30). Additive: optional while older api
    * builds roll out. */

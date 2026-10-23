@@ -2,7 +2,6 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CoinIndexView } from "../src/components/coins/coins-view";
-import { CrowdView } from "../src/components/insights/crowd-view";
 import { OrdersTab, TwapTab } from "../src/components/trader/trader-tabs";
 import { en } from "../src/i18n/messages/en";
 import { I18nProvider } from "../src/i18n/provider";
@@ -24,7 +23,6 @@ vi.mock("../src/lib/queries", () => ({
   useTraderTrades: () => state.result,
   useCoinIndex: () => state.result,
   useCoinBoard: () => state.result,
-  useCrowd: () => state.result,
 }));
 
 const render = (node: React.ReactNode) => renderToStaticMarkup(<I18nProvider locale="en" messages={en}>{node}</I18nProvider>);
@@ -65,12 +63,5 @@ describe("a failed background poll keeps the data already on screen (review 60)"
 
     state.result = failedLoad;
     expect(render(<CoinIndexView />)).toContain(en.common.error);
-  });
-
-  it("洞察 crowd: a load that never succeeded still shows the error and its retry", () => {
-    state.result = failedLoad;
-    const html = render(<CrowdView onCoin={() => {}} />);
-    expect(html).toContain(en.common.error);
-    expect(html).toContain(en.common.retry);
   });
 });

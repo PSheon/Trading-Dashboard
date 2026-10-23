@@ -67,7 +67,26 @@ A standby process makes no Hyperliquid call until it holds its lease (`scripts/w
 | api | `API_SETUP_DRIVE` | `local` → `worker` | `worker`: confirm and advance mark the setup due and `NOTIFY copy_setup_due`; the copy worker drives it (and reconciles the deposit) |
 | api | (no settlement switch) | | the api never settles (D13, 2026-10-23); on a live copy deployment it alerts `terminal_settlement_unowned` if no copy worker heartbeat reports its live engine running (`worker.terminalSettlement`) for 2 min |
 
-Until the egress split (1b), every service keeps the same `HYPERLIQUID_EGRESS_KEY`: they still share one outbound IP. With 1b (Railway static egress on worker only) worker-copy gets its own key.
+Every service keeps the same `HYPERLIQUID_EGRESS_KEY`. The copy side (api and worker-copy) charges it as one shared meter; worker-read derives its own meter key from it (`<key>:read`, next section). With 1b (Railway static egress on worker-copy only) worker-copy may get its own key.
+
+**Read worker meter (decision D12, 2026-10-23)**
+
+Hyperliquid limits REST weight per public IP (1,200 a minute) and each Railway service has its own IP, so one meter for all three processes starved the read worker (its discovery, cohort and history refreshes were refused `hyperliquid_quota_exhausted` more than 1,700 times a log window beside the copy side's priorities). From this release worker-read charges its **own** meter row, `<HYPERLIQUID_EGRESS_KEY>:read` (testnet host `<key>:read:testnet`), 1,200 a minute, with background capped at 900 (`READ_WORKER_BACKGROUND_REST_CAP`) and 300 kept above it (`READ_WORKER_PAGE_RESERVE`). The copy side keeps the shared meter and its lanes unchanged. The key is derived, never a second variable, and a process can only charge its own meter: `PostgresHyperliquidQuota` refuses the other meter's key (`hyperliquid_quota_meter_foreign`) before any round trip.
+
+What "page reads" means here: `page:` tickets (`isPageWork`: a background-priority read ranked ≤ `PAGE_RANK.fills`, made to answer someone's HTTP request, sent through `fetchPageInfo`). The api makes the web's page reads itself, on the shared meter, as before (nothing is forwarded to worker-read). On the read meter the 300 therefore serve worker-read's own on-demand reads: its page-ranked reads (the cohort's BTC candles at `PAGE_RANK.portfolio`, a leader's recent activity at `PAGE_RANK.fills`) and its owned live-lane reads (follower snapshots and receipts), never its discovery, history or analytics loops.
+
+| Service | Variable | Value | Notes |
+| --- | --- | --- | --- |
+| worker-read | `HYPERLIQUID_READ_METER` | unset (`own`) | `own`: its own meter `<key>:read`, cap 900 / reserve 300. `shared`: back on the shared meter with the copy side's priorities, as before D12 (the rollback). Refused on any other service |
+| worker-read | `HYPERLIQUID_BACKGROUND_REST_CAP` | **delete** | the read meter's cap is the constant (900); a value copied from the copy side (a canary's 400) is refused at startup under `own` |
+| worker-read | `HYPERLIQUID_WEIGHT_BUDGET_PER_MIN` / `HYPERLIQUID_WEIGHT_BURST` | **delete** (defaults to 900 / 900 under `own`) | its local bucket may spend what the meter's background cap allows; a set value may lower it, never raise it above 900. Under `shared` the worker defaults apply again (360 / 100 as set) |
+| api | `WORKER_READ_URL` | as above | the api reads the read worker's heartbeat (`meter`, `egressIdentity`) for the alert and the overview |
+
+Observability: the worker heartbeat's `meter` (`{meter, egressKey, backgroundCap, reserved}`) and its lanes are that worker's meter; the admin overview's `api.meters` shows both rows (the copy side's with the api's cap, `<key>:read` with 900) with what each class of charge holds. `egress_identity_shared` now alerts on **any** pair of the api, worker-copy and worker-read sharing a public IP (`pairs`: `copy-api`, `copy-read`, `read-api`): then the two meters are one limit at Hyperliquid and the split is unsafe.
+
+24 h verification (D12, D19): after the deploy run `scripts/ops/hl-meter-usage.mjs` (read only: one `READ ONLY` transaction per sample, rolled back; it prints the keys as `<key>` / `<key>:read`, never the connection string) from a shell that reaches the database and the workers' private network, e.g. `DATABASE_URL=… WORKER_URL=http://worker.railway.internal:3000 WORKER_READ_URL=http://worker-read.railway.internal:3000 node scripts/ops/hl-meter-usage.mjs --samples 1440 --interval 60 > meter-24h.jsonl`. Each line has both meters' lane usage and each worker's `rateLimited` (every 429 since start) and `foreignSuspected` (429s while our own meter held under 80 %). Expected: the read meter's background sits near 900 with its page and live lanes never refused, and neither IP's 429 count grows while our own meter is under the window; trader cards fresh and the coin-icon route 200 (D19). If 429s appear on either IP while its own meter is well under 1,200, Hyperliquid counts the two IPs together: roll back.
+
+Rollback (one switch): set `HYPERLIQUID_READ_METER=shared` on worker-read (and restore its `HYPERLIQUID_WEIGHT_BUDGET_PER_MIN` / `HYPERLIQUID_WEIGHT_BURST` to the worker's 360 / 100 so the shared background lane stays at 840). Its redeploy charges the shared meter again; the `<key>:read` row simply expires (65 s) and may stay in the table.
 
 **Rollout (in this order)**
 

@@ -250,21 +250,21 @@ describe('the api compares the copy worker\'s IP set with its own and the read w
     expect(await service.check()).toEqual([]);
     await api.observe();
     clock.now += 1000;
-    expect(await service.check()).toEqual([{ code: 'egress_identity_shared', lastOkAt: new Date(T0).toISOString(), ips: [GATEWAY[1]], peers: ['api'] }]);
+    expect(await service.check()).toEqual([{ code: 'egress_identity_shared', lastOkAt: new Date(T0).toISOString(), ips: [GATEWAY[1]], peers: ['api', 'copy'], pairs: ['copy-api'] }]);
     const lines = () => error.mock.calls.map(c => String(c[0])).filter(l => l.startsWith('ALERT egress_identity_shared'));
     expect(lines()).toHaveLength(1);
     clock.now += 60_000; await service.check();
     expect(lines()).toHaveLength(1);
-    // The read worker now shares one too: both peers.
+    // The read worker now shares one too: every role involved, both pairs (D12: any pair breaks the meter split).
     read = identity('read', [GATEWAY[0]!]);
     clock.now += ALERT_EVERY_MS; await service.check();
     expect(lines()).toHaveLength(2);
-    expect(service.alerts()).toEqual([{ code: 'egress_identity_shared', lastOkAt: new Date(T0).toISOString(), ips: [GATEWAY[0], GATEWAY[1]], peers: ['api', 'read'] }]);
+    expect(service.alerts()).toEqual([{ code: 'egress_identity_shared', lastOkAt: new Date(T0).toISOString(), ips: [GATEWAY[0], GATEWAY[1]], peers: ['api', 'copy', 'read'], pairs: ['copy-api', 'copy-read'] }]);
     // The admin overview shows it.
     const repository = { probe: vi.fn().mockResolvedValue(3), data: vi.fn().mockResolvedValue(null), outbox: vi.fn().mockResolvedValue([]), retention: vi.fn().mockResolvedValue(null) };
     const budget = { requestsLastMinute: 1, weightLastMinute: 20, effectiveBudgetPerMin: 240, configuredBudgetPerMin: 240, burstCapacity: 100, tokensAvailable: 80, lastRateLimitedAt: null };
     const overview = adminSystemSchema.parse(await new AdminSystemService(repository as never, config(), { introspect: () => budget, queued: () => ({ live: 0, background: 0 }) } as never, service).overview());
-    expect(overview.alerts?.map(a => [a.code, a.peers])).toEqual([['egress_identity_shared', ['api', 'read']]]);
+    expect(overview.alerts?.map(a => [a.code, a.peers])).toEqual([['egress_identity_shared', ['api', 'copy', 'read']]]);
     // The copy worker moves to addresses nobody else has: cleared.
     copy = identity('copy', [GATEWAY[2]!]);
     clock.now += 1000;

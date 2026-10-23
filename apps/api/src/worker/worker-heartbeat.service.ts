@@ -15,6 +15,7 @@ import { LIVE_ENGINE } from "../copy/live-worker/copy-live-engine.provider.js";
 import type { CopyLiveEngine } from "../copy/live-worker/copy-live-engine.js";
 import { EgressIdentityMonitor, egressIdentity } from "../runtime/egress-identity.js";
 import { foreignUsage } from "../hyperliquid/foreign-usage.js";
+import { HYPERLIQUID_REST_CAP } from "../config/constants/hyperliquid.js";
 
 /** §8 可觀測: the worker's own heartbeat (feed, snapshots, sweeps, budget,
  * discovery and archive progress), served on its health port and read by
@@ -39,7 +40,7 @@ export class WorkerHeartbeatService {
 
   async heartbeat(): Promise<HeartbeatResponse> {
     const { feed, lastFillAt, lastSweepAt, fillsUnavailable } = this.watcher.getHeartbeat();
-    const budget = this.budgeter.introspect(), explorer = explorerHealth.status();
+    const budget = this.budgeter.introspect(), explorer = explorerHealth.status(), hl = this.config.value.hyperliquid;
     // The shared meter's setup, live and page lanes (the wallet network's egress); a failed read must not fail the heartbeat.
     const lanes = await this.wallet?.transport.laneStatus().catch(() => undefined);
     const lane = (demand: { count: number; held: number; until: number | null }) => ({ ...demand, until: demand.until === null ? null : new Date(demand.until) });
@@ -80,6 +81,8 @@ export class WorkerHeartbeatService {
       liveDemand: lanes ? lane(lanes.liveDemand) : undefined,
       pageLane: lanes ? lane(lanes.pageLane) : undefined,
       sourceLane: lanes ? lane(lanes.sourceLane) : undefined,
+      // The meter this worker charges (D12: the copy side's shared meter, or the read worker's own), its cap and reserve.
+      meter: { meter: hl.meter, egressKey: hl.egressKey ?? null, backgroundCap: hl.backgroundRestCap, reserved: HYPERLIQUID_REST_CAP - hl.backgroundRestCap },
       // Age of the boards' and home rows' figures; a failed read must not fail the heartbeat.
       discovery: await this.pool?.freshness().then((f) => ({
         visibleRows: f.visible.rows, medianVisibleAgeSeconds: f.visible.medianAgeSeconds, oldestVisibleAgeSeconds: f.visible.oldestAgeSeconds,

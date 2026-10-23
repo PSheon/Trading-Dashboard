@@ -15,6 +15,7 @@ import {freezeLiveReservation} from '../copy/live/live-risk-reservation.js';
 import {liveSourceDigest} from '../copy/live/copy-live-source-evidence.js';
 import {liveSpan} from '../copy/live/live-execution-diagnostics.js';
 import { HYPERLIQUID_MAX_SETUP_CONNECTS, HYPERLIQUID_SEND_WINDOW_MS, HYPERLIQUID_SOURCE_REST_CAP, HYPERLIQUID_STALE_LEASE_RECLAIM_MS } from '../config/constants/hyperliquid.js';
+import { HYPERLIQUID_METERS, meterOf, type HyperliquidMeter } from './hyperliquid-meter-key.js';
 
 export interface HyperliquidQuotaBinding {readonly egressKey:string;readonly ownerId:string;}
 /** PostgresHyperliquidQuota.meterSnapshot (diagnostics). */
@@ -201,9 +202,22 @@ export class PostgresHyperliquidQuota {
     if(!Number.isFinite(until))return;
     if(!known||known.until<=this.monotonic()||weight<=known.weight)this.backgroundFull.set(egressKey,{weight,until});
   }
-  /** `backgroundCap`: this process's background REST cap on the shared window (default 840). */
-  constructor(private readonly uow:UnitOfWork,private readonly now=Date.now,private readonly monotonic=()=>performance.now(),private readonly backgroundCap?:number){}
-  bindUnscoped(identity:HyperliquidQuotaBinding):BoundHyperliquidQuota {return this.bind(capture(identity));}
+  /** `backgroundCap`: this process's background REST cap on its meter's window
+   * (default 840; the read worker's own meter: READ_WORKER_BACKGROUND_REST_CAP).
+   * `meter`: the meter this process charges (hyperliquid-meter-key.ts, D12):
+   * `copy` (default: the shared key and its testnet host) or `read` (the read
+   * worker's `<key>:read`). A binding to the other meter's key is refused
+   * before any round trip (`hyperliquid_quota_meter_foreign`): the read
+   * worker can never charge the copy side's window, nor the copy side the
+   * read worker's, whatever key a caller passes. Reads of either meter's row
+   * (laneStatus, meterSnapshot: the admin overview shows both) are not charges. */
+  constructor(private readonly uow:UnitOfWork,private readonly now=Date.now,private readonly monotonic=()=>performance.now(),private readonly backgroundCap?:number,private readonly meter:HyperliquidMeter='copy'){
+    if(!HYPERLIQUID_METERS.includes(meter))fail('hyperliquid_quota_invalid');
+  }
+  /** The meter this quota charges (`copy` or `read`). */
+  get meterLane():HyperliquidMeter{return this.meter;}
+  private own(binding:Readonly<HyperliquidQuotaBinding>):Readonly<HyperliquidQuotaBinding>{if(meterOf(binding.egressKey)!==this.meter)fail('hyperliquid_quota_meter_foreign');return binding;}
+  bindUnscoped(identity:HyperliquidQuotaBinding):BoundHyperliquidQuota {return this.bind(this.own(capture(identity)));}
   /** The setup and live lanes as the meter's row holds them now (heartbeat;
    * a plain read, no lock): demands alive, what each lane holds, until when. */
   async laneStatus(egressKey:string):Promise<ReturnType<typeof hyperliquidLaneStatus>>{
@@ -222,7 +236,7 @@ export class PostgresHyperliquidQuota {
     return {rest:hyperliquidMeterComposition(events,now),wsConnect:held('ws_connect'),wsMessages:held('ws_message'),leases:counted?.n??0};
   }
   bindOriginal(session:LiveRiskDatabaseSession,identity:HyperliquidQuotaBinding):BoundHyperliquidQuota {
-    assertOriginalLiveRiskSession(session);return this.bind(capture(identity),session);
+    assertOriginalLiveRiskSession(session);return this.bind(this.own(capture(identity)),session);
   }
   private guard(session?:LiveRiskDatabaseSession){if(session)assertOriginalLiveRiskSession(session);}
   private deadline(deadline:number){const now=this.now();if(!Number.isSafeInteger(now)||now<=0||!Number.isSafeInteger(deadline)||deadline<=now||deadline>now+HYPERLIQUID_SEND_WINDOW_MS)fail('hyperliquid_quota_expired');}

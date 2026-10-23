@@ -14,7 +14,8 @@ import { WALLET_NETWORK_HL, walletNetworkHyperliquid } from './wallet-network-hy
 @Module({
   providers: [HyperliquidInfoClient, RequestBudgeterService, MarketCatalogService,
     { provide: PostgresHyperliquidQuota, inject: [UnitOfWork, AppConfig], useFactory: (uow: UnitOfWork, config: AppConfig) =>
-      new PostgresHyperliquidQuota(uow, undefined, undefined, config.value.hyperliquid.backgroundRestCap) },
+      // The meter this process charges (D12): the copy side's shared one, or the read worker's own; the quota refuses the other's key.
+      new PostgresHyperliquidQuota(uow, undefined, undefined, config.value.hyperliquid.backgroundRestCap, config.value.hyperliquid.meter) },
     { provide: HyperliquidGlobalTransport, inject: [PostgresHyperliquidQuota, AppConfig], useFactory: (quota: PostgresHyperliquidQuota, config: AppConfig) =>
       new HyperliquidGlobalTransport(quota, { egressKey: config.value.hyperliquid.egressKey, ownerId: randomUUID() }) },
     // One wallet-network (testnet) bucket per process, shared by every caller.

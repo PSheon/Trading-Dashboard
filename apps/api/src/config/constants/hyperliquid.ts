@@ -16,6 +16,29 @@ export const HYPERLIQUID_REST_CAP = 1200;
  */
 export const HYPERLIQUID_BACKGROUND_REST_CAP = 840;
 
+/** basis: derived — a quarter of HYPERLIQUID_REST_CAP (300 of 1,200), decision D12 (2026-10-23); verify: 24 h after deploy, scripts/ops/hl-meter-usage.mjs shows the read meter's page and live lanes never refused while background sits at its cap
+ * What the read worker's OWN meter (`<HYPERLIQUID_EGRESS_KEY>:read`, its own
+ * public IP) keeps free of background: its on-demand reads. "Page reads" in
+ * this codebase are `page:` tickets (isPageWork: a background-priority read
+ * ranked ≤ PAGE_RANK.fills, answering someone's request); the api makes the
+ * web's page reads itself, on the copy side's shared meter, so on the read
+ * meter this reserve serves the read worker's own page-ranked and owned
+ * reads (the cohort's BTC candles at PAGE_RANK.portfolio, a leader's recent
+ * activity at PAGE_RANK.fills, follower snapshots and receipts under an
+ * owner), never its discovery, history or analytics loops.
+ */
+export const READ_WORKER_PAGE_RESERVE = HYPERLIQUID_REST_CAP / 4;
+
+/** basis: derived — HYPERLIQUID_REST_CAP less READ_WORKER_PAGE_RESERVE (1,200 − 300 = 900), decision D12 (2026-10-23)
+ * What the read worker's background loops (discovery, cohorts, history,
+ * analytics, snapshots and sweeps) may hold of its own meter's window. On
+ * the shared meter they were refused `hyperliquid_quota_exhausted` more than
+ * 1,700 times a log window beside the copy side's priorities (trader cards
+ * stale, coin-icon route 404); on their own IP they get this much, and the
+ * 300 above it stays for the reads someone waits on.
+ */
+export const READ_WORKER_BACKGROUND_REST_CAP = HYPERLIQUID_REST_CAP - READ_WORKER_PAGE_RESERVE;
+
 /** basis: guessed — 20 % of the window kept for live orders (2026-10-11); verify: gate 9 live wait p99 with the reserve at 240
  * Neither setups nor background ever take it: live orders, pages and
  * exchange actions (unlabelled) always find at least this.

@@ -10,13 +10,13 @@ I didn't modify anything. Repo is at `dev` 6c7ece46. Two corrections to the brie
 
 ## 1. Target UX
 
-**What CopyDog does (from repo evidence; nobody has used CopyDog signed in, see `docs/copydog-feature-parity-2026-10-02.md` §How this was checked):**
+**What CopyDog does (from repo evidence; nobody has used CopyDog signed in, see `docs/decisions-2026-10-23.md`):**
 - The widget posts `{trader_address, allocation_mode:"ratio", allocation_amount, max_total_exposure, max_leverage, copy_direction, copy_start_mode:"adopt"}` to `POST /api/copy-trading/configure`.
 - Minimum is $100.
 - Funding runs on the server from the main ("hub") balance. The front end handles `funding_error_code`, `insufficient_main_balance`, `awaiting_credit_confirmation` and `funding=pending`.
 - Portfolio states are `needs_deposit`/`funding`/`paused`/`sweeping`.
-- Other actions: `hl-vault/{id}/topup`, `hl-vault/{id}/withdraw` (`no_free_collateral`), `/stop-and-close`, `/close-hl-position`. Stop closes positions and sweeps everything back to the main wallet (`docs/copydog-copy-trading-mechanics-2026-10-02.md` §4).
-- No CopyDog signing prompt is documented. Its deposit bridge was signed server-side with no user action (`docs/copydog-deposit-mechanics-2026-10-04.md`). The best inference is that CopyDog shows no wallet prompts at all.
+- Other actions: `hl-vault/{id}/topup`, `hl-vault/{id}/withdraw` (`no_free_collateral`), `/stop-and-close`, `/close-hl-position`. Stop closes positions and sweeps everything back to the main wallet (`docs/decisions-2026-10-23.md`).
+- No CopyDog signing prompt is documented. Its deposit bridge was signed server-side with no user action (`docs/decisions-2026-10-23.md`). The best inference is that CopyDog shows no wallet prompts at all.
 
 **Orbie target flow:**
 1. **Trader page → 跟單 panel** (`components/trader/copy-panel.tsx`). Add a two-option pill **模擬 / 測試網** above 順向/反向.
@@ -341,7 +341,7 @@ Add them to `packages/shared/src/wire-contracts.ts` and the OpenAPI artifacts.
 Environment: Stage uses the Privy "Dev" app. API and worker both need `COPY_TRADING_MODE=testnet`, `HYPERLIQUID_NETWORK=testnet`, `PRIVY_AGENT_AUTHORIZATION_KEY`/`PRIVY_AGENT_WORKER_QUORUM_ID` (verify with `scripts/copy-worker-key.mjs`), and `HYPERLIQUID_EGRESS_KEY`.
 
 1. Admin: turn `copyTradingEnabled` on. Confirm the seeded platform control row and risk policy v1.
-2. Fund the Privy main wallet with mock USDC on HL testnet: `usdSend` from Paul's test wallet (999 mock USDC per `docs/backend-review-2026-10-04.md:35`) via app.hyperliquid-testnet.xyz. The faucet may need mainnet deposit history on the address.
+2. Fund the Privy main wallet with mock USDC on HL testnet: `usdSend` from Paul's test wallet (999 mock USDC, 2026-10-04) via app.hyperliquid-testnet.xyz. The faucet may need mainnet deposit history on the address.
 3. Pick an active mainnet trader trading BTC/ETH. Choose 測試網, 100 USDC, confirm. Watch the dialog.
 4. Verify on the testnet explorer: `usdSend` main → copy, `userSetAbstraction`, `approveAgent`, (`approveBuilderFee`), first IOC order with an Orbie cloid.
 5. Verify via a read-only Privy query that the copy wallet's `additional_signers` = worker + `P`.

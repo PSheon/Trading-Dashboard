@@ -532,8 +532,8 @@ export const heartbeatResponseSchema = z.object({
 export type HeartbeatResponse = z.infer<typeof heartbeatResponseSchema>;
 
 // ===========================================================================
-// Stage 2 — users (Privy), favorites, notification channels, discovery
-// See docs/Stage 2 — 跟單平台前置（探索、Privy、UI 重做）.md
+// Users (Privy), favorites, notification channels, discovery
+// See docs/decisions-2026-10-23.md
 // ===========================================================================
 
 export const userRoleSchema = z.enum(userRoleEnum);
@@ -1851,8 +1851,8 @@ export const adminRevenueResponseSchema = z.object({
 export type AdminRevenueResponse = z.infer<typeof adminRevenueResponseSchema>;
 
 // ===========================================================================
-// Stage 3 — discovery boards (explore / home) and the KOL registry
-// See docs/Stage 3 — CopyDog 頁面對齊（探索、收藏、洞察）.md §0.5, §1
+// Discovery boards (explore / home) and the KOL registry
+// See docs/decisions-2026-10-23.md
 // ===========================================================================
 
 export const boardMarketSchema = z.enum(["crypto", "stocks"]);

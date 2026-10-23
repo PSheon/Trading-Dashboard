@@ -1,12 +1,11 @@
 # apps/web — Orbie
 
-**Orbie** — *orbit the best traders* — at **https://app.orbie.fun**.
+**Orbie** — *orbit the best traders* — Stage at **https://stage.orbie.fun**.
 Next.js 16 (App Router) + React 19 + Tailwind v4 + shadcn/ui primitives +
 React Query. It discovers Hyperliquid traders (leaderboard, trader pages,
 the crowd view, the live action feed), lets signed-in users favorite
-traders and set up Telegram alerts, and gives admins a back office. Copy
-trading is UI only in Stage 2. Spec:
-`docs/Stage 2 — 跟單平台前置（探索、Privy、UI 重做）.md`.
+traders, set up Telegram alerts and copy traders live from a copy wallet,
+and gives admins a back office. Decisions: `docs/decisions-2026-10-23.md`.
 
 ## Pages
 
@@ -14,8 +13,8 @@ trading is UI only in Stage 2. Spec:
 | --- | --- |
 | `/` | Headline, "if you had followed…" card, market chips, featured traders (admin-picked, else top 30-day PnL), top-traders table |
 | `/explore` | The whole leaderboard: window, sort, search, min account value, hide-vaults toggle, paging, favorites |
-| `/trader/[address]` | Profile · KPIs (PnL, ROI, Sharpe + max drawdown, win rate) + PnL/value chart + positions/fills/actions/alerts (CSV export) · copy panel ("coming soon") |
-| `/portfolio` | Copy-trading placeholder |
+| `/trader/[address]` | Profile · KPIs (PnL, ROI, Sharpe + max drawdown, win rate) + PnL/value chart + positions/fills/actions/alerts (CSV export) · copy panel (set up, fund and start a live copy) |
+| `/portfolio` | Copy wallet, running copies, receipts and withdrawals (signed in) |
 | `/favorites` | Your starred traders, latest actions and per-trader alert preferences (signed in) |
 | `/insights` | Crowd view (long vs short notional per coin, 24 h change) and the live action feed with expandable fills |
 | `/settings` | Language; official Telegram bot linking, status and test messages (signed in) |
@@ -25,8 +24,8 @@ Old routes (`/feed`, `/leaders[/…]`, `/alerts`, `/import`, `/lists`,
 `/status`, `/heatmap`, `/login`) redirect to their new homes
 (`next.config.ts`), so Telegram links to `/leaders/<address>` keep working.
 
-Stage 2 §11 bot linking and per-favorite alerts are implemented, as is activity
-filtering (§12). Earlier chat-id/per-user-rule screens are historical designs.
+Bot linking, per-favorite alerts and activity filtering are implemented.
+Earlier chat-id/per-user-rule screens are historical designs.
 
 ## Auth (Privy)
 
@@ -54,7 +53,7 @@ filtering (§12). Earlier chat-id/per-user-rule screens are historical designs.
 | `NEXT_API_URL` | server only | Base URL of apps/api, e.g. `http://localhost:3000` or the Railway URL |
 | `NEXT_PUBLIC_PRIVY_APP_ID` | public | Privy app id (public by design). Unset → anonymous-only |
 | `NEXT_PUBLIC_APP_NAME` | public | Product name, default `Orbie` |
-| `NEXT_PUBLIC_APP_URL` | public | Canonical origin for metadata, default `https://app.orbie.fun` |
+| `NEXT_PUBLIC_APP_URL` | public | Canonical origin for metadata (Stage: `https://stage.orbie.fun`) |
 | `NEXT_PUBLIC_API_FIXTURES` | public, dev only | `1` answers api calls from `src/fixtures` (see below) |
 
 Never give apps/web `AUTH_SERVICE_TOKEN`, and never prefix a secret with
@@ -62,7 +61,7 @@ Never give apps/web `AUTH_SERVICE_TOKEN`, and never prefix a secret with
 live in the `NEXT_` block of the repo-root `.env`: `next.config.ts` copies
 only the `NEXT_`-prefixed keys from it, so none of the api's secrets enter
 this process. `apps/web/.env.local` still works as a per-machine override.
-On Vercel, set them in the project (Production and Preview).
+On Railway, set them on the `web` service of each environment.
 
 ## Fixtures mode
 

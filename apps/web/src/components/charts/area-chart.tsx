@@ -80,6 +80,13 @@ function useWidth<T extends HTMLElement>() {
   return [ref, width] as const;
 }
 
+/** The phone chart's left gutter for its y labels (`yAxis="left"`): the
+ * widest compact figure ("-$595K", "$286M", "-100%" at 11px bold ≈ 40px)
+ * plus 8px to the plot. The labels used to sit over the plot's left edge
+ * and the line's start ran through them at 390px (2026-10-23); now the
+ * plot starts after them, as the desktop chart's right gutter. */
+export const LEFT_AXIS_GUTTER = 48;
+
 /** CopyDog's y labels: the series' low and high and three evenly spaced
  * values between them ("$341K $247K $152K $57K -$38K"). */
 export function spanTicks(min: number, max: number, count = 5): number[] {
@@ -190,7 +197,7 @@ export function AreaChart({
   const uid = useId().replace(/:/g, "");
 
   const pad = axes
-    ? { top: 12, right: yAxis === "right" ? 64 : 6, bottom: 28, left: 4 }
+    ? { top: 12, right: yAxis === "right" ? 64 : 6, bottom: 28, left: yAxis === "left" ? LEFT_AXIS_GUTTER : 4 }
     : { top: strokeWidth * 3 + 2, right: 6, bottom: 3, left: 2 };
 
   const geo = useMemo(() => {
@@ -313,9 +320,11 @@ export function AreaChart({
             ? geo.yTicks.map((v, i) => (
                 <text
                   key={i}
-                  x={yAxis === "right" ? width - pad.right + 10 : pad.left + 2}
+                  x={yAxis === "right" ? width - pad.right + 10 : pad.left - 8}
                   y={geo.y(v)}
-                  dy={yAxis === "right" ? "0.32em" : i === geo.yTicks.length - 1 ? "0.9em" : "-0.35em"}
+                  dy="0.32em"
+                  textAnchor={yAxis === "right" ? undefined : "end"}
+                  data-axis="y"
                   className="fill-muted-foreground text-[11px] font-bold"
                 >
                   {(formatTick ?? formatValue)(v)}

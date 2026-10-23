@@ -13,7 +13,7 @@ import { useEffect, useMemo, useState } from "react";
 import { cn } from "cn";
 
 import { boardName, CoinStack, CopyScoreBar, signTone, TraderAvatar, VerifiedTick } from "@/components/discover/board-bits";
-import { BoardCard, BoardCardSkeleton, BoardMobileRow, BoardMobileRowSkeleton } from "@/components/discover/board-card";
+import { BoardCard, BoardCardSkeleton, BoardMobileRow, BoardMobileRowSkeleton, cardPrimary } from "@/components/discover/board-card";
 import { EmptyState, ErrorState, SkelBar, SkelCircle } from "@/components/page";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { Select } from "@/components/ui/select";
@@ -223,14 +223,14 @@ export function BoardsView() {
           {view === "grid" || (view === "auto" && desktop !== false) ? (
             <div className={cn("grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4", view === "auto" && "hidden md:grid")}>
               {items.map((trader) => (
-                <BoardCard key={trader.address} trader={trader} pnlLabel={pnlLabel} roiLabel={roiLabel} roiHint={roiHint} now={now} />
+                <BoardCard key={trader.address} trader={trader} pnlLabel={pnlLabel} roiLabel={roiLabel} roiHint={roiHint} now={now} primary={cardPrimary(effectiveSort)} />
               ))}
             </div>
           ) : null}
           {view !== "grid" && desktop !== true ? (
             <DataList variant="cards" className="md:hidden">
               {items.map((trader) => (
-                <BoardMobileRow key={trader.address} trader={trader} />
+                <BoardMobileRow key={trader.address} trader={trader} primary={cardPrimary(effectiveSort)} />
               ))}
             </DataList>
           ) : null}

@@ -24,15 +24,17 @@ export function CopyFitSummary({ address, allocation }: { address: string; alloc
   const profile = useTraderProfile(address);
   const fills = useTraderFills(address, FILL_LIMIT, { enabled: allocation > 0 });
   const fit = estimateCopyFit({ fills: fills.data, leaderEquity: profile.data?.accountValue, allocation });
-  if (fit.status === "no_amount") return null;
-  // A failed read (Hyperliquid's budget, 503) is said, not shown as a silent gap.
-  if (fit.status === "loading") {
-    return fills.isError || profile.isError
-      ? <Row><FitPill testId="copy-fit-unavailable" label={t("trader.copy.fit.unavailablePill")} tip={t("trader.copy.fit.unavailable")} /></Row>
-      : null;
+  if (fit.status !== "ok") {
+    if (fit.status === "no_amount") return null;
+    // A failed read (Hyperliquid's budget, 503) is said, not shown as a silent gap.
+    if (fit.status === "loading") {
+      return fills.isError || profile.isError
+        ? <Row><FitPill testId="copy-fit-unavailable" label={t("trader.copy.fit.unavailablePill")} tip={t("trader.copy.fit.unavailable")} /></Row>
+        : null;
+    }
+    if (fit.status === "unknown_equity") return <Row><FitPill testId="copy-fit-unknown-equity" label={t("trader.copy.fit.unknownEquityPill")} tip={t("trader.copy.fit.unknownEquity")} /></Row>;
+    return <Row><FitPill testId="copy-fit-no-opens" label={t("trader.copy.fit.noOpensPill")} tip={t("trader.copy.fit.noOpens")} /></Row>;
   }
-  if (fit.status === "unknown_equity") return <Row><FitPill testId="copy-fit-unknown-equity" label={t("trader.copy.fit.unknownEquityPill")} tip={t("trader.copy.fit.unknownEquity")} /></Row>;
-  if (fit.status === "no_opens") return <Row><FitPill testId="copy-fit-no-opens" label={t("trader.copy.fit.noOpensPill")} tip={t("trader.copy.fit.noOpens")} /></Row>;
   const sample = t("trader.copy.fit.sample", { from: format.dateTime(fit.from), to: format.dateTime(fit.to) });
   const min = format.num(fit.minNotional);
   return (

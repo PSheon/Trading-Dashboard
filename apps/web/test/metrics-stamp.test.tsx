@@ -96,3 +96,15 @@ describe.each(Object.entries(kinds))("the %s card's metrics stamp", (_kind, card
     expect(document.querySelector('[data-testid="info-tip-content"]')).not.toBeNull();
   });
 });
+
+it("stale metrics and 'last trade … ago' are different glyphs: the clock means the last trade only", async () => {
+  const trader = { ...traderAt("2026-10-10T12:37:00.000Z"), lastTradeAt: new Date(NOW - 29 * 86_400_000).toISOString() };
+  await render(kinds.board(trader));
+  const stale = stamp()!.querySelector("svg")!;
+  expect(stale.getAttribute("class")).not.toMatch(/clock/);
+  expect(stale.getAttribute("class")).toContain("lucide-triangle-alert");
+  const lastTrade = [...container.querySelectorAll("svg")].find((svg) => /lucide-clock/.test(svg.getAttribute("class") ?? ""))!;
+  expect(lastTrade).toBeDefined();
+  expect(lastTrade.closest("button")).toBeNull();
+  expect(lastTrade.parentElement!.textContent).toContain("ago");
+});

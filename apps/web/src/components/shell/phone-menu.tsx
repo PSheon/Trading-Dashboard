@@ -86,6 +86,7 @@ export function PhoneMenu() {
               <Link
                 key={href}
                 href={href}
+                prefetch={false}
                 onClick={() => setOpen(false)}
                 className="flex h-[52px] items-center justify-between border-b-2 border-dotted border-border text-[0.9375rem] font-extrabold outline-none hover:text-primary-text focus-visible:ring-2 focus-visible:ring-ring"
               >

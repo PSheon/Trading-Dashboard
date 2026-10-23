@@ -419,12 +419,17 @@ function CoinFigureRows({ rows }: { rows: Array<{ key: string; coin: string; fig
   );
 }
 
-/** 最佳與最差: the three best or worst closed trades by net PnL, picked
- * with a small dropdown as on CopyDog. */
+/** 最佳與最差: the three best or worst coins by the net PnL of their closed
+ * trades, picked with a small dropdown as on CopyDog. Coins, not trades:
+ * these rows show a coin and a figure only, so two closed ZEC trades read
+ * as "ZEC twice" (Stage 0x350e…dfcb, +$3.1M and +$1.7M); the 表現 tab and
+ * the phone's 洞察 list the trades themselves, with their prices and times. */
 function BestWorstSection({ trades, computing }: { trades: TraderAnalyticsResponse | undefined; computing: boolean }) {
   const { t } = useI18n();
   const [view, setView] = useState<"best" | "worst">("best");
-  const list = view === "best" ? trades?.summary.best.filter((x) => x.netPnl > 0) : trades?.summary.worst.filter((x) => x.netPnl < 0);
+  const list = view === "best"
+    ? trades?.summary.coins.filter((c) => c.netPnl > 0).sort((a, b) => b.netPnl - a.netPnl)
+    : trades?.summary.coins.filter((c) => c.netPnl < 0).sort((a, b) => a.netPnl - b.netPnl);
   const rows = (list ?? []).slice(0, 3);
   return (
     <Section
@@ -444,7 +449,7 @@ function BestWorstSection({ trades, computing }: { trades: TraderAnalyticsRespon
       {!trades ? (
         <Unavailable computing={computing} />
       ) : rows.length > 0 ? (
-        <CoinFigureRows rows={rows.map((x) => ({ key: x.id, coin: x.coin, figure: signedUsd1(x.netPnl), className: pnlTone(x.netPnl) }))} />
+        <CoinFigureRows rows={rows.map((c) => ({ key: c.coin, coin: c.coin, figure: signedUsd1(c.netPnl), className: pnlTone(c.netPnl) }))} />
       ) : (
         <p className="text-xs text-muted-foreground">{t(trades ? "trader.noClosedTrades" : "trader.kpi.noTrades")}</p>
       )}

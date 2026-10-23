@@ -39,6 +39,8 @@ interface LeaderState {
   gaps: number;
   /** When the current run of gap reads began (the follow-up ends GAP_FOLLOW_UP_EXPIRY_MS later), or null. */
   gapSince: number | null;
+  /** When the last gap was noted: a follow-up is never due before it plus the back-off (a failed look that read nothing moves no lastReadAt). */
+  gapAt: number;
 }
 
 /**
@@ -74,7 +76,7 @@ export class FastMainnetSource {
 
   private state(leader: string): LeaderState {
     let state = this.leaders.get(leader);
-    if (!state) { state = { witnessed: new Map(), beyond: null, lastReadAt: 0, misses: 0, gaps: 0, gapSince: null }; this.leaders.set(leader, state); }
+    if (!state) { state = { witnessed: new Map(), beyond: null, lastReadAt: 0, misses: 0, gaps: 0, gapSince: null, gapAt: 0 }; this.leaders.set(leader, state); }
     return state;
   }
 
@@ -113,7 +115,7 @@ export class FastMainnetSource {
    * recovery, a quarantined stream, no copy left), which ends the follow-up. */
   readOutcome(leader: string, gap: boolean): void {
     const state = this.state(address(leader));
-    if (gap) { state.gaps += 1; state.gapSince ??= this.now(); }
+    if (gap) { state.gaps += 1; state.gapAt = this.now(); state.gapSince ??= state.gapAt; }
     else { state.gaps = 0; state.gapSince = null; }
   }
 
@@ -126,7 +128,7 @@ export class FastMainnetSource {
     // The last read left the stream in gap: read again (from the same coverage) G after it, doubling per consecutive
     // gap, for GAP_FOLLOW_UP_EXPIRY_MS at most (then the pass's reads are the way back; a follow-up with no read
     // behind it would otherwise fire a 0 ms timer for ever).
-    const recover = state.gaps > 0 && state.gapSince !== null && this.now() - state.gapSince <= GAP_FOLLOW_UP_EXPIRY_MS ? state.lastReadAt + backoff(state.gaps - 1) : null;
+    const recover = state.gaps > 0 && state.gapSince !== null && this.now() - state.gapSince <= GAP_FOLLOW_UP_EXPIRY_MS ? Math.max(state.lastReadAt, state.gapAt) + backoff(state.gaps - 1) : null;
     const witnessed = [...state.witnessed.values()], earliest = Math.min(...witnessed, state.beyond ?? Infinity);
     if (!Number.isFinite(earliest)) return recover;
     const pending = Math.max(earliest + this.graceMs + 100, state.lastReadAt + backoff(state.misses));

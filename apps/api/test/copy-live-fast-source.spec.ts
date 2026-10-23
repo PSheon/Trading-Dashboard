@@ -190,7 +190,7 @@ describe('realtime copy signal (fast mainnet source)', () => {
     await credit(); await engine().tick();
     const fast = slowOnceSource(), worker = engine(fast);
     clock = now + 6000; await worker.kick(leader);
-    expect((await db.select().from(schema.copyLiveSourceStreams))[0]).toMatchObject({ state: 'gap' }); expect(worker.followUp(leader)).toBe(now + 6000 + G);
+    expect((await db.select().from(schema.copyLiveSourceStreams))[0]).toMatchObject({ state: 'gap' }); expect(worker.followUp(leader)).toBe(now + 6000 + 5160 + G);
     await db.update(schema.copyLiveSourceStreams).set({ state: 'quarantined', lastIssue: 'invalid_fill' });
     expect(await drain(worker)).toBe(1); expect(worker.followUp(leader)).toBeNull();
   });
@@ -198,7 +198,7 @@ describe('realtime copy signal (fast mainnet source)', () => {
     await credit(); await engine().tick();
     const fast = slowOnceSource(), worker = engine(fast);
     clock = now + 6000; await worker.kick(leader);
-    expect(worker.followUp(leader)).toBe(now + 6000 + G);
+    expect(worker.followUp(leader)).toBe(now + 6000 + 5160 + G);
     // The copy's generation expires (well before the follow-up's own expiry): no stream to read for this leader.
     await db.update(schema.copyLiveMandates).set({ expiresAt: new Date(now + 40_000) });
     clock = now + 41_000;
@@ -213,6 +213,30 @@ describe('realtime copy signal (fast mainnet source)', () => {
     expect(clock - (now + 50_000)).toBeLessThanOrEqual(GAP_FOLLOW_UP_EXPIRY_MS + FOLLOW_UP_MAX_MS);
   });
 
+  it('no hot loop after a gap read: a throw before the read (ensure) or after it (apply) counts as a gap, so the follow-up backs off and ends (review of 078c7e94)', async () => {
+    await credit(); await engine().tick();
+    const fast = slowOnceSource(), worker = engine(fast);
+    clock = now + 6000; await worker.kick(leader);
+    expect(worker.followUp(leader)).toBe(now + 6000 + 5160 + G);
+    // The stream row cannot be locked: nothing is read, lastReadAt stays, yet the follow-up must not fire at 0 ms for ever.
+    const ensure = vi.spyOn(CopyLiveSourceRepository.prototype, 'ensure').mockRejectedValue(new Error('database down'));
+    try {
+      const before = clock, signals = await drain(worker);
+      expect(signals).toBeGreaterThan(1); expect(signals).toBeLessThan(12); expect(worker.followUp(leader)).toBeNull();
+      expect(clock - before).toBeLessThanOrEqual(GAP_FOLLOW_UP_EXPIRY_MS + FOLLOW_UP_MAX_MS);
+    } finally { ensure.mockRestore(); }
+    // A read that lands but whose apply throws: the same back-off (before: every G, thirty follow-ups a minute).
+    await db.update(schema.copyLiveMandates).set({ expiresAt: new Date(now + 600_000) });
+    const other = slowOnceSource(), again = engine(other);
+    clock = now + 120_000; await again.kick(leader);
+    expect(again.followUp(leader)).toBe(now + 120_000 + 5160 + G);
+    const apply = vi.spyOn(CopyLiveSourceRepository.prototype, 'apply').mockRejectedValue(new Error('database down'));
+    try {
+      const asked = await drain(again);
+      expect(asked).toBeGreaterThan(1); expect(asked).toBeLessThan(12); expect(again.followUp(leader)).toBeNull();
+    } finally { apply.mockRestore(); }
+  });
+
   it('the engine reports a fast read\'s outcome: a read slower than the evidence window puts the stream in gap and asks for a follow-up read G later', async () => {
     await credit(); await engine().tick();
     // The read leaves at once but its answer takes 5.16 s (the incident): fresh is false, the stream goes to gap (source_unavailable).
@@ -222,7 +246,8 @@ describe('realtime copy signal (fast mainnet source)', () => {
     clock = now + 6000; await worker.kick(leader);
     const readAt = now + 6000;
     expect((await db.select().from(schema.copyLiveSourceStreams))[0]).toMatchObject({ state: 'gap', lastIssue: 'source_unavailable' });
-    expect(worker.followUp(leader)).toBe(readAt + G);
+    // G after the gap was noted (the read answered 5.16 s after it was asked), never a time already past.
+    expect(worker.followUp(leader)).toBe(readAt + 5160 + G);
     // The follow-up read answers in time: ready, and nothing more to follow up.
     clock += G; await worker.kick(leader);
     expect((await db.select().from(schema.copyLiveSourceStreams))[0]).toMatchObject({ state: 'ready', lastIssue: null });

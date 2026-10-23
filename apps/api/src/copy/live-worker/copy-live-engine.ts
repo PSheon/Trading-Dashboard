@@ -179,7 +179,10 @@ export class CopyLiveEngine {
     let mandates = await this.deps.repository.mandates(started);
     if ((await this.deps.repository.activateFunded(mandates, started)).length) mandates = await this.deps.repository.mandates(this.now());
     await this.standby(mandates);
-    for (const stream of this.deps.repository.streams(mandates)) {
+    const streams = this.deps.repository.streams(mandates), current = new Set(streams.map(stream => `${stream.network}:${stream.leaderAddress}`));
+    // A stream no copy reads any more ends its stuck episode: copied again later, it starts a fresh one.
+    for (const key of this.notReadySince.keys()) if (!current.has(key)) { this.notReadySince.delete(key); this.stuckAlerted.delete(key); }
+    for (const stream of streams) {
       // Without kicks (feed down), a fast-source leader is polled.
       const poll = this.fastLeader(stream) && this.deps.fast!.feedUp?.() === false &&
         started - (this.lastFastRead.get(stream.leaderAddress) ?? 0) >= (this.options.fastPollMs ?? 7_500);
@@ -305,8 +308,13 @@ export class CopyLiveEngine {
 
   /** Extends a stream's proven coverage to (almost) now; `fast` tries the fast source first. */
   async ingest(stream: LiveStreamWork, mandates: readonly LiveMandateWork[], fast = false): Promise<IngestOutcome | null> {
-    // Mainnet retains its existing CAS-protected feed/poll concurrency.
-    if (stream.network !== 'testnet') return this.ingestOriginal(stream, mandates, fast);
+    // Mainnet retains its existing CAS-protected feed/poll concurrency. A
+    // throw (ensure, restart, the read, apply) while a gap follow-up is open
+    // counts as a gap read: its next look backs off and ends at the expiry.
+    if (stream.network !== 'testnet') {
+      try { return await this.ingestOriginal(stream, mandates, fast); }
+      catch (error) { if (fast) this.noteFastOutcome(stream, true); throw error; }
+    }
     const key = `${stream.network}:${stream.leaderAddress}`;
     if (this.ingesting.has(key)) return null;
     this.ingesting.add(key);
@@ -325,12 +333,13 @@ export class CopyLiveEngine {
     // Coverage ending before every cursor restarts at the earliest cursor instead of reading the gap.
     if (current.coverageThrough && current.coverageThrough.getTime() < earliest - 1) {
       const restarted = await this.deps.uow.run(tx => this.deps.sources.restart(tx, leaderAddress, network, current.revision, now));
-      if (restarted.kind !== 'recorded') return null;
+      // No read this time: an open gap follow-up backs off instead of firing again at once (ingest notes a throw the same way).
+      if (restarted.kind !== 'recorded') { if (fast) this.noteFastOutcome(stream, true); return null; }
       current = restarted.stream;
     }
     const from = current.coverageThrough ? current.coverageThrough.getTime() + 1 : earliest;
     const to = Math.min(now - this.options.sourceLagMs, from + 10 * 60_000);
-    if (!Number.isFinite(from) || to < from) return null;
+    if (!Number.isFinite(from) || to < from) { if (fast) this.noteFastOutcome(stream, true); return null; }
     if (network === 'testnet') {
       this.lastTestnetRead.set(key, now);
       this.testnetSourceRetryAt.delete(key);

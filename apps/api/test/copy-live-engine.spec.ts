@@ -807,6 +807,23 @@ describe('testnet copy execution engine', () => {
     expect(alerts).toHaveLength(2); expect(alerts[1]).toContain('"state":"unproven"');
   });
 
+  it('a stuck episode ends when no copy reads the stream any more: a leader copied again later starts a fresh one (review of 078c7e94)', async () => {
+    const { worker } = await legsPendingInGap(filled), alerts: string[] = [];
+    (worker as unknown as { deps: { alert?: (m: string) => void } }).deps.alert = message => { alerts.push(message); };
+    await db.update(schema.copyLiveMandates).set({ expiresAt: new Date(now + 4 * SOURCE_STUCK_ALERT_MS) });
+    const started = clock; await worker.tick();
+    clock = started + 3 * 60_000; await worker.tick(); expect(alerts).toEqual([]);
+    // The copy's generation expires: the stream is in no pass for a while.
+    await db.update(schema.copyLiveMandates).set({ expiresAt: new Date(clock) });
+    clock += 60_000; await worker.tick();
+    // Copied again: the stream, still in gap, is a fresh episode, not one 5 min old.
+    await db.update(schema.copyLiveMandates).set({ expiresAt: new Date(now + 4 * SOURCE_STUCK_ALERT_MS) });
+    const again = clock + 60_000; clock = again; await worker.tick();
+    expect(alerts).toEqual([]);
+    clock = again + SOURCE_STUCK_ALERT_MS - 60_000; await worker.tick(); expect(alerts).toEqual([]);
+    clock = again + SOURCE_STUCK_ALERT_MS; await worker.tick(); expect(alerts).toHaveLength(1);
+  });
+
   it('refuses a close that keeps failing after CLOSE_ATTEMPT_LIMIT attempts, never retrying it for ever', async () => {
     await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
     const open = await leaderFill(25, now + 100, 'B', '1', '0', 'ETH'), close = await leaderFill(26, now + 200, 'A', '1', '1', 'ETH');

@@ -1,0 +1,1163 @@
+{
+  "network": "mainnet",
+  "endpoint": "https://api.hyperliquid.xyz/info",
+  "date": "2026-10-23",
+  "recordedAt": "2026-10-23T11:40:50.885Z",
+  "window": {
+    "startTime": 1792669250885,
+    "endTime": 1792755650885,
+    "hours": 24
+  },
+  "maxFills": 500,
+  "addresses": [
+    "0x77375a8c9d13bf79afb2a87f1b0ac1dfd5f5bf66",
+    "0xeadc152ac1014ace57c6b353f89adf5faffe9d55",
+    "0x4c6d679eac539bf7c5a0b7ebd8949ae93b1e5ee9",
+    "0x9c6a5b4662c722d2c47f43d6c9813cb080ffa4ed"
+  ],
+  "totalBytes": 813946,
+  "entries": [
+    {
+      "file": "userRole-77375a8c.json",
+      "type": "userRole",
+      "request": {
+        "type": "userRole",
+        "user": "0x77375a8c9d13bf79afb2a87f1b0ac1dfd5f5bf66"
+      },
+      "recordedAt": "2026-10-23T11:30:21.789Z",
+      "bytes": 15
+    },
+    {
+      "file": "userAbstraction-77375a8c.json",
+      "type": "userAbstraction",
+      "request": {
+        "type": "userAbstraction",
+        "user": "0x77375a8c9d13bf79afb2a87f1b0ac1dfd5f5bf66"
+      },
+      "recordedAt": "2026-10-23T11:30:22.187Z",
+      "bytes": 16
+    },
+    {
+      "file": "userDexAbstraction-77375a8c.json",
+      "type": "userDexAbstraction",
+      "request": {
+        "type": "userDexAbstraction",
+        "user": "0x77375a8c9d13bf79afb2a87f1b0ac1dfd5f5bf66"
+      },
+      "recordedAt": "2026-10-23T11:30:22.972Z",
+      "bytes": 5
+    },
+    {
+      "file": "spotClearinghouseState-77375a8c.json",
+      "type": "spotClearinghouseState",
+      "request": {
+        "type": "spotClearinghouseState",
+        "user": "0x77375a8c9d13bf79afb2a87f1b0ac1dfd5f5bf66"
+      },
+      "recordedAt": "2026-10-23T11:30:23.447Z",
+      "bytes": 7664
+    },
+    {
+      "file": "userFees-77375a8c.json",
+      "type": "userFees",
+      "request": {
+        "type": "userFees",
+        "user": "0x77375a8c9d13bf79afb2a87f1b0ac1dfd5f5bf66"
+      },
+      "recordedAt": "2026-10-23T11:30:23.760Z",
+      "bytes": 2978
+    },
+    {
+      "file": "clearinghouseState-77375a8c.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0x77375a8c9d13bf79afb2a87f1b0ac1dfd5f5bf66"
+      },
+      "recordedAt": "2026-10-23T11:30:24.181Z",
+      "bytes": 3629
+    },
+    {
+      "file": "clearinghouseState-77375a8c-xyz.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0x77375a8c9d13bf79afb2a87f1b0ac1dfd5f5bf66",
+        "dex": "xyz"
+      },
+      "recordedAt": "2026-10-23T11:30:24.490Z",
+      "bytes": 309
+    },
+    {
+      "file": "clearinghouseState-77375a8c-flx.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0x77375a8c9d13bf79afb2a87f1b0ac1dfd5f5bf66",
+        "dex": "flx"
+      },
+      "recordedAt": "2026-10-23T11:30:24.962Z",
+      "bytes": 309
+    },
+    {
+      "file": "clearinghouseState-77375a8c-vntl.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0x77375a8c9d13bf79afb2a87f1b0ac1dfd5f5bf66",
+        "dex": "vntl"
+      },
+      "recordedAt": "2026-10-23T11:30:25.428Z",
+      "bytes": 309
+    },
+    {
+      "file": "clearinghouseState-77375a8c-hyna.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0x77375a8c9d13bf79afb2a87f1b0ac1dfd5f5bf66",
+        "dex": "hyna"
+      },
+      "recordedAt": "2026-10-23T11:30:25.894Z",
+      "bytes": 309
+    },
+    {
+      "file": "clearinghouseState-77375a8c-km.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0x77375a8c9d13bf79afb2a87f1b0ac1dfd5f5bf66",
+        "dex": "km"
+      },
+      "recordedAt": "2026-10-23T11:30:26.604Z",
+      "bytes": 309
+    },
+    {
+      "file": "clearinghouseState-77375a8c-abcd.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0x77375a8c9d13bf79afb2a87f1b0ac1dfd5f5bf66",
+        "dex": "abcd"
+      },
+      "recordedAt": "2026-10-23T11:30:26.959Z",
+      "bytes": 309
+    },
+    {
+      "file": "clearinghouseState-77375a8c-cash.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0x77375a8c9d13bf79afb2a87f1b0ac1dfd5f5bf66",
+        "dex": "cash"
+      },
+      "recordedAt": "2026-10-23T11:30:27.502Z",
+      "bytes": 309
+    },
+    {
+      "file": "clearinghouseState-77375a8c-para.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0x77375a8c9d13bf79afb2a87f1b0ac1dfd5f5bf66",
+        "dex": "para"
+      },
+      "recordedAt": "2026-10-23T11:30:27.815Z",
+      "bytes": 309
+    },
+    {
+      "file": "clearinghouseState-77375a8c-mkts.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0x77375a8c9d13bf79afb2a87f1b0ac1dfd5f5bf66",
+        "dex": "mkts"
+      },
+      "recordedAt": "2026-10-23T11:30:28.123Z",
+      "bytes": 309
+    },
+    {
+      "file": "clearinghouseState-77375a8c-io.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0x77375a8c9d13bf79afb2a87f1b0ac1dfd5f5bf66",
+        "dex": "io"
+      },
+      "recordedAt": "2026-10-23T11:30:28.434Z",
+      "bytes": 309
+    },
+    {
+      "file": "frontendOpenOrders-77375a8c.json",
+      "type": "frontendOpenOrders",
+      "request": {
+        "type": "frontendOpenOrders",
+        "user": "0x77375a8c9d13bf79afb2a87f1b0ac1dfd5f5bf66"
+      },
+      "recordedAt": "2026-10-23T11:30:28.744Z",
+      "bytes": 2,
+      "rows": 0
+    },
+    {
+      "file": "userFillsByTime-77375a8c.json",
+      "type": "userFillsByTime",
+      "request": {
+        "type": "userFillsByTime",
+        "user": "0x77375a8c9d13bf79afb2a87f1b0ac1dfd5f5bf66",
+        "startTime": 1792668619265,
+        "endTime": 1792755019265,
+        "aggregateByTime": false
+      },
+      "recordedAt": "2026-10-23T11:30:29.115Z",
+      "bytes": 74483,
+      "rows": 196,
+      "coverage": {
+        "from": 1792668619265,
+        "to": 1792755019265,
+        "rows": 196
+      }
+    },
+    {
+      "file": "userTwapSliceFillsByTime-77375a8c.json",
+      "type": "userTwapSliceFillsByTime",
+      "request": {
+        "type": "userTwapSliceFillsByTime",
+        "user": "0x77375a8c9d13bf79afb2a87f1b0ac1dfd5f5bf66",
+        "startTime": 1792668619265,
+        "endTime": 1792755019265
+      },
+      "recordedAt": "2026-10-23T11:30:29.493Z",
+      "bytes": 2,
+      "rows": 0,
+      "coverage": {
+        "from": 1792668619265,
+        "to": 1792755019265,
+        "rows": 0
+      }
+    },
+    {
+      "file": "userFunding-77375a8c.json",
+      "type": "userFunding",
+      "request": {
+        "type": "userFunding",
+        "user": "0x77375a8c9d13bf79afb2a87f1b0ac1dfd5f5bf66",
+        "startTime": 1792668619265,
+        "endTime": 1792755019265
+      },
+      "recordedAt": "2026-10-23T11:30:29.833Z",
+      "bytes": 42450,
+      "rows": 192,
+      "coverage": {
+        "from": 1792668619265,
+        "to": 1792755019265,
+        "rows": 192
+      }
+    },
+    {
+      "file": "activeAssetData-77375a8c-NEAR.json",
+      "type": "activeAssetData",
+      "request": {
+        "type": "activeAssetData",
+        "user": "0x77375a8c9d13bf79afb2a87f1b0ac1dfd5f5bf66",
+        "coin": "NEAR"
+      },
+      "recordedAt": "2026-10-23T11:30:30.147Z",
+      "bytes": 223
+    },
+    {
+      "file": "orderStatus-77375a8c-583575700359.json",
+      "type": "orderStatus",
+      "request": {
+        "type": "orderStatus",
+        "user": "0x77375a8c9d13bf79afb2a87f1b0ac1dfd5f5bf66",
+        "oid": 583575700359
+      },
+      "recordedAt": "2026-10-23T11:30:30.448Z",
+      "bytes": 396
+    },
+    {
+      "file": "orderStatus-77375a8c-1.json",
+      "type": "orderStatus",
+      "request": {
+        "type": "orderStatus",
+        "user": "0x77375a8c9d13bf79afb2a87f1b0ac1dfd5f5bf66",
+        "oid": 1
+      },
+      "recordedAt": "2026-10-23T11:30:30.756Z",
+      "bytes": 23
+    },
+    {
+      "file": "userRole-eadc152a.json",
+      "type": "userRole",
+      "request": {
+        "type": "userRole",
+        "user": "0xeadc152ac1014ace57c6b353f89adf5faffe9d55"
+      },
+      "recordedAt": "2026-10-23T11:30:31.117Z",
+      "bytes": 15
+    },
+    {
+      "file": "userAbstraction-eadc152a.json",
+      "type": "userAbstraction",
+      "request": {
+        "type": "userAbstraction",
+        "user": "0xeadc152ac1014ace57c6b353f89adf5faffe9d55"
+      },
+      "recordedAt": "2026-10-23T11:30:31.428Z",
+      "bytes": 16
+    },
+    {
+      "file": "userDexAbstraction-eadc152a.json",
+      "type": "userDexAbstraction",
+      "request": {
+        "type": "userDexAbstraction",
+        "user": "0xeadc152ac1014ace57c6b353f89adf5faffe9d55"
+      },
+      "recordedAt": "2026-10-23T11:30:31.736Z",
+      "bytes": 5
+    },
+    {
+      "file": "spotClearinghouseState-eadc152a.json",
+      "type": "spotClearinghouseState",
+      "request": {
+        "type": "spotClearinghouseState",
+        "user": "0xeadc152ac1014ace57c6b353f89adf5faffe9d55"
+      },
+      "recordedAt": "2026-10-23T11:30:32.048Z",
+      "bytes": 800
+    },
+    {
+      "file": "userFees-eadc152a.json",
+      "type": "userFees",
+      "request": {
+        "type": "userFees",
+        "user": "0xeadc152ac1014ace57c6b353f89adf5faffe9d55"
+      },
+      "recordedAt": "2026-10-23T11:30:32.357Z",
+      "bytes": 2926
+    },
+    {
+      "file": "clearinghouseState-eadc152a.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0xeadc152ac1014ace57c6b353f89adf5faffe9d55"
+      },
+      "recordedAt": "2026-10-23T11:30:32.703Z",
+      "bytes": 15607
+    },
+    {
+      "file": "clearinghouseState-eadc152a-xyz.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0xeadc152ac1014ace57c6b353f89adf5faffe9d55",
+        "dex": "xyz"
+      },
+      "recordedAt": "2026-10-23T11:30:33.024Z",
+      "bytes": 1564
+    },
+    {
+      "file": "clearinghouseState-eadc152a-flx.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0xeadc152ac1014ace57c6b353f89adf5faffe9d55",
+        "dex": "flx"
+      },
+      "recordedAt": "2026-10-23T11:30:33.356Z",
+      "bytes": 309
+    },
+    {
+      "file": "clearinghouseState-eadc152a-vntl.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0xeadc152ac1014ace57c6b353f89adf5faffe9d55",
+        "dex": "vntl"
+      },
+      "recordedAt": "2026-10-23T11:30:33.666Z",
+      "bytes": 309
+    },
+    {
+      "file": "clearinghouseState-eadc152a-hyna.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0xeadc152ac1014ace57c6b353f89adf5faffe9d55",
+        "dex": "hyna"
+      },
+      "recordedAt": "2026-10-23T11:30:33.980Z",
+      "bytes": 309
+    },
+    {
+      "file": "clearinghouseState-eadc152a-km.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0xeadc152ac1014ace57c6b353f89adf5faffe9d55",
+        "dex": "km"
+      },
+      "recordedAt": "2026-10-23T11:30:34.307Z",
+      "bytes": 309
+    },
+    {
+      "file": "clearinghouseState-eadc152a-abcd.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0xeadc152ac1014ace57c6b353f89adf5faffe9d55",
+        "dex": "abcd"
+      },
+      "recordedAt": "2026-10-23T11:30:34.621Z",
+      "bytes": 309
+    },
+    {
+      "file": "clearinghouseState-eadc152a-cash.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0xeadc152ac1014ace57c6b353f89adf5faffe9d55",
+        "dex": "cash"
+      },
+      "recordedAt": "2026-10-23T11:30:34.930Z",
+      "bytes": 309
+    },
+    {
+      "file": "clearinghouseState-eadc152a-para.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0xeadc152ac1014ace57c6b353f89adf5faffe9d55",
+        "dex": "para"
+      },
+      "recordedAt": "2026-10-23T11:30:35.272Z",
+      "bytes": 309
+    },
+    {
+      "file": "clearinghouseState-eadc152a-mkts.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0xeadc152ac1014ace57c6b353f89adf5faffe9d55",
+        "dex": "mkts"
+      },
+      "recordedAt": "2026-10-23T11:30:35.583Z",
+      "bytes": 309
+    },
+    {
+      "file": "clearinghouseState-eadc152a-io.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0xeadc152ac1014ace57c6b353f89adf5faffe9d55",
+        "dex": "io"
+      },
+      "recordedAt": "2026-10-23T11:30:35.903Z",
+      "bytes": 309
+    },
+    {
+      "file": "frontendOpenOrders-eadc152a.json",
+      "type": "frontendOpenOrders",
+      "request": {
+        "type": "frontendOpenOrders",
+        "user": "0xeadc152ac1014ace57c6b353f89adf5faffe9d55"
+      },
+      "recordedAt": "2026-10-23T11:30:36.238Z",
+      "bytes": 2,
+      "rows": 0
+    },
+    {
+      "file": "userFillsByTime-eadc152a.json",
+      "type": "userFillsByTime",
+      "request": {
+        "type": "userFillsByTime",
+        "user": "0xeadc152ac1014ace57c6b353f89adf5faffe9d55",
+        "startTime": 1792668619265,
+        "endTime": 1792755019265,
+        "aggregateByTime": false
+      },
+      "recordedAt": "2026-10-23T11:30:36.559Z",
+      "bytes": 2,
+      "rows": 0,
+      "coverage": {
+        "from": 1792668619265,
+        "to": 1792755019265,
+        "rows": 0
+      }
+    },
+    {
+      "file": "userTwapSliceFillsByTime-eadc152a.json",
+      "type": "userTwapSliceFillsByTime",
+      "request": {
+        "type": "userTwapSliceFillsByTime",
+        "user": "0xeadc152ac1014ace57c6b353f89adf5faffe9d55",
+        "startTime": 1792668619265,
+        "endTime": 1792755019265
+      },
+      "recordedAt": "2026-10-23T11:30:37.039Z",
+      "bytes": 175971,
+      "rows": 1904,
+      "coverage": {
+        "from": 1792684021029,
+        "to": 1792755019265,
+        "rows": 500
+      },
+      "truncated": {
+        "originalRows": 1904,
+        "keptRows": 500
+      }
+    },
+    {
+      "file": "userFunding-eadc152a.json",
+      "type": "userFunding",
+      "request": {
+        "type": "userFunding",
+        "user": "0xeadc152ac1014ace57c6b353f89adf5faffe9d55",
+        "startTime": 1792668619265,
+        "endTime": 1792755019265
+      },
+      "recordedAt": "2026-10-23T11:30:37.879Z",
+      "bytes": 110625,
+      "rows": 500,
+      "coverage": {
+        "from": 1792668619265,
+        "to": 1792755019265,
+        "rows": 500
+      }
+    },
+    {
+      "file": "activeAssetData-eadc152a-kBONK.json",
+      "type": "activeAssetData",
+      "request": {
+        "type": "activeAssetData",
+        "user": "0xeadc152ac1014ace57c6b353f89adf5faffe9d55",
+        "coin": "kBONK"
+      },
+      "recordedAt": "2026-10-23T11:30:38.189Z",
+      "bytes": 236
+    },
+    {
+      "file": "orderStatus-eadc152a-582907588354.json",
+      "type": "orderStatus",
+      "request": {
+        "type": "orderStatus",
+        "user": "0xeadc152ac1014ace57c6b353f89adf5faffe9d55",
+        "oid": 582907588354
+      },
+      "recordedAt": "2026-10-23T11:30:38.597Z",
+      "bytes": 23
+    },
+    {
+      "file": "orderStatus-eadc152a-1.json",
+      "type": "orderStatus",
+      "request": {
+        "type": "orderStatus",
+        "user": "0xeadc152ac1014ace57c6b353f89adf5faffe9d55",
+        "oid": 1
+      },
+      "recordedAt": "2026-10-23T11:30:38.909Z",
+      "bytes": 23
+    },
+    {
+      "file": "userRole-4c6d679e.json",
+      "type": "userRole",
+      "request": {
+        "type": "userRole",
+        "user": "0x4c6d679eac539bf7c5a0b7ebd8949ae93b1e5ee9"
+      },
+      "recordedAt": "2026-10-23T11:34:52.309Z",
+      "bytes": 15
+    },
+    {
+      "file": "userAbstraction-4c6d679e.json",
+      "type": "userAbstraction",
+      "request": {
+        "type": "userAbstraction",
+        "user": "0x4c6d679eac539bf7c5a0b7ebd8949ae93b1e5ee9"
+      },
+      "recordedAt": "2026-10-23T11:34:52.622Z",
+      "bytes": 10
+    },
+    {
+      "file": "userDexAbstraction-4c6d679e.json",
+      "type": "userDexAbstraction",
+      "request": {
+        "type": "userDexAbstraction",
+        "user": "0x4c6d679eac539bf7c5a0b7ebd8949ae93b1e5ee9"
+      },
+      "recordedAt": "2026-10-23T11:34:52.933Z",
+      "bytes": 5
+    },
+    {
+      "file": "spotClearinghouseState-4c6d679e.json",
+      "type": "spotClearinghouseState",
+      "request": {
+        "type": "spotClearinghouseState",
+        "user": "0x4c6d679eac539bf7c5a0b7ebd8949ae93b1e5ee9"
+      },
+      "recordedAt": "2026-10-23T11:34:53.265Z",
+      "bytes": 695
+    },
+    {
+      "file": "userFees-4c6d679e.json",
+      "type": "userFees",
+      "request": {
+        "type": "userFees",
+        "user": "0x4c6d679eac539bf7c5a0b7ebd8949ae93b1e5ee9"
+      },
+      "recordedAt": "2026-10-23T11:34:53.576Z",
+      "bytes": 3044
+    },
+    {
+      "file": "clearinghouseState-4c6d679e.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0x4c6d679eac539bf7c5a0b7ebd8949ae93b1e5ee9"
+      },
+      "recordedAt": "2026-10-23T11:34:53.888Z",
+      "bytes": 798
+    },
+    {
+      "file": "clearinghouseState-4c6d679e-xyz.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0x4c6d679eac539bf7c5a0b7ebd8949ae93b1e5ee9",
+        "dex": "xyz"
+      },
+      "recordedAt": "2026-10-23T11:34:54.199Z",
+      "bytes": 309
+    },
+    {
+      "file": "clearinghouseState-4c6d679e-flx.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0x4c6d679eac539bf7c5a0b7ebd8949ae93b1e5ee9",
+        "dex": "flx"
+      },
+      "recordedAt": "2026-10-23T11:34:54.509Z",
+      "bytes": 309
+    },
+    {
+      "file": "clearinghouseState-4c6d679e-vntl.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0x4c6d679eac539bf7c5a0b7ebd8949ae93b1e5ee9",
+        "dex": "vntl"
+      },
+      "recordedAt": "2026-10-23T11:34:54.828Z",
+      "bytes": 309
+    },
+    {
+      "file": "clearinghouseState-4c6d679e-hyna.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0x4c6d679eac539bf7c5a0b7ebd8949ae93b1e5ee9",
+        "dex": "hyna"
+      },
+      "recordedAt": "2026-10-23T11:34:55.138Z",
+      "bytes": 309
+    },
+    {
+      "file": "clearinghouseState-4c6d679e-km.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0x4c6d679eac539bf7c5a0b7ebd8949ae93b1e5ee9",
+        "dex": "km"
+      },
+      "recordedAt": "2026-10-23T11:34:55.452Z",
+      "bytes": 309
+    },
+    {
+      "file": "clearinghouseState-4c6d679e-abcd.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0x4c6d679eac539bf7c5a0b7ebd8949ae93b1e5ee9",
+        "dex": "abcd"
+      },
+      "recordedAt": "2026-10-23T11:34:55.763Z",
+      "bytes": 309
+    },
+    {
+      "file": "clearinghouseState-4c6d679e-cash.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0x4c6d679eac539bf7c5a0b7ebd8949ae93b1e5ee9",
+        "dex": "cash"
+      },
+      "recordedAt": "2026-10-23T11:34:56.084Z",
+      "bytes": 309
+    },
+    {
+      "file": "clearinghouseState-4c6d679e-para.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0x4c6d679eac539bf7c5a0b7ebd8949ae93b1e5ee9",
+        "dex": "para"
+      },
+      "recordedAt": "2026-10-23T11:34:56.426Z",
+      "bytes": 309
+    },
+    {
+      "file": "clearinghouseState-4c6d679e-mkts.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0x4c6d679eac539bf7c5a0b7ebd8949ae93b1e5ee9",
+        "dex": "mkts"
+      },
+      "recordedAt": "2026-10-23T11:34:56.737Z",
+      "bytes": 309
+    },
+    {
+      "file": "clearinghouseState-4c6d679e-io.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0x4c6d679eac539bf7c5a0b7ebd8949ae93b1e5ee9",
+        "dex": "io"
+      },
+      "recordedAt": "2026-10-23T11:34:57.078Z",
+      "bytes": 309
+    },
+    {
+      "file": "frontendOpenOrders-4c6d679e.json",
+      "type": "frontendOpenOrders",
+      "request": {
+        "type": "frontendOpenOrders",
+        "user": "0x4c6d679eac539bf7c5a0b7ebd8949ae93b1e5ee9"
+      },
+      "recordedAt": "2026-10-23T11:34:57.390Z",
+      "bytes": 5376,
+      "rows": 19
+    },
+    {
+      "file": "userFillsByTime-4c6d679e.json",
+      "type": "userFillsByTime",
+      "request": {
+        "type": "userFillsByTime",
+        "user": "0x4c6d679eac539bf7c5a0b7ebd8949ae93b1e5ee9",
+        "startTime": 1792668890438,
+        "endTime": 1792755290438,
+        "aggregateByTime": false
+      },
+      "recordedAt": "2026-10-23T11:34:57.708Z",
+      "bytes": 2,
+      "rows": 0,
+      "coverage": {
+        "from": 1792668890438,
+        "to": 1792755290438,
+        "rows": 0
+      }
+    },
+    {
+      "file": "userTwapSliceFillsByTime-4c6d679e.json",
+      "type": "userTwapSliceFillsByTime",
+      "request": {
+        "type": "userTwapSliceFillsByTime",
+        "user": "0x4c6d679eac539bf7c5a0b7ebd8949ae93b1e5ee9",
+        "startTime": 1792668890438,
+        "endTime": 1792755290438
+      },
+      "recordedAt": "2026-10-23T11:34:58.007Z",
+      "bytes": 2,
+      "rows": 0,
+      "coverage": {
+        "from": 1792668890438,
+        "to": 1792755290438,
+        "rows": 0
+      }
+    },
+    {
+      "file": "userFunding-4c6d679e.json",
+      "type": "userFunding",
+      "request": {
+        "type": "userFunding",
+        "user": "0x4c6d679eac539bf7c5a0b7ebd8949ae93b1e5ee9",
+        "startTime": 1792668890438,
+        "endTime": 1792755290438
+      },
+      "recordedAt": "2026-10-23T11:34:58.342Z",
+      "bytes": 5270,
+      "rows": 24,
+      "coverage": {
+        "from": 1792668890438,
+        "to": 1792755290438,
+        "rows": 24
+      }
+    },
+    {
+      "file": "activeAssetData-4c6d679e-XMR.json",
+      "type": "activeAssetData",
+      "request": {
+        "type": "activeAssetData",
+        "user": "0x4c6d679eac539bf7c5a0b7ebd8949ae93b1e5ee9",
+        "coin": "XMR"
+      },
+      "recordedAt": "2026-10-23T11:34:58.653Z",
+      "bytes": 211
+    },
+    {
+      "file": "orderStatus-4c6d679e-1.json",
+      "type": "orderStatus",
+      "request": {
+        "type": "orderStatus",
+        "user": "0x4c6d679eac539bf7c5a0b7ebd8949ae93b1e5ee9",
+        "oid": 1
+      },
+      "recordedAt": "2026-10-23T11:34:58.962Z",
+      "bytes": 23
+    },
+    {
+      "file": "perpDexs.json",
+      "type": "perpDexs",
+      "request": {
+        "type": "perpDexs"
+      },
+      "recordedAt": "2026-10-23T11:40:51.031Z",
+      "bytes": 21755,
+      "rows": 11
+    },
+    {
+      "file": "spotMeta.json",
+      "type": "spotMeta",
+      "request": {
+        "type": "spotMeta"
+      },
+      "recordedAt": "2026-10-23T11:40:51.372Z",
+      "bytes": 138883
+    },
+    {
+      "file": "allPerpMetas.json",
+      "type": "allPerpMetas",
+      "request": {
+        "type": "allPerpMetas"
+      },
+      "recordedAt": "2026-10-23T11:40:51.749Z",
+      "bytes": 85196,
+      "rows": 11
+    },
+    {
+      "file": "meta.json",
+      "type": "meta",
+      "request": {
+        "type": "meta"
+      },
+      "recordedAt": "2026-10-23T11:40:52.069Z",
+      "bytes": 17628
+    },
+    {
+      "file": "metaAndAssetCtxs.json",
+      "type": "metaAndAssetCtxs",
+      "request": {
+        "type": "metaAndAssetCtxs"
+      },
+      "recordedAt": "2026-10-23T11:40:52.441Z",
+      "bytes": 71942,
+      "rows": 2
+    },
+    {
+      "file": "userRole-9c6a5b46.json",
+      "type": "userRole",
+      "request": {
+        "type": "userRole",
+        "user": "0x9c6a5b4662c722d2c47f43d6c9813cb080ffa4ed"
+      },
+      "recordedAt": "2026-10-23T11:40:52.763Z",
+      "bytes": 15
+    },
+    {
+      "file": "userAbstraction-9c6a5b46.json",
+      "type": "userAbstraction",
+      "request": {
+        "type": "userAbstraction",
+        "user": "0x9c6a5b4662c722d2c47f43d6c9813cb080ffa4ed"
+      },
+      "recordedAt": "2026-10-23T11:40:53.075Z",
+      "bytes": 16
+    },
+    {
+      "file": "userDexAbstraction-9c6a5b46.json",
+      "type": "userDexAbstraction",
+      "request": {
+        "type": "userDexAbstraction",
+        "user": "0x9c6a5b4662c722d2c47f43d6c9813cb080ffa4ed"
+      },
+      "recordedAt": "2026-10-23T11:40:53.384Z",
+      "bytes": 5
+    },
+    {
+      "file": "spotClearinghouseState-9c6a5b46.json",
+      "type": "spotClearinghouseState",
+      "request": {
+        "type": "spotClearinghouseState",
+        "user": "0x9c6a5b4662c722d2c47f43d6c9813cb080ffa4ed"
+      },
+      "recordedAt": "2026-10-23T11:40:53.705Z",
+      "bytes": 395
+    },
+    {
+      "file": "userFees-9c6a5b46.json",
+      "type": "userFees",
+      "request": {
+        "type": "userFees",
+        "user": "0x9c6a5b4662c722d2c47f43d6c9813cb080ffa4ed"
+      },
+      "recordedAt": "2026-10-23T11:40:54.074Z",
+      "bytes": 2869
+    },
+    {
+      "file": "clearinghouseState-9c6a5b46.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0x9c6a5b4662c722d2c47f43d6c9813cb080ffa4ed"
+      },
+      "recordedAt": "2026-10-23T11:40:54.398Z",
+      "bytes": 868
+    },
+    {
+      "file": "clearinghouseState-9c6a5b46-xyz.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0x9c6a5b4662c722d2c47f43d6c9813cb080ffa4ed",
+        "dex": "xyz"
+      },
+      "recordedAt": "2026-10-23T11:40:54.706Z",
+      "bytes": 309
+    },
+    {
+      "file": "clearinghouseState-9c6a5b46-flx.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0x9c6a5b4662c722d2c47f43d6c9813cb080ffa4ed",
+        "dex": "flx"
+      },
+      "recordedAt": "2026-10-23T11:40:55.042Z",
+      "bytes": 309
+    },
+    {
+      "file": "clearinghouseState-9c6a5b46-vntl.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0x9c6a5b4662c722d2c47f43d6c9813cb080ffa4ed",
+        "dex": "vntl"
+      },
+      "recordedAt": "2026-10-23T11:40:55.362Z",
+      "bytes": 309
+    },
+    {
+      "file": "clearinghouseState-9c6a5b46-hyna.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0x9c6a5b4662c722d2c47f43d6c9813cb080ffa4ed",
+        "dex": "hyna"
+      },
+      "recordedAt": "2026-10-23T11:40:55.695Z",
+      "bytes": 309
+    },
+    {
+      "file": "clearinghouseState-9c6a5b46-km.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0x9c6a5b4662c722d2c47f43d6c9813cb080ffa4ed",
+        "dex": "km"
+      },
+      "recordedAt": "2026-10-23T11:40:56.004Z",
+      "bytes": 309
+    },
+    {
+      "file": "clearinghouseState-9c6a5b46-abcd.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0x9c6a5b4662c722d2c47f43d6c9813cb080ffa4ed",
+        "dex": "abcd"
+      },
+      "recordedAt": "2026-10-23T11:40:56.315Z",
+      "bytes": 309
+    },
+    {
+      "file": "clearinghouseState-9c6a5b46-cash.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0x9c6a5b4662c722d2c47f43d6c9813cb080ffa4ed",
+        "dex": "cash"
+      },
+      "recordedAt": "2026-10-23T11:40:56.630Z",
+      "bytes": 309
+    },
+    {
+      "file": "clearinghouseState-9c6a5b46-para.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0x9c6a5b4662c722d2c47f43d6c9813cb080ffa4ed",
+        "dex": "para"
+      },
+      "recordedAt": "2026-10-23T11:40:56.942Z",
+      "bytes": 309
+    },
+    {
+      "file": "clearinghouseState-9c6a5b46-mkts.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0x9c6a5b4662c722d2c47f43d6c9813cb080ffa4ed",
+        "dex": "mkts"
+      },
+      "recordedAt": "2026-10-23T11:40:57.275Z",
+      "bytes": 309
+    },
+    {
+      "file": "clearinghouseState-9c6a5b46-io.json",
+      "type": "clearinghouseState",
+      "request": {
+        "type": "clearinghouseState",
+        "user": "0x9c6a5b4662c722d2c47f43d6c9813cb080ffa4ed",
+        "dex": "io"
+      },
+      "recordedAt": "2026-10-23T11:40:57.585Z",
+      "bytes": 309
+    },
+    {
+      "file": "frontendOpenOrders-9c6a5b46.json",
+      "type": "frontendOpenOrders",
+      "request": {
+        "type": "frontendOpenOrders",
+        "user": "0x9c6a5b4662c722d2c47f43d6c9813cb080ffa4ed"
+      },
+      "recordedAt": "2026-10-23T11:40:57.896Z",
+      "bytes": 1433,
+      "rows": 5
+    },
+    {
+      "file": "userFillsByTime-9c6a5b46.json",
+      "type": "userFillsByTime",
+      "request": {
+        "type": "userFillsByTime",
+        "user": "0x9c6a5b4662c722d2c47f43d6c9813cb080ffa4ed",
+        "startTime": 1792669250885,
+        "endTime": 1792755650885,
+        "aggregateByTime": false
+      },
+      "recordedAt": "2026-10-23T11:40:58.197Z",
+      "bytes": 2,
+      "rows": 0,
+      "coverage": {
+        "from": 1792669250885,
+        "to": 1792755650885,
+        "rows": 0
+      }
+    },
+    {
+      "file": "userTwapSliceFillsByTime-9c6a5b46.json",
+      "type": "userTwapSliceFillsByTime",
+      "request": {
+        "type": "userTwapSliceFillsByTime",
+        "user": "0x9c6a5b4662c722d2c47f43d6c9813cb080ffa4ed",
+        "startTime": 1792669250885,
+        "endTime": 1792755650885
+      },
+      "recordedAt": "2026-10-23T11:40:58.507Z",
+      "bytes": 2,
+      "rows": 0,
+      "coverage": {
+        "from": 1792669250885,
+        "to": 1792755650885,
+        "rows": 0
+      }
+    },
+    {
+      "file": "userFunding-9c6a5b46.json",
+      "type": "userFunding",
+      "request": {
+        "type": "userFunding",
+        "user": "0x9c6a5b4662c722d2c47f43d6c9813cb080ffa4ed",
+        "startTime": 1792669250885,
+        "endTime": 1792755650885
+      },
+      "recordedAt": "2026-10-23T11:40:58.874Z",
+      "bytes": 5482,
+      "rows": 24,
+      "coverage": {
+        "from": 1792669250885,
+        "to": 1792755650885,
+        "rows": 24
+      }
+    },
+    {
+      "file": "activeAssetData-9c6a5b46-SOL.json",
+      "type": "activeAssetData",
+      "request": {
+        "type": "activeAssetData",
+        "user": "0x9c6a5b4662c722d2c47f43d6c9813cb080ffa4ed",
+        "coin": "SOL"
+      },
+      "recordedAt": "2026-10-23T11:40:59.198Z",
+      "bytes": 229
+    },
+    {
+      "file": "orderStatus-9c6a5b46-1.json",
+      "type": "orderStatus",
+      "request": {
+        "type": "orderStatus",
+        "user": "0x9c6a5b4662c722d2c47f43d6c9813cb080ffa4ed",
+        "oid": 1
+      },
+      "recordedAt": "2026-10-23T11:40:59.513Z",
+      "bytes": 23
+    }
+  ],
+  "runs": [
+    {
+      "recordedAt": "2026-10-23T11:30:19.265Z",
+      "window": {
+        "startTime": 1792668619265,
+        "endTime": 1792755019265,
+        "hours": 24
+      },
+      "addresses": [
+        "0x77375a8c9d13bf79afb2a87f1b0ac1dfd5f5bf66",
+        "0xeadc152ac1014ace57c6b353f89adf5faffe9d55"
+      ]
+    },
+    {
+      "recordedAt": "2026-10-23T11:34:50.438Z",
+      "window": {
+        "startTime": 1792668890438,
+        "endTime": 1792755290438,
+        "hours": 24
+      },
+      "addresses": [
+        "0x4c6d679eac539bf7c5a0b7ebd8949ae93b1e5ee9"
+      ]
+    },
+    {
+      "recordedAt": "2026-10-23T11:40:50.885Z",
+      "window": {
+        "startTime": 1792669250885,
+        "endTime": 1792755650885,
+        "hours": 24
+      },
+      "addresses": [
+        "0x9c6a5b4662c722d2c47f43d6c9813cb080ffa4ed"
+      ]
+    }
+  ]
+}

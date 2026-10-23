@@ -102,7 +102,7 @@ jobs:
           node --test scripts/test-database.test.mjs apps/api/scripts/migrate.test.mjs
           scripts/ci-changes.test.mjs scripts/api-test-files.test.mjs scripts/test-shards.test.mjs
           scripts/copy-harness/harness.test.mjs scripts/ops/copy-acceptance.test.mjs scripts/ops/site-freshness.test.mjs
-          scripts/ops/services-manifest.test.mjs
+          scripts/ops/services-manifest.test.mjs scripts/ops/hl-record.test.mjs
       - name: Web tests
         if: env.CODE == 'true'
         run: pnpm --filter @trading-dashboard/web test

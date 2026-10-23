@@ -277,6 +277,12 @@ export const FUNDING_NONCE_SKEW_MS = DAY_MS;
  */
 export const FUNDING_NONCE_EXPIRY_MS = 2 * DAY_MS + HOUR_MS;
 
+/** basis: derived — FUNDING_NONCE_EXPIRY_MS less a day and its hour of margin: a setup's reserved deposit is
+ * re-reserved once its nonce is a day old, so the deposit the owner signs always has a day left to execute
+ * (copy-live-setup-provisioning.ts). The margin is intentional: a setup may wait on the owner for hours.
+ */
+export const SETUP_DEPOSIT_NONCE_REFRESH_MS = FUNDING_NONCE_EXPIRY_MS - DAY_MS - HOUR_MS;
+
 /** basis: guessed — an order request may be on its way for 20 s (the transport's HTTP timeout); gate 9 records p50/p99
  */
 export const LIVE_HTTP_TIMEOUT_MS = 20_000;

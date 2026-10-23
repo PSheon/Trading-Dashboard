@@ -251,7 +251,7 @@ export const STATEMENTS: Record<Exclude<RetentionTable, "deleted_accounts">, (cu
       ${signals("done", cutoff, limit)} UNION ALL ${signals("failed", cutoff, limit)})) AND status IN ('done', 'failed')`,
   alerts: (cutoff, limit) => sql`
     DELETE FROM alerts WHERE id = ANY (ARRAY(
-      (SELECT a.id FROM alerts a WHERE a.sent_at < ${cutoff} ORDER BY a.sent_at DESC NULLS LAST LIMIT ${limit})
+      (SELECT a.id FROM alerts a WHERE a.sent_at < ${cutoff} ORDER BY a.sent_at LIMIT ${limit})
       UNION ALL
       (SELECT a.id FROM alerts a
         WHERE a.sent_at IS NULL

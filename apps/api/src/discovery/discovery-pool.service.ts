@@ -51,8 +51,11 @@ interface PoolFreshness {
  * plus every KOL. Two independent loops, each with its own tick, allowance and rank:
  * - performance: one `portfolio` read (20) per row, most urgent first (figure age,
  *   ×`POOL_VISIBLE_WEIGHT` for rows the site shows).
- * - ledgers: the trade ledger without funding; stale visible rows first, then cold
- *   builds (≈ 1,000 weight, only while no page waits), then the rest.
+ * - ledgers: the trade ledger without funding; every stale ledger first (visible
+ *   rows, then the rest: a refresh is one incremental read and keeps each ledger
+ *   within LEDGER_REFRESH_MS, and POOL_LEDGER_REFRESH_SHARE caps what the refreshes
+ *   take from a tick while builds wait), then cold builds (≈ 1,000 weight each,
+ *   only while no page waits).
  * Both scale by the budgeter's `backgroundFactor`; one refresh at a time per loop.
  */
 @Injectable()
@@ -148,9 +151,9 @@ export class DiscoveryPoolService {
       .map((e) => e.row.address);
   }
 
-  /** Reads trade ledgers within the minute's allowance: visible rows with a
-   * stale ledger first, then cold builds while no page waits on the
-   * budget, then the rest. */
+  /** Reads trade ledgers within the minute's allowance: stale ledgers first
+   * (visible rows, then the rest, within POOL_LEDGER_REFRESH_SHARE of the tick
+   * while builds wait), then cold builds while no page waits on the budget. */
   async ledgerTick(now = Date.now()): Promise<void> {
     const perMinute = pacedWeightPerMinute(this.budgeter, "pool.ledgers", this.config.value.tuning.weights.poolLedger);
     if (perMinute <= 0) { this.ledgerTokens = 0; this.ledgerTokensAt = now; return; }

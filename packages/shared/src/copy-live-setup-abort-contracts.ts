@@ -2,9 +2,9 @@ import { z } from 'zod';
 import { copyIdempotencyKeySchema } from './schema/copy.js';
 import { copyFundingSchema } from './copy-funding-contracts.js';
 import { networkSchema } from './networks.js';
-import { isoUtcSchema } from './primitives.js';
+import { isoUtcSchema, idSchema } from './primitives.js';
 
-const identifier = z.string().min(1).max(128).regex(/^[^\s\p{Cc}\p{Cf}]+$/u);
+const identifier = idSchema;
 const issue = z.string().regex(/^[a-z][a-z0-9_]{0,79}$/).nullable();
 export const requestLiveCopySetupAbortSchema = z.object({ idempotencyKey: copyIdempotencyKeySchema }).strict();
 export type RequestLiveCopySetupAbort = z.infer<typeof requestLiveCopySetupAbortSchema>;

@@ -1,5 +1,6 @@
 import { z } from "zod";
-const date = z.string().datetime({ offset: true });
+import { isoDatetimeOffsetSchema } from "./primitives.js";
+const date = isoDatetimeOffsetSchema;
 const nullableDate = date.nullable();
 export const adminTraderSchema = z.object({
   chain: z.literal("hyperliquid"),

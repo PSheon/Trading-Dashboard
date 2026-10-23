@@ -1,11 +1,12 @@
-import type {
-  PnlTier,
-  RoundTrip,
-  SizeTier,
-  TradeCoin,
-  TradeSummary,
-  TradeWindow,
-  TradingStyle,
+import {
+  median,
+  type PnlTier,
+  type RoundTrip,
+  type SizeTier,
+  type TradeCoin,
+  type TradeSummary,
+  type TradeWindow,
+  type TradingStyle,
 } from "@trading-dashboard/shared/contracts";
 
 /**
@@ -71,13 +72,6 @@ export const WINDOW_MS: Record<TradeWindow, number | null> = {
 };
 
 const LIST_SIZE = 10;
-
-export function median(values: number[]): number | null {
-  if (values.length === 0) return null;
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = sorted.length >> 1;
-  return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-}
 
 const exitMs = (t: RoundTrip) => (t.exitTime === null ? null : new Date(t.exitTime).getTime());
 

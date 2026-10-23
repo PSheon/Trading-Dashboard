@@ -8,6 +8,7 @@ export * from "./copy-follower-contracts.js";
 export * from "./wallet-networks.js";
 export * from "./networks.js";
 export * from "./primitives.js";
+export * from "./math.js";
 export * from "./embedded-wallet-identity.js";
 export * from "./wallet-withdrawal-contracts.js";
 export * from "./job-contracts.js";

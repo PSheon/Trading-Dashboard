@@ -1,5 +1,6 @@
 import { Injectable, Logger, type OnApplicationBootstrap, type OnModuleDestroy } from "@nestjs/common";
 import { z } from "zod";
+import { safeNonnegativeIntSchema } from "@trading-dashboard/shared/contracts";
 import { AppConfig } from "../config/app-config.js";
 import { BackgroundJobs } from "../runtime/background-jobs.service.js";
 import { CopyFollowerLedger } from "./live/copy-follower-ledger.js";
@@ -10,7 +11,7 @@ import { LiveBoundaryError } from "./live/wallet-authorization.js";
 import { CopyFollowerScanRepository, type ScanClaim, type ScanState } from "./copy-follower-scan.repository.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
 
-const ms = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+const ms = safeNonnegativeIntSchema;
 const pendingWindow = z.object({ kind: z.enum(["fills", "funding"]), from: ms, to: ms, depth: z.number().int().min(0).max(53) });
 const stateSchema = z.object({ from: ms, to: ms, pending: z.array(pendingWindow).max(4096), historicalCompleteness: z.literal("unproven"), observations: z.array(z.unknown()).max(64) })
   .refine(state => state.from <= state.to && state.pending.every(w => w.from >= state.from && w.to <= state.to && w.from <= w.to));

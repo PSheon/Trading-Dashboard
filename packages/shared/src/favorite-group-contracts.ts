@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isoDatetimeOffsetSchema } from "./primitives.js";
 
 /** Groups per user. */
 export const FAVORITE_GROUPS_MAX = 20;
@@ -29,7 +30,7 @@ export type FavoriteGroupPatch = z.infer<typeof favoriteGroupPatchSchema>;
 export const favoriteGroupSchema = z.object({
   id: z.number().int().positive(),
   name: z.string(),
-  createdAt: z.string().datetime({ offset: true }),
+  createdAt: isoDatetimeOffsetSchema,
   /** Member addresses (each one of the user's favorites). */
   addresses: z.array(z.string()),
   /** Chip colour, "#rrggbb". */

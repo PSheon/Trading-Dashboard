@@ -1,10 +1,13 @@
 import { z } from 'zod';
+import { coinSchema, decimal18Schema } from './primitives.js';
 import { copyFollowerStatementSchema } from './copy-follower-contracts.js';
 
-const decimal = z.string().max(80).regex(/^-?(?:0|[1-9]\d*)(?:\.\d{1,18})?$/);
+const decimal = decimal18Schema;
 const id = z.string().regex(/^(?:0|[1-9]\d{0,19})$/).refine(v => BigInt(v) <= 18446744073709551615n);
-const coin = z.string().min(1).max(80).regex(/^(?:[^:\s/@\p{Cc}\p{Cf}]{1,40}:)?[^:\s/@\p{Cc}\p{Cf}]{1,80}$/u);
-function units(v: string): bigint { const neg = v.startsWith('-'), [whole, fraction = ''] = (neg ? v.slice(1) : v).split('.'); return BigInt(whole + fraction.padEnd(18, '0')) * (neg ? -1n : 1n); }
+const coin = coinSchema;
+/** A `decimal18Schema` string as integer units of 10^-18 (the web's follower snapshot sums with it too). */
+export function decimalUnits(v: string): bigint { const neg = v.startsWith('-'), [whole, fraction = ''] = (neg ? v.slice(1) : v).split('.'); return BigInt(whole + fraction.padEnd(18, '0')) * (neg ? -1n : 1n); }
+const units = decimalUnits;
 const common = { key: z.string().min(1).max(350), coin, time: z.string().datetime(), tradingCashDelta: decimal };
 const adjustment = z.object({ requestedFraction: decimal.refine(v => units(v) > 0 && units(v) < 10n ** 18n),
   // Original requested follower reduction after carry and lot rounding; the

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Logger } from '@nestjs/common';
 import { UserSetAbstractionTypes } from '@nktkas/hyperliquid/api/exchange';
-import { HYPERLIQUID_NETWORKS, WALLET_NETWORKS, splitSignature, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
+import { HYPERLIQUID_NETWORKS, WALLET_NETWORKS, splitSignature, type HyperliquidNetwork, idSchema, safePositiveIntSchema, unsignedDecimal18Schema } from '@trading-dashboard/shared/contracts';
 import { z } from 'zod';
 import { Dec } from '../../common/decimal/dec.js';
 import { readInfoJson } from '../../hyperliquid/response-validation.js';
@@ -40,15 +40,15 @@ export interface AccountModeObservation {
   readonly source: (typeof WALLET_NETWORKS)[HyperliquidNetwork]['infoUrl']; readonly sourceDigest: `0x${string}`;
   readonly status: 'confirmed' | 'unproven' | 'unsupported'; readonly issue: string | null;
 }
-const integer = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
-const identifier = z.string().min(1).max(128).regex(/^[^\s\p{Cc}\p{Cf}]+$/u);
+const integer = safePositiveIntSchema;
+const identifier = idSchema;
 const ethereumAddress = z.string().regex(/^0x[0-9a-fA-F]{40}$/).refine(v => !/^0x0{40}$/i.test(v)).transform(v => v.toLowerCase());
 const intentSchema = z.object({ operationId: identifier, accountId: identifier, strategyId: integer,
   network: z.enum(HYPERLIQUID_NETWORKS), accountAddress: ethereumAddress, nonce: integer, consentExpiresAt: integer }).strict()
   .refine(v => v.consentExpiresAt > v.nonce && v.consentExpiresAt - v.nonce <= 300_000);
 const types = frozen(structuredClone(UserSetAbstractionTypes));
 const roleSchema = z.object({ role: z.enum(['missing', 'user', 'agent', 'vault', 'subAccount']) });
-const decimal = z.string().max(80).regex(/^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/);
+const decimal = unsignedDecimal18Schema;
 const spotSchema = z.object({ portfolioMarginEnabled: z.boolean().optional(), balances: z.array(z.object({
   coin: z.string().min(1).max(80), token: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), total: decimal, hold: decimal,
 })).max(10_000) });

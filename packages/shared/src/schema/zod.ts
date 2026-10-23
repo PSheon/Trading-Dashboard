@@ -8,6 +8,7 @@
  */
 
 import { z } from "zod";
+import { hash64Schema, isoDatetimeOffsetSchema } from "../primitives.js";
 import { appSettingsKeyEnum, localeEnum, userRoleEnum } from "../enums.js";
 import { PERMISSIONS } from "../permissions.js";
 
@@ -1561,7 +1562,7 @@ export type AnnouncementSettings = z.infer<typeof announcementSettingsSchema>;
 export const maintenanceSettingsSchema = z.object({
   enabled: z.boolean(),
   message: localizedTextSchema,
-  endsAt: z.string().datetime({ offset: true }).nullable(),
+  endsAt: isoDatetimeOffsetSchema.nullable(),
 });
 export type MaintenanceSettings = z.infer<typeof maintenanceSettingsSchema>;
 
@@ -1698,7 +1699,7 @@ export const adminSettingsSchema = z.object({
 });
 export type AdminSettings = z.infer<typeof adminSettingsSchema>;
 
-const settingsRevisionSchema = z.string().regex(/^[a-f0-9]{64}$/);
+const settingsRevisionSchema = hash64Schema;
 export const adminSettingsSnapshotSchema = adminSettingsSchema.extend({
   revisions: z.object({ general: settingsRevisionSchema, discovery: settingsRevisionSchema,
     notifications: settingsRevisionSchema, revenue: settingsRevisionSchema }),

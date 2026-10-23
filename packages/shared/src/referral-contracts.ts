@@ -1,9 +1,10 @@
 import { z } from 'zod';
+import { isoUtcSchema } from './primitives.js';
 
 const code = z.string().regex(/^[A-Z0-9]{3,16}$/);
 // Integer USDC micro-units (six decimals), never a floating-point dollar value.
 const units = z.string().regex(/^(0|[1-9][0-9]{0,38})$/).refine(v => BigInt(v) <= (1n << 128n) - 1n);
-const timestamp = z.string().datetime();
+const timestamp = isoUtcSchema;
 const cursor = z.string().min(1).max(1024).regex(/^[A-Za-z0-9_-]+$/).nullable();
 export const referralCodeSchema = z.object({ code }).strict();
 export const referralCheckSchema = z.object({ code, valid: z.boolean() }).strict();

@@ -1,9 +1,9 @@
 import { BadRequestException, Injectable, Optional } from '@nestjs/common';
 import { z } from 'zod';
-import { copyIdempotencyKeySchema, requestLiveCopyStopSchema } from '@trading-dashboard/shared/contracts';
+import { copyIdempotencyKeySchema, requestLiveCopyStopSchema, idSchema } from '@trading-dashboard/shared/contracts';
 import { UnitOfWork } from '../db/unit-of-work.js';
 import { CopyLiveStopRepository } from './copy-live-stop.repository.js';
-const id = z.string().min(1).max(128).regex(/^[^\s\p{Cc}\p{Cf}]+$/u);
+const id = idSchema;
 function input<T>(schema: z.ZodType<T>, value: unknown): T {
   const result = schema.safeParse(value);
   if (!result.success) throw new BadRequestException('Invalid stop request');

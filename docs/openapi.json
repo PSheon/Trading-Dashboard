@@ -16087,19 +16087,19 @@
                           "properties": {
                             "general": {
                               "type": "string",
-                              "pattern": "^[a-f0-9]{64}$"
+                              "pattern": "^[0-9a-f]{64}$"
                             },
                             "discovery": {
                               "type": "string",
-                              "pattern": "^[a-f0-9]{64}$"
+                              "pattern": "^[0-9a-f]{64}$"
                             },
                             "notifications": {
                               "type": "string",
-                              "pattern": "^[a-f0-9]{64}$"
+                              "pattern": "^[0-9a-f]{64}$"
                             },
                             "revenue": {
                               "type": "string",
-                              "pattern": "^[a-f0-9]{64}$"
+                              "pattern": "^[0-9a-f]{64}$"
                             }
                           },
                           "required": [
@@ -16500,19 +16500,19 @@
                           "properties": {
                             "general": {
                               "type": "string",
-                              "pattern": "^[a-f0-9]{64}$"
+                              "pattern": "^[0-9a-f]{64}$"
                             },
                             "discovery": {
                               "type": "string",
-                              "pattern": "^[a-f0-9]{64}$"
+                              "pattern": "^[0-9a-f]{64}$"
                             },
                             "notifications": {
                               "type": "string",
-                              "pattern": "^[a-f0-9]{64}$"
+                              "pattern": "^[0-9a-f]{64}$"
                             },
                             "revenue": {
                               "type": "string",
-                              "pattern": "^[a-f0-9]{64}$"
+                              "pattern": "^[0-9a-f]{64}$"
                             }
                           },
                           "required": [

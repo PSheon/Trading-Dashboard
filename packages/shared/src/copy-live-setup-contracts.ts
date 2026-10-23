@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { hash64Schema, millisSchema, nonzeroAddressSchema, revisionSchema } from './primitives.js';
 import { copyFundingSchema } from './copy-funding-contracts.js';
 import { copyIdempotencyKeySchema, copyStrategySettingsSchema, liveCopyBudgetSchema } from './schema/copy.js';
 
@@ -13,10 +14,10 @@ import { copyIdempotencyKeySchema, copyStrategySettingsSchema, liveCopyBudgetSch
  * open.
  */
 const id = z.string().min(1).max(128);
-const address = z.string().regex(/^0x[0-9a-f]{40}$/).refine(value => value !== `0x${'00'.repeat(20)}`, 'Nonzero address required');
-const version = z.number().int().positive().max(2147483647);
-const millis = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
-const hash = z.string().regex(/^[0-9a-f]{64}$/);
+const address = nonzeroAddressSchema;
+const version = revisionSchema;
+const millis = millisSchema;
+const hash = hash64Schema;
 const settings = copyStrategySettingsSchema.strict().refine(value => value.sizingMode !== 'fixed' || value.perTradeUsd !== null, 'Fixed sizing requires a per-trade amount')
   .refine(value => value.copyStartMode === 'delta', 'Testnet copies start from new trades only');
 

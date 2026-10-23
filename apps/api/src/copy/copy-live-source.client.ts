@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { safeNonnegativeIntSchema } from '@trading-dashboard/shared/contracts';
 import { parseLiveSourceFill, liveSourceDigest, presumedTwapSlice, reconcileLiveSourceFills, type LiveSourceFillEvidence, type LiveSourceNetwork } from './live/copy-live-source-evidence.js';
 import { address, LiveBoundaryError } from './live/wallet-authorization.js';
 import { boundedLiveRead } from './live/live-market-resolver.js';
@@ -22,7 +23,7 @@ export interface LiveSourceReadResult {
   sourceDigest: string;
 }
 
-const integer = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+const integer = safeNonnegativeIntSchema;
 const requestSchema = z.object({ leaderAddress: z.string(), from: integer, to: integer,
   maxRequests: z.number().int().min(1).max(64), maxDepth: z.number().int().min(0).max(48).default(24),
   maxFills: z.number().int().min(1).max(10000).default(10000),

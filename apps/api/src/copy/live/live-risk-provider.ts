@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { isHyperliquidNetwork, WALLET_NETWORKS, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
+import { isHyperliquidNetwork, WALLET_NETWORKS, type HyperliquidNetwork, safeNonnegativeIntSchema } from '@trading-dashboard/shared/contracts';
 import { Dec } from '../../common/decimal/dec.js';
 import { readInfoJson } from '../../hyperliquid/response-validation.js';
 import type {
@@ -54,7 +54,7 @@ export interface LiveRiskProviderProof {
     readonly calculation: 'documented_fee_formula';
   };
 }
-const integer = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+const integer = safeNonnegativeIntSchema;
 const decimal = z
   .string()
   .max(80)

@@ -1,7 +1,8 @@
 import { z } from 'zod';
+import { isoUtcSchema, lowercaseAddressSchema } from './primitives.js';
 
-const iso = z.string().datetime();
-const addr = z.string().regex(/^0x[0-9a-f]{40}$/);
+const iso = isoUtcSchema;
+const addr = lowercaseAddressSchema;
 /** B16: testnet execution wallets, their trading agent grant and copy stage. */
 export const adminLiveAccountSchema = z.object({
   accountId: z.string(), userId: z.number().int(), userEmail: z.string().nullable(), strategyId: z.number().int(), leaderAddress: addr,

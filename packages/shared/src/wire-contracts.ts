@@ -7,6 +7,7 @@ import { traderSearchResponseSchema } from "./trader-search-contracts.js";
 import { appliedDiscoverySchema, deploymentTuningSchema, settingsRuntimeSchema, auditResponseSchema } from "./settings-ops-contracts.js";
 import { backfillJobSchema, backfillJobsResponseSchema } from "./job-contracts.js";
 import { z } from "zod";
+import { decimalStringSchema, isoDatetimeOffsetSchema } from "./primitives.js";
 import { adminResolvedWithdrawalSchema, adminUnresolvedWithdrawalsSchema, walletWithdrawalSchema, walletWithdrawalClaimSchema } from "./wallet-withdrawal-contracts.js";
 import { copyExecutionAccountSchema, copyExecutionWalletsSchema, copyWalletGrantSchema } from "./copy-wallet-contracts.js";
 import { copyFundingSchema, copyFundingClaimSchema, copyFundingOverviewSchema, copyReturnChallengeSchema, copyBuilderApprovalSchema } from "./copy-funding-contracts.js";
@@ -23,9 +24,9 @@ import { adminLiveAccountsSchema, adminLiveTransfersSchema, adminLiveOrdersSchem
 import * as s from "./schema/zod.js";
 import { referralOverviewSchema, referralCodeSchema, referralCheckSchema, referralBindSchema, referralFriendsSchema, referralClaimSchema, referralClaimsSchema } from './referral-contracts.js';
 
-const iso = z.string().datetime({ offset: true });
+const iso = isoDatetimeOffsetSchema;
 const id = z.string().regex(/^\d+$/);
-const decimal = z.string().regex(/^-?\d+(?:\.\d+)?$/);
+const decimal = decimalStringSchema;
 export const wireActionSchema = s.actionFeedItemSchema.extend({ id, ts: iso, fillIds: z.array(id), notionalUsd: decimal, avgPx: decimal, leverage: decimal.nullable().optional() });
 export const wireFillSchema = s.fillSchema.extend({ tid: id, ts: iso, px: decimal, sz: decimal, fee: decimal, closedPnl: decimal.nullable().optional() });
 export const wireAlertSchema = s.alertSchema.extend({ id, actionId: id.nullable().optional(), sentAt: iso.nullable().optional(),

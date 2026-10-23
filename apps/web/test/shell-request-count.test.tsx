@@ -63,10 +63,14 @@ function Board() {
   useQuery({ queryKey: ['discover-board'], queryFn: ({ signal }) => import('@/lib/api').then(({ api }) => api.get('/discover/board', signal)) });
   return null;
 }
-/** The trading mode becomes available once the deployment is read; the probes mount then (account-controls.tsx). */
+/** As account-controls.tsx (2026-10-23): the trading mode's deployment is
+ * read beside the probes, which mount with the pill — not once the
+ * deployment has answered, which put the execution wallets (and so each
+ * copy's snapshot) one round trip later and left the phone pill a skeleton
+ * meanwhile. */
 function Probes() {
-  const deployment = useLiveCopyDeployment();
-  return deployment?.available ? <CopyEquityProbes /> : null;
+  useLiveCopyDeployment();
+  return <CopyEquityProbes />;
 }
 /** As AuthEffects before the page: the identity refetch first, then what reads.
  * The pill is mounted all along (its reads disabled while loading) or, as
@@ -100,7 +104,12 @@ it.each([{ pillWhileLoading: false }, { pillWhileLoading: true }])('reads each /
 
   state.auth = { status: 'signedIn', mode: 'privy', identity: 'owner@email', wallet: null };
   await act(async () => { rerender(); });
-  // Settled: the deployment answered, the probes mounted and read what they need.
+  // The first batch after sign-in goes out together: the deployment, the
+  // portfolio and the execution wallets — no read waits on the deployment's
+  // answer (LATENCY away), so the pill's total needs two round trips, not three.
+  await act(async () => { await vi.advanceTimersByTimeAsync(LATENCY / 2); });
+  expect(Object.keys(counts())).toEqual(expect.arrayContaining(['/me/copy/live', '/me/copy/live/portfolio', '/me/copy/execution-wallets']));
+  // Settled: the deployment answered, the probes read what they need.
   await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
   // The board is read again, signed in (its own fields); nothing under /me twice.
   expect(counts()).toEqual({ '/discover/board': 2, '/me/copy/live': 1, '/me/copy': 1, '/me/wallet': 1, '/me/copy/live/portfolio': 1, '/me/copy/execution-wallets': 1 });

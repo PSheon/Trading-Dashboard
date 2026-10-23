@@ -26,6 +26,12 @@ describe("home historical illustration", () => {
     expect(html).toContain("excludes fees, slippage and execution delays");
     expect(html).not.toContain("trailing 30-day return");
   });
+  it("names the return's period (all-time) in the figure's hover title, adding no visible text", () => {
+    const html = render(0.2);
+    expect(html).toMatch(/<span title="ROI · All-time" class="num chip-md[^"]*"[^>]*>/);
+    // Hover only: the period is not printed on the card.
+    expect(html.replace(/title="[^"]*"/g, "")).not.toContain("All-time");
+  });
   it("does not present missing ROI as a flat investment return", () => {
     const html = render(null);
     expect(html).not.toContain("$1,000");

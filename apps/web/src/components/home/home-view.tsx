@@ -349,7 +349,8 @@ export function Calculator({ traders }: { traders: BoardTrader[] }) {
           </div>
         </div>
         <div className="relative min-h-[150px] pt-8" onMouseLeave={() => setHover(null)}>
-          {change !== null ? <span className={cn("num chip-md absolute top-0 left-0 z-10 gap-0.5", up ? "bg-tag-profit text-tag-profit-foreground" : "bg-tag-loss text-tag-loss-foreground")}>
+          {/* The return's period on hover: the illustration runs on the trader's all-time ROI. */}
+          {change !== null ? <span title={`${t("home.cardRoi")} · ${t("discover.window.all")}`} className={cn("num chip-md absolute top-0 left-0 z-10 gap-0.5", up ? "bg-tag-profit text-tag-profit-foreground" : "bg-tag-loss text-tag-loss-foreground")}>
             <Arrow className="size-3" strokeWidth={2.5} aria-hidden />
             {roiPillShort(change)}
           </span> : null}

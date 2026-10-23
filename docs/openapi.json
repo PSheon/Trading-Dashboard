@@ -23766,17 +23766,6 @@
                         "fetchedAt": {
                           "type": "string",
                           "format": "date-time"
-                        },
-                        "lastTradeAt": {
-                          "anyOf": [
-                            {
-                              "type": "string",
-                              "format": "date-time"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ]
                         }
                       },
                       "required": [

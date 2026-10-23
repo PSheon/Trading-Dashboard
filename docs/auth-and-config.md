@@ -7,8 +7,8 @@ records own role (`user`/`admin`) and disabled status. Email and wallet addresse
 are profile attributes, not authorization identifiers. Privy metadata does not
 supply application permissions.
 
-`AuthGuard` runs before `PermissionGuard`. Legacy `@Roles` applies only to human
-users. `@RequirePermissions` requires every declared permission and overrides
+`AuthGuard` runs before `PermissionGuard` (the `@Roles` decorator was removed on
+2026-10-23: no route used it). `@RequirePermissions` requires every declared permission and overrides
 `@Public`; method permission metadata replaces a class default. Each admin
 handler declares its own permission. `admin.access` is a fail-closed class
 default for future admin handlers; granting it alone grants none of today's
@@ -38,7 +38,7 @@ protected routes. Public browsing retains its anonymous fallback.
 Service tokens authenticate a distinct principal with only the comma-separated
 `AUTH_SERVICE_PERMISSIONS` grants. Omitted/empty grants mean **no administrative
 access**. Wildcards and unknown names are rejected. Service callers cannot use
-human-only `/me` resources or satisfy legacy human `@Roles`. Without
+human-only `/me` resources. Without
 `alerts.readAll`, their alert queries return no private rows.
 
 ## Migration from implicit service admin and recurring bootstrap

@@ -80,7 +80,20 @@ CI run, not by file count: `apps/api/test/shard-durations.json` and
 `apps/web/e2e/shard-durations.json`. `scripts/test-shards.mjs` puts the longest
 files first, each onto the shard with the least time so far; a file with no
 recorded time counts as the median one. Every file is in exactly one shard
-whatever the durations say, so stale times only cost balance.
+whatever the durations say, so stale times only cost balance — which is how
+run 39963379545 (2026-10-23) ran 10.5 / 5.5 / 13 min browser shards planned
+at 5 min each: seven specs added since the last measurement, two of them
+3.5 min long, counted as the 13 s median. Each file names the run it was
+measured from in `_measured`; `scripts/test-shards.test.mjs` fails when the
+committed browser durations plan any shard of three over 9.5 min (refresh
+them, and if the total really grew, add a shard). Look and refresh with:
+
+```bash
+node scripts/test-shards.mjs e2e 3 --plan        # every shard's planned total and files
+gh run view <run> --json jobs --jq '.jobs[] | select(.name|startswith("browser")) | .databaseId' \
+  | xargs -I{} sh -c 'gh api repos/PSheon/Trading-Dashboard/actions/jobs/{}/logs > /tmp/job-{}.log'
+node scripts/test-shards.mjs refresh --run=<run> /tmp/job-*.log
+```
 
 - api: `apps/api/vitest.config.ts` replaces Vitest's `--shard` split (a hash of
   each path, an equal file count, which ran 235–352 s per shard) with that one.

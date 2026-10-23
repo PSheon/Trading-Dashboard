@@ -3,11 +3,15 @@
 //
 //   api  apps/api/vitest.config.ts uses it for `vitest --shard=n/N`
 //   e2e  node scripts/test-shards.mjs e2e n/N   prints a Playwright --test-list
-//   node scripts/test-shards.mjs refresh <log>...  rewrites the duration files
-//        from `gh run view --log` output of the api and browser shards
+//   node scripts/test-shards.mjs e2e N --plan   prints every shard's planned
+//        total and files (the balance the committed durations give)
+//   node scripts/test-shards.mjs refresh --run=<id> <log>...  rewrites the
+//        duration files from the job logs of the api and browser shards
+//        (`gh api repos/<owner>/<repo>/actions/jobs/<id>/logs`)
 //
 // Durations only steer the split; every file is always in exactly one shard.
-// A file without a recorded duration counts as the median one.
+// A file without a recorded duration counts as the median one. Each duration
+// file records the run it was measured from in `_measured` ({ run, date }).
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -22,10 +26,17 @@ export const SUITES = {
 // all) adds about this much on top (run 37302960342: 205 s over 229 files).
 const API_IMPORT_SECONDS = 0.9;
 
+/** The per-file seconds of a duration file, without its `_measured` note (or anything else that is not a number). */
 export function loadDurations(suite) {
+  return durationsOf(readDurationFile(suite));
+}
+
+export function readDurationFile(suite) {
   try { return JSON.parse(readFileSync(SUITES[suite].durations, 'utf8')); }
   catch { return {}; }
 }
+
+export const durationsOf = (file) => Object.fromEntries(Object.entries(file).filter(([, seconds]) => typeof seconds === 'number'));
 
 export function parseShard(value) {
   const match = /^(\d+)\/(\d+)$/.exec(value ?? '');
@@ -82,20 +93,54 @@ export function parseLogs(text) {
 
 const sorted = (object) => Object.fromEntries(Object.entries(object).sort(([a], [b]) => (a < b ? -1 : 1)));
 
+/** The duration file's text: `_measured` first, then the files by name. */
+export function durationFileText(durations, measured) {
+  return `${JSON.stringify({ ...(measured ? { _measured: measured } : {}), ...sorted(durations) }, null, 1)}\n`;
+}
+
+/** The date (UTC) of the first timestamped line of a job log. */
+export function logDate(text) {
+  return /(\d{4}-\d{2}-\d{2})T\d{2}:\d{2}:\d{2}/.exec(text)?.[1];
+}
+
+/** Every shard's planned total and files, for `--plan`. */
+export function planText(files, durations, count, measured) {
+  const shards = partition(files, durations, count);
+  const unknown = files.filter((file) => typeof durations[file] !== 'number');
+  const lines = [measured ? `durations measured from run ${measured.run} (${measured.date})` : 'no measured durations: every file counts the same'];
+  if (unknown.length) lines.push(`${unknown.length} file(s) without a duration count as the median: ${unknown.join(', ')}`);
+  shards.forEach((shard, i) => {
+    lines.push(`shard ${i + 1}/${count}: ${shard.files.length} files, about ${Math.round(shard.seconds)} s (${(shard.seconds / 60).toFixed(1)} min)`);
+    for (const file of shard.files) lines.push(`  ${file}  ${durations[file] ?? '?'}`);
+  });
+  return lines.join('\n');
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [command, ...rest] = process.argv.slice(2);
   if (command === 'refresh') {
+    const run = rest.find((arg) => arg.startsWith('--run='))?.slice('--run='.length);
+    const logs = rest.filter((arg) => !arg.startsWith('--'));
+    if (!run || !logs.length) throw new Error('Usage: refresh --run=<run id> <job log>...');
     const found = { api: {}, e2e: {} };
-    for (const file of rest) {
-      const parsed = parseLogs(readFileSync(file, 'utf8'));
+    let date;
+    for (const file of logs) {
+      const text = readFileSync(file, 'utf8');
+      date ??= logDate(text);
+      const parsed = parseLogs(text);
       Object.assign(found.api, parsed.api); Object.assign(found.e2e, parsed.e2e);
     }
     for (const suite of ['api', 'e2e']) {
       const count = Object.keys(found[suite]).length;
       if (!count) continue;
-      writeFileSync(SUITES[suite].durations, `${JSON.stringify(sorted(found[suite]), null, 1)}\n`);
+      writeFileSync(SUITES[suite].durations, durationFileText(found[suite], { run, date: date ?? new Date().toISOString().slice(0, 10) }));
       console.log(`${suite}: ${count} files, ${Math.round(Object.values(found[suite]).reduce((a, b) => a + b, 0))} s`);
     }
+  } else if (command === 'e2e' && rest.includes('--plan')) {
+    const count = Number(rest.find((arg) => /^\d+$/.test(arg)) ?? parseShard(rest.find((arg) => arg.includes('/'))).count);
+    if (!Number.isInteger(count) || count < 1) throw new Error('Usage: e2e <N> --plan');
+    const file = readDurationFile('e2e');
+    console.log(planText(e2eFiles(), durationsOf(file), count, file._measured));
   } else if (command === 'e2e') {
     const { index, count } = parseShard(rest[0]);
     const shards = partition(e2eFiles(), loadDurations('e2e'), count);
@@ -104,7 +149,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     console.error(`e2e shard ${index}/${count}: ${mine.files.length} files, about ${Math.round(mine.seconds)} s`);
     console.log(mine.files.join('\n'));
   } else {
-    console.error('Usage: node scripts/test-shards.mjs e2e <n/N> | refresh <log>...');
+    console.error('Usage: node scripts/test-shards.mjs e2e <n/N> | e2e <N> --plan | refresh --run=<id> <log>...');
     process.exitCode = 1;
   }
 }

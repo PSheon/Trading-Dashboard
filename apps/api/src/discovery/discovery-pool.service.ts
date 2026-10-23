@@ -309,7 +309,7 @@ export class DiscoveryPoolService {
     let error: Error | null = null;
     try {
       const previous = this.analytics.lastLog.get(address)?.at(-1);
-      await this.analytics.compute(address, false, { rank: LEDGER_RANK, funding: false });
+      await this.analytics.compute(address, { rank: LEDGER_RANK, funding: false });
       const entry = this.analytics.lastLog.get(address)?.at(-1);
       if (entry && entry !== previous) {
         weight += entry.weight;

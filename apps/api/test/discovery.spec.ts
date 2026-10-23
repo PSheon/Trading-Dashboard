@@ -236,7 +236,7 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
     // The ledger loop builds rows without a ledger (visible ones first).
     await pool.ledgerTick(Date.now() + 60_000);
     expect(analytics.compute).toHaveBeenCalledTimes(1);
-    expect(analytics.compute).toHaveBeenCalledWith(addr(1), false, expect.objectContaining({ funding: false, rank: LEDGER_RANK }));
+    expect(analytics.compute).toHaveBeenCalledWith(addr(1), expect.objectContaining({ funding: false, rank: LEDGER_RANK }));
     expect(pool.log.at(-1)).toMatchObject({ address: addr(1), kind: "cold", weight: 180, ok: true });
     [row] = await db.select().from(discoveryTraders).where(eq(discoveryTraders.address, addr(1)));
     // The ledger figures carry the ledger's own computation time.
@@ -247,7 +247,7 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
     pool.log.length = 0;
 
     await pool.refreshOne(addr(2));
-    expect(analytics.compute).toHaveBeenCalledWith(addr(2), false, expect.objectContaining({ funding: false }));
+    expect(analytics.compute).toHaveBeenCalledWith(addr(2), expect.objectContaining({ funding: false }));
     expect(pool.log.at(-1)).toMatchObject({ address: addr(2), kind: "cold", weight: 180, ok: true });
     [row] = await db.select().from(discoveryTraders).where(eq(discoveryTraders.address, addr(2)));
     expect(Number(row.pnlAll)).toBeCloseTo(407153.71, 1);

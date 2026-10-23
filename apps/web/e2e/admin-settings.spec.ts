@@ -30,33 +30,33 @@ for (const width of [1440, 390]) {
     await expect(changes).toContainText("Favorites limit");
     await expect(changes).toContainText("— → 50");
 
-    // 首頁市場: add a stock by keyboard from the exchange's list, move it first, remove one.
-    const home = page.getByRole("list", { name: "Home page market chips" });
-    const before = await chipNames(home);
+    // 加密貨幣看板 (the home market chips are gone, 2026-10-23): add a coin by keyboard from the exchange's list, move it first, remove one.
+    const boards = page.getByRole("list", { name: "Crypto boards (display order)" });
+    const before = await chipNames(boards);
     expect(before.length).toBeGreaterThan(3);
-    await page.getByRole("button", { name: "Add to Home page market chips" }).click();
-    const search = page.getByRole("combobox", { name: "Add to Home page market chips" });
+    await page.getByRole("button", { name: "Add to Crypto boards (display order)" }).click();
+    const search = page.getByRole("combobox", { name: "Add to Crypto boards (display order)" });
     await expect(search).toBeFocused();
-    await search.fill("aapl");
-    await expect(page.getByRole("option", { name: /xyz:AAPL/ })).toContainText("Stock");
+    await search.fill("avax");
+    await expect(page.getByRole("option", { name: /AVAX/ })).toContainText("Crypto");
     await page.keyboard.press("Enter");
     await expect(page.getByText(`${before.length + 1} / 16`, { exact: true }).first()).toBeVisible();
-    await expect(chips(home).last()).toContainText("AAPL");
+    await expect(chips(boards).last()).toContainText("AVAX");
     // A market already chosen is offered as 已選 and can't be picked again.
-    await page.getByRole("button", { name: "Add to Home page market chips" }).click();
-    await page.getByRole("combobox", { name: "Add to Home page market chips" }).fill("aapl");
-    await expect(page.getByRole("option", { name: /xyz:AAPL/ })).toHaveAttribute("aria-disabled", "true");
+    await page.getByRole("button", { name: "Add to Crypto boards (display order)" }).click();
+    await page.getByRole("combobox", { name: "Add to Crypto boards (display order)" }).fill("avax");
+    await expect(page.getByRole("option", { name: /AVAX/ })).toHaveAttribute("aria-disabled", "true");
     await page.keyboard.press("Escape");
     // Reorder with the keyboard: Home moves the focused chip first.
-    await page.getByRole("button", { name: new RegExp(`^Move AAPL, ${before.length + 1} of`) }).focus();
+    await page.getByRole("button", { name: new RegExp(`^Move AVAX, ${before.length + 1} of`) }).focus();
     await page.keyboard.press("Home");
     await placed(page);
-    expect((await chipNames(home))[0]).toContain("AAPL");
-    await expect(page.getByRole("button", { name: /^Move AAPL, 1 of/ })).toBeFocused();
-    await page.getByRole("button", { name: /^Move AAPL, 1 of/ }).press("ArrowRight");
-    expect((await chipNames(home))[1]).toContain("AAPL");
-    await chips(home).last().getByRole("button", { name: /^Remove / }).click();
-    await expect(changes).toContainText("Home markets");
+    expect((await chipNames(boards))[0]).toContain("AVAX");
+    await expect(page.getByRole("button", { name: /^Move AVAX, 1 of/ })).toBeFocused();
+    await page.getByRole("button", { name: /^Move AVAX, 1 of/ }).press("ArrowRight");
+    expect((await chipNames(boards))[1]).toContain("AVAX");
+    await chips(boards).last().getByRole("button", { name: /^Remove / }).click();
+    await expect(changes).toContainText("Crypto boards");
     await expectNoSidewaysScroll(page);
     await expectAccessible(page);
     await shot(page, `admin-settings-${width}`);
@@ -64,7 +64,7 @@ for (const width of [1440, 390]) {
     await saveSettings(page);
     await expect(changes.getByRole("status")).toContainText("Saved");
     await expect(favorites).toHaveValue("50");
-    expect((await chipNames(home))[1]).toContain("AAPL");
+    expect((await chipNames(boards))[1]).toContain("AVAX");
 
     // 進階: the deployment's values, read-only.
     const advanced = page.getByRole("region", { name: /^Advanced/ });

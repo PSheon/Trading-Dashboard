@@ -19,7 +19,6 @@ vi.mock("../src/components/trader/copy-panel", () => ({ CopyPanel: () => null })
 vi.mock("../src/components/trader/trader-copy-flow", () => ({ TraderCopyFlow: ({ children }: { children: React.ReactNode }) => children }));
 vi.mock("../src/components/trader/activity-tabs", () => ({ ActivityTabs: () => null }));
 vi.mock("../src/components/trader/performance", () => ({ KpiTiles: () => null, windowRoi: () => null,
-  TRADE_WINDOW: { day: "1d", week: "7d", month: "30d", allTime: "all" },
   PerformanceChart: () => <div>Available performance history</div>,
 }));
 it("a profile that could not be loaded is CopyDog's one line and its retry, with nothing else on the page", () => {

@@ -4,7 +4,7 @@
 
 ## 已確認的 Copydog 行為
 
-[官方 FAQ](https://copydog.xyz/help) 公開說明：無訂閱費，跟單成交收取名目金額 0.1% builder fee，另有交易所費用；每位交易員最低配置 100 USDC。前端應用專屬程式包含個人推薦碼、綁定、好友、返佣餘額及申領 API，詳見 [公開功能證據](evidence/copydog-feature-evidence-2026-10-03.json)。此次沒有找到可確認返佣比例、申領門檻、實際付款供應商的官方公開規則；未登入或操作 Copydog 付款。
+[官方 FAQ](https://copydog.xyz/help) 公開說明：無訂閱費，跟單成交收取名目金額 0.1% builder fee，另有交易所費用；每位交易員最低配置 100 USDC。前端應用專屬程式包含個人推薦碼、綁定、好友、返佣餘額及申領 API，詳見 [decisions](decisions-2026-10-23.md)。此次沒有找到可確認返佣比例、申領門檻、實際付款供應商的官方公開規則；未登入或操作 Copydog 付款。
 
 ## 建議採用的預設規則
 

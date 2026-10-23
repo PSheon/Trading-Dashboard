@@ -23,7 +23,6 @@ export interface HyperliquidSendPermit {assertFresh():void;dispatch<T>(work:()=>
   /** REST only: what the provider counted for the answered call; lowers the
    * prepaid charge with this process's next REST request. */
   settle?(units:number):void;}
-export type HyperliquidQuotaPermit=HyperliquidSendPermit;
 export interface HyperliquidCommandPermit {dispatch<T>(command:Readonly<Record<string,unknown>>,work:(captured:Readonly<Record<string,unknown>>)=>T):T;}
 /** Only the original transport object can acknowledge cleanup: this port has
  * no caller-supplied close/ACK proof or attach-by-id recovery API. */

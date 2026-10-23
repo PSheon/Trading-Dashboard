@@ -1,12 +1,12 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect } from "react";
 import { copyStreamEventSchemas, type WireCopyEvents } from "@trading-dashboard/shared/contracts";
 
-import { backoffMs, readSseStream, SseParser, type SseEvent } from "@/lib/action-stream";
+import { backoffMs, readSseStream, sleep, SseParser, type SseEvent } from "@/lib/action-stream";
 import { ApiError, openEventStream } from "@/lib/api";
-import { copyStreamStatus, mergeCopyEvents, setCopyStreamStatus as setStatus, type CopyStreamStatus } from "@/lib/copy";
+import { mergeCopyEvents, setCopyStreamStatus as setStatus, type CopyStreamStatus } from "@/lib/copy";
 import { queryKeys } from "@/lib/query-keys";
 
 export type { CopyStreamStatus };
@@ -17,16 +17,6 @@ const SILENCE_MS = 45_000;
 const HEALTHY_MS = 30_000;
 /** Overview, portfolio and history reads refresh at most this often on a burst. */
 const REFRESH_DEBOUNCE_MS = 750;
-
-export function useCopyStreamStatus(): CopyStreamStatus {
-  return useSyncExternalStore(copyStreamStatus.subscribe, copyStreamStatus.get, () => "off");
-}
-
-const sleep = (ms: number, signal: AbortSignal) =>
-  new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    signal.addEventListener("abort", () => { clearTimeout(timer); resolve(); }, { once: true });
-  });
 
 /** Applies one pushed event to the cached events list (de-duplicated by id). */
 export function applyCopyEvent(previous: WireCopyEvents | undefined, event: CopyFeedEvent): WireCopyEvents {

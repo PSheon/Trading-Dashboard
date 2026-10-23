@@ -221,7 +221,7 @@ copies a text summary and link (CopyDog renders an image card).
   than 16,000 for 0xeadc…. However, the [official Info documentation](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint),
   rechecked 2026-09-30, states only the most recent 10,000 fills are available.
   The larger observations are not a retention guarantee. Exhausting upstream
-  pagination does not prove lifetime completeness; see [data parity](copydog-data-parity.md).
+  pagination does not prove lifetime completeness; see [decisions](decisions-2026-10-23.md).
 - **Funding** (`userFunding`: 500 per call, 20 + 1 per 20 items; hourly for
   about a week, then one entry per coin and day) is a second, unranked step
   after the trades are stored. The implemented lookback is 365 days, bounded

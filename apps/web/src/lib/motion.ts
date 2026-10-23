@@ -17,9 +17,6 @@ export const MOTION = {
   chartDraw: 850,
 } as const;
 
-/** The CSS `--ease-orbit` curve: a soft ease-out. */
-export const EASE_ORBIT = "cubic-bezier(0.22, 1, 0.36, 1)";
-
 /** A gentle (quadratic) ease-out for JS-driven animation: the chart's line
  * reveal, which should read as drawing all the way to its end rather than
  * jumping most of the way at once. CSS: `--ease-draw`. */

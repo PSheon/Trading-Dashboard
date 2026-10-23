@@ -252,6 +252,13 @@ export function newestId(list: readonly ActionFeedItem[] | undefined): string | 
   return best === undefined ? undefined : best.toString();
 }
 
+/** Waits `ms`, or until `signal` aborts (then resolves at once, never rejects). */
+export const sleep = (ms: number, signal: AbortSignal) =>
+  new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener("abort", () => { clearTimeout(timer); resolve(); }, { once: true });
+  });
+
 /** Reconnect delay: exponential from 1 s to 30 s, with ±20% jitter. */
 export function backoffMs(attempt: number, random = Math.random): number {
   const base = Math.min(30_000, 1000 * 2 ** Math.max(0, attempt));

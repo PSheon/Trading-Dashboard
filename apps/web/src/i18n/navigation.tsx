@@ -47,10 +47,3 @@ export function useRouter() {
     [router, locale],
   );
 }
-
-/** The current locale's URL for a path (for `<a href>`, share links, and
- * anything built outside a Link). */
-export function useLocalePath(): (href: string) => string {
-  const locale = useCurrentLocale();
-  return useMemo(() => (href: string) => localePath(locale, href), [locale]);
-}

@@ -22,7 +22,6 @@ import { LiveOrderExecutor, UNHELD_REJECTED, type LiveExecutionRecord } from './
 import { errorCode } from '../../runtime/safe-error-text.js';
 import { address, LiveBoundaryError, WalletAuthorizationService } from './wallet-authorization.js';
 import { orderApproval } from './live-order-approval.js';
-export { APPROVAL_REUSE_MS } from '../../config/constants/timings.js';
 import { PostgresLiveRiskScope, type LiveRiskDatabaseSession } from './postgres-live-risk-scope.js';
 import { loadLivePreparationAuthority, riskSourceRequire } from './postgres-live-risk-authority.js';
 import { liveAccountExposureSql } from './live-account-exposure.js';

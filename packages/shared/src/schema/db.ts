@@ -1048,8 +1048,7 @@ export const cohortSnapshots = pgTable(
 );
 
 // ===========================================================================
-// Copy trading, Stage 4 step 3 (paper mode). Design: docs/Stage 4 — 跟單與管理
-// （執行順序）.md §3 and docs/copy-execution-and-admin-review.md.
+// Copy trading (paper mode first). Design decisions: docs/decisions-2026-10-23.md.
 // Money is numeric (USDC); sizes are numeric in coin units. No table holds a
 // key, signer or exchange credential.
 // ===========================================================================

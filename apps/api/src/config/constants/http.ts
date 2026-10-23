@@ -74,11 +74,3 @@ export const TELEGRAM_CHAT_INTERVAL_MS = 1_000;
 /** basis: measured — Hyperliquid's userFills returns at most 2,000 of the latest fills
  */
 export const USER_FILLS_CAP = 2_000;
-
-/** basis: derived — USER_FILLS_CAP: the fills tab reads one userFills page
- */
-export const MAX_FILLS_LIMIT = USER_FILLS_CAP;
-
-/** basis: guessed — a fills page shows 50 by default; verify: none needed
- */
-export const DEFAULT_FILLS_LIMIT = 50;

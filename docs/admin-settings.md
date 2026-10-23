@@ -56,7 +56,7 @@ by deploying the code.
 
 Builder snapshot scheduling remains a post-commit best-effort effect.
 Acknowledgement of a change by each consumer, finer permissions and real copy
-execution remain tracked in [the review](copy-execution-and-admin-review.md).
+execution remain tracked in [decisions](decisions-2026-10-23.md).
 
 ## When a save takes effect (review finding 16)
 

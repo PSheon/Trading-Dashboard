@@ -152,16 +152,6 @@ export function Skeleton({ className, style }: { className?: string; style?: Rea
   return <div aria-hidden="true" className={cn("ui-skeleton rounded-lg bg-raised [--skel-bar:var(--border)]", className)} style={style} />;
 }
 
-/** A raised block that holds bars (a table row, a tile): Skeleton with
- * children. */
-export function SkeletonBlock({ className, children, style }: { className?: string; children?: React.ReactNode; style?: React.CSSProperties }) {
-  return (
-    <div aria-hidden="true" className={cn("ui-skeleton rounded-lg bg-raised [--skel-bar:var(--border)]", className)} style={style}>
-      {children}
-    </div>
-  );
-}
-
 export function SkeletonCard({ className, children, style }: { className?: string; children?: React.ReactNode; style?: React.CSSProperties }) {
   return (
     <div aria-hidden="true" className={cn("orbit-card ui-skeleton", className)} style={style}>

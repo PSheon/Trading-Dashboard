@@ -106,8 +106,10 @@ Run migrations against the intended deployment database before releasing code
 that requires them; the runtime image does not run migrations automatically.
 
 `/health` is the public status (`status`, `feedConnected`, `now`), not a database readiness guarantee. The full operational heartbeat is `GET /admin/system/heartbeat` (`admin.access`) and the worker's own private `/health`.
-Keep one replica: caches, watcher state and notification coordination currently
-assume one process. Do not scale replicas without distributed ownership.
+Keep one replica per service (`api`, `worker-copy`, `worker-read`): caches,
+watcher state and notification coordination assume one process per role, and
+each worker holds its own lease. Do not scale replicas without distributed
+ownership. See `../../docs/railway-deploy.md`.
 
 `AUTH_ADMIN_EMAILS` bootstraps matching verified emails only on first local
 registration. Subsequent requests read persisted role/disabled state, so demotion
@@ -118,7 +120,7 @@ default; review it deliberately before enabling real delivery.
 work with at-least-once semantics. Actual platform backup/PITR and retention
 settings remain unverified. Use the [release runbook](../../docs/container-delivery.md)
 and [restore drill](../../docs/backup-and-restore.md). Current status:
-[Audit follow-up](../../docs/audit-follow-up.md).
+[decisions](../../docs/decisions-2026-10-23.md).
 
 ### Feed cursors and imports
 

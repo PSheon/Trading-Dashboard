@@ -3,7 +3,6 @@ import {
   ChartSpline,
   Compass,
   House,
-  ShieldCheck,
   Star,
   type LucideIcon,
 } from "lucide-react";
@@ -55,8 +54,6 @@ export const mobileNavSignedOut: NavItem[] = [
   { href: "/explore", label: "nav.explore", icon: Compass },
   { href: "/insights", label: "nav.insights", icon: ChartSpline },
 ];
-
-export const adminNav: NavItem = { href: "/admin", label: "nav.admin", icon: ShieldCheck };
 
 export function isActive(pathname: string, href: string): boolean {
   // A trader page belongs to no section (as on CopyDog): nothing is lit.

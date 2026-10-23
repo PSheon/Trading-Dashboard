@@ -1,6 +1,6 @@
 "use client";
 
-import type { PortfolioResponse, TradeWindow, TraderAnalyticsResponse, TraderWindow } from "@/lib/contracts";
+import type { PortfolioResponse, TraderAnalyticsResponse, TraderWindow } from "@/lib/contracts";
 import { ArrowDownRight, ArrowUpRight, ChevronDown } from "lucide-react";
 import { useMemo, useState } from "react";
 import { cn } from "cn";
@@ -32,9 +32,6 @@ export type ChartUnit = "usd" | "pct";
 export type Market = "perp" | "all";
 
 export const WINDOWS: TraderWindow[] = ["day", "week", "month", "allTime"];
-
-/** The trade analytics window matching a chart window. */
-export const TRADE_WINDOW: Record<TraderWindow, TradeWindow> = { day: "1d", week: "7d", month: "30d", allTime: "all" };
 
 /** The 表現 tile's periods, CopyDog's All / 30D / 7D. */
 export type KpiPeriod = "allTime" | "month" | "week";

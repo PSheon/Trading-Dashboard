@@ -255,8 +255,16 @@ jobs:
       - name: Install Chromium
         if: steps.chromium.outputs.cache-hit != 'true'
         run: pnpm --filter @trading-dashboard/web exec playwright install --with-deps chromium
-      - name: Install Chromium's system packages
+      # The runner image ships Chrome's shared libraries, so a cached Chromium
+      # usually launches as is; `install-deps` (apt) took 12 min on 2026-10-23
+      # (run 39958570582) and is only run when the launch check fails.
+      - name: Chromium launches from the cache?
         if: steps.chromium.outputs.cache-hit == 'true'
+        id: launch
+        run: |
+          if pnpm --filter @trading-dashboard/web exec node -e "require('@playwright/test').chromium.launch().then(b => b.close()).then(() => process.exit(0), e => { console.error(String(e).slice(0, 400)); process.exit(1); })"; then echo "ok=true" >> "$GITHUB_OUTPUT"; else echo "ok=false" >> "$GITHUB_OUTPUT"; fi
+      - name: Install Chromium's system packages
+        if: steps.chromium.outputs.cache-hit == 'true' && steps.launch.outputs.ok != 'true'
         run: pnpm --filter @trading-dashboard/web exec playwright install-deps chromium
       # A fixture server that never came up is started once more; a failing
       # test is never retried. Turbopack's next/font/google loader sometimes

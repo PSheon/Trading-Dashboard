@@ -652,9 +652,12 @@ export class CopyLiveEngine {
    */
   private async sourceReady(row: DispatchRow, m: LiveMandateWork): Promise<boolean> {
     const stream = await this.deps.repository.stream(m.sourceNetwork, m.leaderAddress);
-    // The leg's fill must lie inside the proven coverage too (what the preparation requires; a gap read stores
-    // its fills beyond it), else the leg would pass here and fail there every second.
-    if (stream && liveSourceStreamAdmits(stream, row.leg) && stream.coverageFrom.getTime() <= m.cursor.getTime() && stream.coverageThrough.getTime() >= row.leaderTime.getTime()) return true;
+    // Held only for what the authority answers with a wait (live_risk_source_not_ready): a stream row that exists
+    // and does not admit the leg, or, in gap, one whose kept coverage does not reach the leg's fill (a gap read
+    // stores its fills beyond it; the preparation waits on that too). No row, or coverage that starts after the
+    // copy's cursor, is the authority's to refuse (live_risk_source_changed, counted) as before D10: not held here
+    // (CI 2026-10-23, copy-live-network.spec: a cursor before the coverage held the leg for ever).
+    if (!stream || liveSourceStreamAdmits(stream, row.leg) && (stream.state === 'ready' || stream.coverageThrough.getTime() >= row.leaderTime.getTime())) return true;
     const reason = 'live_risk_source_not_ready';
     if (row.reason !== reason) {
       this.deps.log?.(`leg ${row.id} waits: ${reason} (source ${m.sourceNetwork}:${m.leaderAddress} ${stream?.state ?? 'missing'}${stream?.lastIssue ? ` (${stream.lastIssue})` : ''}); no attempt spent`);

@@ -80,7 +80,20 @@ CI run, not by file count: `apps/api/test/shard-durations.json` and
 `apps/web/e2e/shard-durations.json`. `scripts/test-shards.mjs` puts the longest
 files first, each onto the shard with the least time so far; a file with no
 recorded time counts as the median one. Every file is in exactly one shard
-whatever the durations say, so stale times only cost balance.
+whatever the durations say, so stale times only cost balance — which is how
+run 39963379545 (2026-10-23) ran 10.5 / 5.5 / 13 min browser shards planned
+at 5 min each: seven specs added since the last measurement, two of them
+3.5 min long, counted as the 13 s median. Each file names the run it was
+measured from in `_measured`; `scripts/test-shards.test.mjs` fails when the
+committed browser durations plan any shard of three over 9.5 min (refresh
+them, and if the total really grew, add a shard). Look and refresh with:
+
+```bash
+node scripts/test-shards.mjs e2e 3 --plan        # every shard's planned total and files
+gh run view <run> --json jobs --jq '.jobs[] | select(.name|startswith("browser")) | .databaseId' \
+  | xargs -I{} sh -c 'gh api repos/PSheon/Trading-Dashboard/actions/jobs/{}/logs > /tmp/job-{}.log'
+node scripts/test-shards.mjs refresh --run=<run> /tmp/job-*.log
+```
 
 - api: `apps/api/vitest.config.ts` replaces Vitest's `--shard` split (a hash of
   each path, an equal file count, which ran 235–352 s per shard) with that one.
@@ -151,6 +164,20 @@ they are tinted with the group's own colour and the 11px blue one reads 4.2:1.
 The web typecheck includes `.next-e2e/dev/types`. After a page is removed, a
 `.next-e2e` left by an earlier browser run still points at it and typecheck
 fails locally (never in CI, which starts clean): delete `apps/web/.next-e2e`.
+
+## Unused message keys
+
+`node scripts/i18n-unused.mjs` (checks, after the script tests) lists every
+key of `apps/web/src/i18n/messages/en.ts` that nothing under `apps/web/src`
+reads and fails on the first one; `test/locales.test.ts` then keeps the other
+ten catalogs on the same keys. A key is read when a source file holds it as a
+string literal, holds a parent of it (`"trader.cols"`, `"nav." + page`), has a
+template literal it fits (`` `copyUpdates.${kind}.${value}` `` is any
+`copyUpdates.<x>.<y>`, not `copyUpdates.activityEmpty`), or walks to it from
+an object (`m.notFound.title`, `catalogs.en.meta`). That errs towards "used";
+the 2026-10-23 cleanup removed 31 keys (`common.*` leftovers, `topbar.signedInAs`,
+three toasts, and the paper-activity words under `copyUpdates`) on top of the
+earlier `copyAgents` block. `scripts/i18n-unused.test.mjs` covers the rules.
 
 ## Acceptance verdict scripts (read-only)
 

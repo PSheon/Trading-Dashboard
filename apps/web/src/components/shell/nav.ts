@@ -56,7 +56,11 @@ export const mobileNavSignedOut: NavItem[] = [
 ];
 
 export function isActive(pathname: string, href: string): boolean {
-  // A trader page belongs to no section (as on CopyDog): nothing is lit.
   if (href === "/") return pathname === "/";
+  // A trader page is reached from 探索 (the boards, the search): it lights
+  // 探索, so the header reads the same on every page (2026-10-23: with no
+  // section lit, every capsule link sat in the inactive grey and the
+  // header looked disabled next to the explore page's).
+  if (href === "/explore" && pathname.startsWith("/trader/")) return true;
   return pathname === href || pathname.startsWith(`${href}/`);
 }

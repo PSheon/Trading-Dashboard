@@ -52,10 +52,15 @@ it('a stopping worker claims nothing', async () => {
   await new BackfillWorker(config(), repository as never, { run: vi.fn() } as never, jobs).tick();
   expect(repository.claim).not.toHaveBeenCalled();
 });
-it('starts the leaderboard import at boot and warms no process-local cache', () => {
-  const ingest = { start: vi.fn() };
-  const worker = new TradersWorker(ingest as never, {} as never, {} as never);
+it('starts the leaderboard import and one suggested-budget refresh at boot, and warms no process-local cache', async () => {
+  const ingest = { start: vi.fn() }, suggested = { refresh: vi.fn(async () => ({ leaders: 3, suggested: 1 })) };
+  const worker = new TradersWorker(ingest as never, {} as never, {} as never, suggested as never);
   worker.onApplicationBootstrap();
+  await Promise.resolve();
   expect(ingest.start).toHaveBeenCalledTimes(1);
+  expect(suggested.refresh).toHaveBeenCalledTimes(1);
   expect('warmTick' in worker).toBe(false);
+  // The hourly tick never throws (a failed refresh is logged, the cron stays alive).
+  suggested.refresh.mockRejectedValueOnce(new Error('db down'));
+  await expect(worker.suggestedBudgetTick()).resolves.toBeUndefined();
 });

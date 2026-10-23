@@ -765,6 +765,12 @@ export const traderProfileResponseSchema = z.object({
    * badge, cached avatar); null when it is not a KOL. Optional while older
    * clients and fixtures roll forward. */
   kol: kolCardSchema.nullable().optional(),
+  /** The suggested minimum budget for a ratio copy of this leader (decision
+   * D7, 2026-10-23): ceil(10 × perp equity ÷ median notional of the leader's
+   * position-increasing orders over the last 30 days), whole USD, computed
+   * hourly by the read worker. Null without 5 adds in the window or an
+   * equity; optional while older api builds roll out. */
+  suggestedMinBudgetUsd: z.number().int().positive().nullable().optional(),
   /** @deprecated Tracked addresses only, from the actions table. The web
    * reads GET /traders/:address/analytics (any address) instead; kept for
    * API clients for one step. */

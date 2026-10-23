@@ -10,6 +10,7 @@ import {
 import { DRIZZLE_CLIENT } from "../db/db.constants.js";
 import type { DrizzleDb } from "../db/drizzle.provider.js";
 import { escapeLike } from "../common/sql/escape-like.js";
+import { suggestedMinBudgets } from "./suggested-budget.repository.js";
 import { traderStatsAsOf } from "./trader-stats-as-of.js";
 /** A whole trader_stats row, its `updatedAt` the time its figures are current as of. */
 const STATS_ROW = { ...getTableColumns(traderStats), updatedAt: traderStatsAsOf };
@@ -127,6 +128,10 @@ export class TradersRepository {
         .where(and(eq(discoveryTraders.chain, CHAIN_DEFAULT), inArray(discoveryTraders.address, addresses))),
     ]);
     return new Set([...stats, ...pool].map((r) => r.address));
+  }
+  /** The leader's suggested minimum copy budget (decision D7), null until the read worker computed one. */
+  async suggestedMinBudget(address: string): Promise<number | null> {
+    return (await suggestedMinBudgets(this.db, [address])).get(address.toLowerCase()) ?? null;
   }
   findStats(address: string) {
     return this.db.select(STATS_ROW).from(traderStats).where(and(eq(traderStats.chain, CHAIN_DEFAULT), eq(traderStats.address, address))).limit(1);

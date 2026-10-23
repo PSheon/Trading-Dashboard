@@ -8,6 +8,7 @@ import { ACTUAL_STRATEGY_MODE, liveCopySetupIntentSchema, type LiveCopyPortfolio
 import { DRIZZLE_CLIENT } from '../db/db.constants.js';
 import type { DrizzleDb } from '../db/drizzle.provider.js';
 import { RETURN_CONSENT_WINDOW_MS } from '../config/constants/timings.js';
+import { suggestedMinBudgets } from '../traders/suggested-budget.repository.js';
 
 /** The setup's consent while the owner can still sign it (as GET setups/:id shows it). */
 function consentOf(setup: typeof copyLiveSetups.$inferSelect, now: number) {
@@ -27,7 +28,7 @@ export class CopyLivePortfolioRepository {
       .where(and(eq(copyStrategies.userId, userId), eq(copyStrategies.mode, ACTUAL_STRATEGY_MODE))).orderBy(desc(copyStrategies.createdAt)).limit(50);
     if (!strategies.length) return [];
     const ids = strategies.map(row => row.strategy.id);
-    const [accounts, setups, mandates, activations, stops, transfers, liveSetups, setupAborts] = await Promise.all([
+    const [accounts, setups, mandates, activations, stops, transfers, liveSetups, setupAborts, suggested] = await Promise.all([
       this.db.select().from(copyExecutionAccounts).where(and(eq(copyExecutionAccounts.userId, userId), inArray(copyExecutionAccounts.strategyId, ids))),
       this.db.select().from(copyAgentSetups).where(and(eq(copyAgentSetups.userId, userId), eq(copyAgentSetups.state, 'active'))),
       this.db.select().from(copyLiveMandates).where(and(eq(copyLiveMandates.userId, userId), inArray(copyLiveMandates.strategyId, ids))).orderBy(desc(copyLiveMandates.createdAt)),
@@ -37,6 +38,7 @@ export class CopyLivePortfolioRepository {
       this.db.select().from(copyLiveSetups).where(and(eq(copyLiveSetups.userId, userId), inArray(copyLiveSetups.strategyId, ids))).orderBy(desc(copyLiveSetups.createdAt)),
       this.db.select({ setupId: copyLiveSetupAborts.setupId, strategyId: copyLiveSetupAborts.strategyId, network: copyLiveSetupAborts.network }).from(copyLiveSetupAborts)
         .where(and(eq(copyLiveSetupAborts.userId, userId), inArray(copyLiveSetupAborts.strategyId, ids))),
+      suggestedMinBudgets(this.db, strategies.map(row => row.strategy.leaderAddress)),
     ]);
     const now = Date.now();
     // The current generation only, bound to the owner's account and network; older ones raise no warnings.
@@ -128,6 +130,7 @@ export class CopyLivePortfolioRepository {
         setup: liveSetup ? { id: liveSetup.id, kind: liveSetup.kind, stage: liveSetup.stage, issue: liveSetup.issue?.slice(0, 80) ?? null,
           abortRequested, fundingStatus: originalFunding?.status ?? null, consent: abortRequested ? null : consentOf(liveSetup, now) } : null,
         expiresAt: mandate && ['active', 'paused'].includes(mandate.state) ? mandate.expiresAt.toISOString() : null,
+        suggestedMinBudgetUsd: suggested.get(s.leaderAddress.toLowerCase()) ?? null,
         oneClick: mandate?.consentKind === 'setup',
         renewalDue: Boolean(mandate && ['active', 'paused'].includes(mandate.state) && mandate.expiresAt.getTime() - now <= 3 * 86_400_000 && s.status !== 'stopping' && s.status !== 'stopped') };
     });

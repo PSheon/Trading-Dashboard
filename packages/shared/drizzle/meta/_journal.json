@@ -638,6 +638,13 @@
       "when": 1792672734708,
       "tag": "0090_history_retention",
       "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1792724357683,
+      "tag": "0091_suggested_min_budget",
+      "breakpoints": true
     }
   ]
 }

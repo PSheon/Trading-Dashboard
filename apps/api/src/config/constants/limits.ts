@@ -2,7 +2,7 @@
  * How many times a money-path step is tried before it is given up.
  * Basis lines: see AGENTS.md (checked by test/tuning-constants.spec.ts).
  */
-import { MINUTE_MS } from './time.js';
+import { DAY_MS, MINUTE_MS } from './time.js';
 
 /** basis: guessed — three orders per leader leg (the cloid suffix holds one digit); gate 9 records p50/p99 of attempts used
  * A later attempt exists only after the previous one was released as never
@@ -72,3 +72,18 @@ export const LEADER_FILLS_HISTORY_LIMIT = 200;
 /** basis: guessed — a leader's recent alerts list shows 50; verify: none needed
  */
 export const LEADER_ALERTS_HISTORY_LIMIT = 50;
+
+/** basis: derived — 30 days (decision D7, 2026-10-23: "近 30 天加倉"), under the 90-day history_fills retention
+ * The window of a leader's position-increasing orders whose median notional sizes the suggested minimum budget;
+ * it starts at the retention cut instead when that is later (suggested-budget.repository.ts).
+ */
+export const SUGGESTED_BUDGET_WINDOW_MS = 30 * DAY_MS;
+
+/** basis: guessed — fewer than 5 adds in the window is no sample: suggested = null, no pill; verify: Stage counts how many copied leaders carry a suggestion after a week
+ */
+export const SUGGESTED_BUDGET_MIN_ADDS = 5;
+
+/** basis: derived — DAY_MS: an equity snapshot older than a day (the scheduler writes one every 5 min for a watched leader) is not this leader's equity any more
+ * The suggestion then falls back to the leaderboard's or the pool's account value, else null.
+ */
+export const SUGGESTED_BUDGET_EQUITY_MAX_AGE_MS = DAY_MS;

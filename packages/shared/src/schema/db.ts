@@ -518,6 +518,34 @@ export const leaderboardImports = pgTable("leaderboard_imports", {
 });
 
 // ---------------------------------------------------------------------------
+// trader_suggested_budgets — 每位領單者的建議最低跟單預算（決議 D7, 2026-10-23）：
+// 建議預算 = ceil(10 × 領單者永續權益 ÷ 近 30 天加倉的中位名目額)，整數 USD，
+// 讀取 worker 每小時重算 watched / copied / pool 的每位領單者。獨立一張表：
+// trader_stats 由排行榜匯入整列重寫與刪除、discovery_traders 由 pool 重建刪除，
+// 兩者都不涵蓋每位可跟單的領單者。交易員頁 profile 與正式跟單 portfolio 各讀一筆。
+// ---------------------------------------------------------------------------
+
+export const traderSuggestedBudgets = pgTable(
+  "trader_suggested_budgets",
+  {
+    chain: text("chain").notNull().default(CHAIN_DEFAULT),
+    address: text("address").notNull(),
+    /** Whole USD, rounded up; null when the window holds fewer adds than
+     * the minimum sample or no equity is known. */
+    suggestedMinBudgetUsd: integer("suggested_min_budget_usd"),
+    /** Position-increasing orders in the window (the median's sample). */
+    adds: integer("adds").notNull(),
+    medianAddNotionalUsd: numeric("median_add_notional_usd"),
+    leaderPerpEquityUsd: numeric("leader_perp_equity_usd"),
+    /** Start of the window actually read: 30 days back, or the history
+     * retention cut when that is later. */
+    windowFrom: timestamp("window_from", { withTimezone: true }).notNull(),
+    computedAt: timestamp("computed_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.chain, table.address] })],
+);
+
+// ---------------------------------------------------------------------------
 // app_settings — 管理員在後台調整的全站設定（每個區塊一列，value 由 zod 驗證）
 // ---------------------------------------------------------------------------
 

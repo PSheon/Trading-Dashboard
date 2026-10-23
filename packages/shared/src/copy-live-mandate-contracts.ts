@@ -112,6 +112,9 @@ export const liveCopyPortfolioItemSchema = z.object({
   /** The generation came from a one-click setup consent: its stop cancels
    * its orders with no further consent. */
   oneClick: z.boolean().optional(),
+  /** The leader's suggested minimum budget (decision D7; the trader profile's
+   * figure): a budget under it shows a warning pill. Null when none. */
+  suggestedMinBudgetUsd: z.number().int().positive().nullable().optional(),
 }).strict();
 export type LiveCopyPortfolioItem = z.infer<typeof liveCopyPortfolioItemSchema>;
 export const liveCopyPortfolioSchema = z.object({ network: z.enum(['testnet', 'mainnet']), automaticExecution: z.boolean(), items: z.array(liveCopyPortfolioItemSchema).max(50) }).strict();

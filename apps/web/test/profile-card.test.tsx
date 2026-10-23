@@ -121,3 +121,23 @@ it("keeps the account value's parts mounted and inert while closed, so they open
     expect(parts.hasAttribute("inert")).toBe(false);
   } finally { await act(async () => root.unmount()); }
 });
+
+it("最佳與最差 lists a coin once, with its closed trades summed (Stage 0x350e…dfcb: ZEC +$3.1M and ZEC +$1.7M)", () => {
+  const trade = (id: string, coin: string, netPnl: number) => ({ id, coin, side: "long", status: "closed", netPnl, realizedPnl: netPnl, fees: 0, funding: 0, size: 1, entryPx: 1, exitPx: 2, notional: 3, volume: 1, holdSeconds: 60, entryTime: "2026-10-01T00:00:00.000Z", exitTime: "2026-10-02T00:00:00.000Z" });
+  const coin = (c: string, netPnl: number, trades: number) => ({ coin: c, trades, wins: netPnl > 0 ? trades : 0, losses: netPnl > 0 ? 0 : trades, volume: 1, netPnl, winRate: netPnl > 0 ? 1 : 0 });
+  const trades = { summary: {
+    best: [trade("a", "ZEC", 3_100_000), trade("b", "ZEC", 1_700_000), trade("c", "ETH", 900_000), trade("d", "SOL", 400_000), trade("e", "BTC", 200_000)],
+    worst: [trade("x", "DOGE", -500_000), trade("y", "DOGE", -300_000), trade("z", "PEPE", -100_000)],
+    coins: [coin("ZEC", 4_800_000, 2), coin("ETH", 900_000, 1), coin("SOL", 400_000, 1), coin("BTC", 200_000, 1), coin("PEPE", -100_000, 1), coin("DOGE", -800_000, 2)],
+  } } as unknown as NonNullable<Parameters<typeof ProfileCard>[0]["trades"]>;
+  const html = renderToStaticMarkup(<I18nProvider locale="zh-TW" messages={zhTW}><ProfileCard profile={base()} allTimeVolume={null} trades={trades} tradesComputing={false} /></I18nProvider>);
+  const section = html.slice(html.indexOf("最佳與最差"), html.indexOf("最常交易"));
+  expect(section.match(/>ZEC</g)?.length).toBe(1);
+  expect(section).toContain("+$4.8M");
+  expect(section).not.toContain("+$3.1M");
+  expect(section).not.toContain("+$1.7M");
+  // Three coins: the rows below the summed one move up.
+  expect(section).toContain(">ETH<");
+  expect(section).toContain(">SOL<");
+  expect(section).not.toContain(">BTC<");
+});

@@ -29,7 +29,12 @@ function usePortfolioKey() {
 export function useLiveCopyPortfolio() {
   const auth = useAuth();
   const enabled = liveCopyEnabled(auth);
-  const query = useQuery({ queryKey: usePortfolioKey(), enabled, staleTime: 0, ...busyRetry, refetchInterval: 10_000, refetchOnWindowFocus: true,
+  // The session client's stale time (5 s), not 0: the header's pill, its
+  // equity probes and the portfolio each mount this read, and the probes
+  // mount a moment after the pill (once the deployment is known). At 0 every
+  // later mount re-read the portfolio (Stage 2026-10-23: ×6 on one explore
+  // page view); the actions invalidate it explicitly anyway.
+  const query = useQuery({ queryKey: usePortfolioKey(), enabled, ...busyRetry, refetchInterval: 10_000, refetchOnWindowFocus: true,
     queryFn: async ({ signal }) => liveCopyPortfolioSchema.parse(await api.get(`${ROOT}/portfolio`, signal)) });
   // A failed first read is reported (the portfolio shows it with a retry),
   // not turned into "no testnet copies". A passing failure of a later read

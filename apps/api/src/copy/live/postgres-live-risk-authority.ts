@@ -33,13 +33,49 @@ type LiveSourceStreamRow=typeof copyLiveSourceStreams.$inferSelect;
  *   position the leader has since closed. The close's own fill must lie inside the proven coverage (the
  *   provenance check, live_risk_source_changed; a fill a gap read stored beyond it waits for the stream).
  * - anything else (`unproven` after a restart, `quarantined`, no coverage yet): no leg.
- * An unknown leg (no `leg`) is an open: every check applies. The engine's pre-check (CopyLiveEngine.sourceReady)
- * and the preparation's source check (PostgresLivePreparation.prepare) apply this same rule.
+ * An unknown leg (no `leg`) is an open: every check applies. Whether a leg may proceed against the stream is decided
+ * in one place only, liveSourceAdmission below, which applies this rule.
  */
-export function liveSourceStreamAdmits(stream:Pick<LiveSourceStreamRow,'state'|'coverageFrom'|'coverageThrough'|'coverageDigest'>,leg:'open'|'close'|undefined):
-  stream is Pick<LiveSourceStreamRow,'state'|'coverageFrom'|'coverageThrough'|'coverageDigest'>&{coverageFrom:Date;coverageThrough:Date;coverageDigest:string} {
+type LiveSourceStreamAdmissionRow=Pick<LiveSourceStreamRow,'state'|'coverageFrom'|'coverageThrough'|'coverageDigest'>;
+type LiveSourceStreamWithCoverage=LiveSourceStreamAdmissionRow&{coverageFrom:Date;coverageThrough:Date;coverageDigest:string};
+export function liveSourceStreamAdmits(stream:LiveSourceStreamAdmissionRow,leg:'open'|'close'|undefined):stream is LiveSourceStreamWithCoverage {
   if(!stream.coverageFrom||!stream.coverageThrough||!stream.coverageDigest)return false;
   return stream.state==='ready'||leg==='close'&&stream.state==='gap';
+}
+export type LiveSourceAdmission={verdict:'admit'}|{verdict:'wait';code:'live_risk_source_not_ready'}|{verdict:'refuse';code:'live_risk_source_changed'};
+/**
+ * THE decision of whether a leg of `leg` may proceed against the leader's source stream now, for every site that asks
+ * (one function since 2bc22705 left the rule in three copies and one drifted: CI 2026-10-23, copy-live-network.spec):
+ * - no stream row at all (the leader was never ingested): `refuse` (live_risk_source_changed), as before D10, never a wait.
+ * - a row that does not admit the leg (liveSourceStreamAdmits, D10: `unproven` after a restart, `quarantined`, no
+ *   coverage yet, or `gap` for an open): `wait` (live_risk_source_not_ready, a `budget`-class wait of its own:
+ *   error-class.ts, never a counted attempt), so a leg waiting on the stream cannot reach CLOSE_ATTEMPT_LIMIT (Stage
+ *   mainnet 2026-10-22 18:02Z, strategy 14: nine counted attempts in a ~60 s gap).
+ * - in `gap`, kept coverage that does not reach the leg's fill (`leaderTime`; a gap read stores its fills beyond it):
+ *   `wait` for the stream too.
+ * - coverage that starts after the copy's cursor (`coverageFrom` > `cursor`): `refuse` (live_risk_source_changed), the
+ *   authority's counted refusal as before D10, never a hold (the pre-check once held such a leg for ever).
+ * - else `admit`.
+ * `leaderTime` is the leg's fill time when the caller knows it (the engine's dispatch row, the preparation's fill); the
+ * preparation authority, which runs before any fill is read, passes none and the coverage-reach check does not apply.
+ * Callers: CopyLiveEngine.sourceReady holds a leg for a `wait` only and sends the rest to the runtime, where
+ * loadLivePreparationAuthority and PostgresLivePreparation.prepare throw by the verdict (requireLiveSourceAdmission;
+ * the preparation names a refusal live_preparation_source).
+ */
+export function liveSourceAdmission(stream:LiveSourceStreamAdmissionRow|null|undefined,leg:'open'|'close'|undefined,cursor:Date,leaderTime?:Date):LiveSourceAdmission {
+  if(!stream)return {verdict:'refuse',code:'live_risk_source_changed'};
+  if(!liveSourceStreamAdmits(stream,leg))return {verdict:'wait',code:'live_risk_source_not_ready'};
+  if(stream.state==='gap'&&leaderTime&&stream.coverageThrough.getTime()<leaderTime.getTime())return {verdict:'wait',code:'live_risk_source_not_ready'};
+  if(stream.coverageFrom.getTime()>cursor.getTime())return {verdict:'refuse',code:'live_risk_source_changed'};
+  return {verdict:'admit'};
+}
+/** liveSourceAdmission as a boundary check: throws the verdict's code unless the stream admits the leg (a `refuse`
+ * under `refuseCode` when the caller names its own), and proves the stream's coverage to the type system. */
+export function requireLiveSourceAdmission<S extends LiveSourceStreamAdmissionRow>(stream:S|null|undefined,leg:'open'|'close'|undefined,cursor:Date,leaderTime?:Date,refuseCode?:string):
+  asserts stream is S&LiveSourceStreamWithCoverage {
+  const admission=liveSourceAdmission(stream,leg,cursor,leaderTime);
+  if(admission.verdict==='admit')return;
+  throw new LiveBoundaryError(admission.verdict==='refuse'&&refuseCode?refuseCode:admission.code);
 }
 export const riskSourceDigest = (value: unknown) => liveSourceDigest(JSON.parse(JSON.stringify(value)) as unknown);
 /** Shared current authority, before an execution journal/provenance exists.
@@ -160,14 +196,10 @@ export async function loadLivePreparationAuthority(session:LiveRiskDatabaseSessi
   // The scope's source is the consent's (checked above, live_risk_source_scope_missing).
   riskSourceRequire(streamWork,'live_risk_source_scope_missing');
   const [sourceStream]=await streamWork;
-  // The stream must admit the leg (liveSourceStreamAdmits, D10): a wait with its own code (error-class.ts, never
-  // an attempt) while it does not, so a leg waiting on it cannot reach CLOSE_ATTEMPT_LIMIT (Stage mainnet
-  // 2026-10-22 18:02Z, strategy 14: nine counted attempts in a ~60 s gap). The engine checks the same for an
-  // open before it spends evidence (CopyLiveEngine.sourceReady).
-  // No stream row at all (the leader was never ingested) is a change, as before D10, never a wait.
-  riskSourceRequire(sourceStream,'live_risk_source_changed');
-  riskSourceRequire(liveSourceStreamAdmits(sourceStream,binding.leg),'live_risk_source_not_ready');
-  riskSourceRequire(sourceStream.coverageFrom.getTime()<=m.activationCursor!.getTime(),'live_risk_source_changed');
+  // The stream must admit the leg (liveSourceAdmission, THE decision: a missing row or coverage starting after the
+  // cursor refused as a change, a stream not admitting the leg a wait). No fill is read here, so the coverage-reach
+  // check is the preparation's. The engine asked the same before it spent evidence (CopyLiveEngine.sourceReady).
+  requireLiveSourceAdmission(sourceStream,binding.leg,m.activationCursor!);
   const identity={accountId:a.id,userId:a.userId,strategyId:s.id,strategyVersion:s.version,policyVersion:policy.version,authorizationVersion:g.version,
     authorizationId:g.id,walletId:w.privyWalletId,network:a.network,accountAddress:a.address,dedicated:true as const};
   // Authentication refreshes this audit timestamp independently of orders.

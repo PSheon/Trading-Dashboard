@@ -150,7 +150,7 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | POST | `/me/copy/execution-wallets/:id/agent` | 200 | user (owner); configured testnet agent provider |
 | POST | `/me/copy/agents/:id/reconcile` | 200 | user (owner) |
 | GET | `/me/copy/funding` | 200 | user (owner) |
-| POST | `/me/copy/execution-wallets/:id/funding` | 200 | user (owner); testnet; verified execution account |
+| POST | `/me/copy/execution-wallets/:id/funding` | 200 | user (owner); live copy on the deployment's network (COPY_TRADING_MODE testnet or live); verified execution account |
 | POST | `/me/copy/funding/:id/broadcast` | 200 | user (owner); one permission |
 | POST | `/me/copy/funding/:id/submit` | 200 | user (owner); exact source signature; one attempt |
 | POST | `/me/copy/funding/:id/cancel` | 200 | user (owner); unattempted intent only |

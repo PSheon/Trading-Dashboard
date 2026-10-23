@@ -65,7 +65,7 @@ describe("the worker's turn over watched addresses (refreshTracked)", () => {
   it("refreshes at the tracked rank: behind every page, ahead of the pool, history and backfill (gap audit 2026-10-05)", async () => {
     await db.insert(leaders).values({ address: address(1) });
     expect(await service.refreshTracked()).toEqual([address(1)]);
-    const rank = (compute.mock.calls[0] as [string, boolean, { rank?: number }])[2].rank!;
+    const rank = (compute.mock.calls[0] as [string, { rank?: number }])[1].rank!;
     expect(rank).toBe(ESSENTIAL_RANK.tracked);
     expect(rank).toBeGreaterThan(PAGE_RANK.analytics);
     expect(rank).toBeLessThan(UNRANKED_BASE - 1);

@@ -43,7 +43,7 @@ for (const width of [1440, 390]) {
       await expect(page.getByText("Testnet copies follow new trades only; current positions are not copied.").filter({ visible: true })).toBeVisible();
       if (width < 768) {
         for (const key of ["1", "5", "0"]) await panel.getByRole("button", { name: key, exact: true }).click();
-        await action(page, "Start copying $150").click();
+        await page.getByTestId("copy-submit").filter({ visible: true }).click();
       } else {
         const amount = page.getByRole("textbox", { name: "Amount to copy (USDC)" }).filter({ visible: true });
         await amount.fill("150");

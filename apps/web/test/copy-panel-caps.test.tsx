@@ -54,19 +54,24 @@ async function type(value: string, selector = "input#copy-amount") {
   await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value); input.dispatchEvent(new Event("input", { bubbles: true })); });
 }
 const cta = () => container.querySelector('button[type="submit"]') as HTMLButtonElement;
+/** The amount's validation pill under the field ("" without one). */
+const pill = () => container.querySelector('[data-testid="copy-amount-state"]')?.textContent ?? "";
 
 it("正式 on a capped deployment: 5 is below its 11 minimum, 80 is above its 50 cap, 40 can start", async () => {
   await render();
   await type("5");
-  expect(cta().textContent).toBe("最低 $11 才能跟單");
+  expect(pill()).toBe("最低 $11 才能跟單");
+  expect(cta().textContent).toBe("跟單");
+  expect(cta().disabled).toBe(true);
   await type("80");
-  expect(cta().textContent).toBe("上限 $50");
+  expect(pill()).toBe("上限 $50");
+  expect(cta().disabled).toBe(true);
   await act(async () => cta().click());
   expect(state.start).not.toHaveBeenCalled();
-  expect(state.toasts).toEqual(["單一跟單最多 $50"]);
   await type("40");
-  expect(cta().textContent).toContain("40");
-  expect(cta().textContent).not.toContain("最低");
+  expect(pill()).toBe("");
+  expect(cta().textContent).toBe("跟單");
+  expect(cta().disabled).toBe(false);
 });
 
 it("最大 stops at the cap, and the api's above_max_allocation names the deployment's cap, not the paper limit", async () => {
@@ -93,7 +98,7 @@ it("模擬 keeps the paper limits, and the phone sheet has no separate mode sele
   localStorage.setItem("orbie:copy-mode:owner@email", "paper");
   await render();
   await type("80");
-  expect(cta().textContent).toBe("最低 $100 才能跟單");
+  expect(pill()).toBe("最低 $100 才能跟單");
   state.live = false;
   await render(true);
   expect(container.querySelector("[data-testid='copy-mode-paper']")).toBeNull();
@@ -129,7 +134,7 @@ it("clears an unsubmitted actual amount when the account changes to paper funds"
     window.dispatchEvent(new StorageEvent("storage", { key: "orbie:trading-mode:owner@email", newValue: "paper" }));
   });
   expect((container.querySelector("input#copy-amount") as HTMLInputElement).value).toBe("");
-  await type("80"); expect(cta().textContent).toBe("最低 $100 才能跟單");
+  await type("80"); expect(pill()).toBe("最低 $100 才能跟單");
   expect(state.start).not.toHaveBeenCalled();
 });
 

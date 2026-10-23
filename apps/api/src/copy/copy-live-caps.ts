@@ -24,21 +24,22 @@ export function effectiveLiveLimits<T extends Pick<CopyRiskLimits, 'maxStrategie
 }
 
 /**
- * Settings an actual copy may use on this deployment: with fixed bounds
- * (COPY_LIVE_FIXED_PER_TRADE_MIN_USD / _MAX_USD; always on a live deployment)
- * only fixed sizing, with the per-trade amount inside them (testnet); on a
- * live deployment only ratio sizing (12–15 USDC by
- * default: above the exchange's 10 USDC minimum with rounding room); and a
- * leverage no higher than the cap. Refusals the UI names
- * (wire-contracts `copyErrorCodes`).
+ * Settings an actual copy may use on this deployment. The sizing rule follows
+ * the mode `liveCaps` (runtime-config.ts) built the caps for, one or the other,
+ * never both: a live deployment carries `ratioOnly` (decision D6: real-money
+ * copies size by ratio to the trader, the fixed bounds are ignored there), a
+ * testnet deployment may carry `fixedPerTradeUsd` (COPY_LIVE_FIXED_PER_TRADE_MIN_USD
+ * / _MAX_USD: only fixed sizing, the per-trade amount inside them; 12–15 USDC
+ * by default, above the exchange's 10 USDC minimum with rounding room). Were
+ * both ever set, `ratioOnly` decides. A leverage no higher than the cap on
+ * either. Refusals the UI names (wire-contracts `copyErrorCodes`).
  */
 export function assertLiveSettings(caps: LiveCopyCaps | undefined, settings: Pick<CopyStrategySettings, 'sizingMode' | 'perTradeUsd' | 'maxLeverage'>): void {
   if (!caps) return;
-  if (caps.ratioOnly && settings.sizingMode !== 'ratio') {
-    throw new ConflictException({ statusCode: 409, code: 'live_ratio_sizing_required', message: 'Real-fund copies size by ratio to the trader' });
-  }
   const fixed = caps.fixedPerTradeUsd;
-  if (fixed) {
+  if (caps.ratioOnly) {
+    if (settings.sizingMode !== 'ratio') throw new ConflictException({ statusCode: 409, code: 'live_ratio_sizing_required', message: 'Real-fund copies size by ratio to the trader' });
+  } else if (fixed) {
     if (settings.sizingMode !== 'fixed') {
       throw new ConflictException({ statusCode: 409, code: 'live_fixed_sizing_required', message: 'These copies use a fixed amount per trade', min: fixed.min, max: fixed.max });
     } else {

@@ -4,8 +4,12 @@ import { appSettings, copyControls, copyRiskPolicies, traderSuggestedBudgets } f
 import { LIVE_BUDGET_MIN_USD } from '../src/config/constants/limits.js';
 import { CopyLiveMandateService } from '../src/copy/copy-live-mandate.service.js';
 import type { AppConfig } from '../src/config/app-config.js';
-import type { LiveCopyConfig } from '../src/config/runtime-config.js';
+import { validateEnvironment, type LiveCopyConfig } from '../src/config/runtime-config.js';
+import { generateKeyPairSync } from 'node:crypto';
+const liveEnv = { DATABASE_URL: 'postgres://caps@127.0.0.1:55439/caps_test', COPY_TRADING_MODE: 'live', HYPERLIQUID_NETWORK: 'mainnet', HYPERLIQUID_EGRESS_KEY: 'shared-egress', PRIVY_APP_ID: 'app', PRIVY_APP_SECRET: 'secret',
+  PRIVY_AGENT_AUTHORIZATION_KEY: generateKeyPairSync('ec', { namedCurve: 'prime256v1' }).privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64'), PRIVY_AGENT_WORKER_QUORUM_ID: 'worker', COPY_LIVE_ALLOWED_PRIVY_USER_IDS: 'did:privy:paul-mainnet' };
 import { CopyLiveMandateRepository } from '../src/copy/copy-live-mandate.repository.js';
+import { assertLiveSettings } from '../src/copy/copy-live-caps.js';
 import { liveMaxStrategiesPerUser } from '../src/copy/live-worker/copy-live-engine.provider.js';
 import { assertLiveEvidenceCapacity } from '../src/copy/live/live-shared-reads.js';
 import { UnitOfWork } from '../src/db/unit-of-work.js';
@@ -87,6 +91,17 @@ describe('deployment caps on actual copies', () => {
     for (const perTradeUsd of [12, 15]) await expect(create(config, 1, { settings: { sizingMode: 'fixed', perTradeUsd } })).rejects.toMatchObject(refusal('live_ratio_sizing_required'));
     await expect(create(config, 1, { settings: { maxLeverage: 5 } })).rejects.toMatchObject(refusal('leverage_above_limit'));
     await expect(create(config, 1)).resolves.toMatchObject({ settings: expect.objectContaining({ sizingMode: 'ratio', perTradeUsd: null }) });
+  });
+
+  it('ratioOnly (live) and fixed bounds (testnet) are exclusive by construction; were both set, ratio sizing is what passes, not nothing', () => {
+    const both = { maxStrategiesPerUser: 2, ratioOnly: true, fixedPerTradeUsd: { min: 12, max: 15 } };
+    expect(() => assertLiveSettings(both, { sizingMode: 'ratio', perTradeUsd: null, maxLeverage: null })).not.toThrow();
+    expect(() => assertLiveSettings(both, { sizingMode: 'fixed', perTradeUsd: 12, maxLeverage: null })).toThrow(expect.objectContaining({ response: expect.objectContaining({ code: 'live_ratio_sizing_required' }) }));
+    // What liveCaps builds (env-validation.spec.ts): never both.
+    const liveCaps = validateEnvironment({ ...liveEnv, COPY_LIVE_FIXED_PER_TRADE_MIN_USD: '12', COPY_LIVE_FIXED_PER_TRADE_MAX_USD: '15' }).copy.live?.caps;
+    expect(liveCaps?.ratioOnly).toBe(true); expect(liveCaps?.fixedPerTradeUsd).toBeUndefined();
+    const testnetCaps = validateEnvironment({ ...liveEnv, COPY_TRADING_MODE: 'testnet', HYPERLIQUID_NETWORK: 'testnet', COPY_LIVE_FIXED_PER_TRADE_MIN_USD: '12', COPY_LIVE_FIXED_PER_TRADE_MAX_USD: '15' }).copy.live?.caps;
+    expect(testnetCaps?.ratioOnly).toBeUndefined(); expect(testnetCaps?.fixedPerTradeUsd).toEqual({ min: 12, max: 15 });
   });
 
   it('a testnet deployment with fixed bounds: fixed sizing only, 12–15 USDC a trade', async () => {

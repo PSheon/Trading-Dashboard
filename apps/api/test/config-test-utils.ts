@@ -15,7 +15,7 @@ export function testConfig(): AppConfig {
     auth: { serviceToken: env.serviceToken(), permissions: env.servicePermissions(), adminEmails: env.adminEmails(), appId: env.privyAppId(), appSecret: env.privyAppSecret(), verificationKey: env.privyVerificationKey(),
       deletionMarker: { key: process.env.ACCOUNT_DELETION_MARKER_KEY || undefined, previousKeys: (process.env.ACCOUNT_DELETION_MARKER_PREVIOUS_KEYS ?? "").split(",").map((v) => v.trim()).filter(Boolean) } },
     telegram: { botToken: env.telegramBotToken(), botUsername: env.telegramBotUsername(), systemChatId: env.telegramSystemChatId(), dryRun: env.telegramDryRun(), polling: env.telegramBotPolling(), linkBaseUrl: env.telegramLinkBaseUrl() },
-    hyperliquid: { egressKey: process.env.HYPERLIQUID_EGRESS_KEY, apiUrl: env.hyperliquidApiUrl(), wsUrl: env.hyperliquidWsUrl(), budgetPerMin: env.hyperliquidWeightBudgetPerMin(), burst: getIntEnv("HYPERLIQUID_WEIGHT_BURST", 200, 1, 1200),
+    hyperliquid: { egressKey: process.env.HYPERLIQUID_EGRESS_KEY, sharedEgressKey: process.env.HYPERLIQUID_EGRESS_KEY, meter: "copy" as const, readMeter: "own" as const, apiUrl: env.hyperliquidApiUrl(), wsUrl: env.hyperliquidWsUrl(), budgetPerMin: env.hyperliquidWeightBudgetPerMin(), burst: getIntEnv("HYPERLIQUID_WEIGHT_BURST", 200, 1, 1200),
       pageReserveShare: Number(process.env.HYPERLIQUID_PAGE_RESERVE_SHARE ?? 0.25),
       startupPaceSeconds: getIntEnv("HYPERLIQUID_STARTUP_PACE_SECONDS", 0, 0, 600),
       backgroundRestCap: getIntEnv("HYPERLIQUID_BACKGROUND_REST_CAP", 840, 0, 1200),

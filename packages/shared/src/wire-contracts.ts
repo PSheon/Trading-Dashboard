@@ -126,13 +126,16 @@ export type RetentionStatus = z.infer<typeof retentionStatusSchema>;
  *   (worker.terminalSettlement); only that engine settles terminal copies.
  * - snapshots_stale: WORKER_READ_URL is set and the read worker's
  *   heartbeats have shown no snapshot in the last 15 minutes.
- * - egress_identity_shared: a public IP the copy worker reports (its
- *   heartbeat's egressIdentity) is also the api's own or the read
- *   worker's: they share an egress, so the copy worker's per-IP Hyperliquid
- *   limit is not its own. `ips`: the shared addresses; `peers`: whose.
+ * - egress_identity_shared: two of the api, the copy worker and the read
+ *   worker report a common public IP (the workers' heartbeats'
+ *   egressIdentity, the api's own): they share an egress, so the per-IP
+ *   Hyperliquid meters they keep apart (D12: the copy side's shared meter,
+ *   the read worker's own) are one limit on the provider's side. `ips`: the
+ *   shared addresses; `peers`: the roles involved; `pairs`: which two.
  * `lastOkAt`: when it was last seen fine (or the api's start). */
 export const workerAlertSchema = z.object({ code: z.enum(["terminal_settlement_unowned", "snapshots_stale", "egress_identity_shared"]), lastOkAt: iso,
-  ips: z.array(z.string()).optional(), peers: z.array(z.enum(["api", "read"])).optional() });
+  ips: z.array(z.string()).optional(), peers: z.array(z.enum(["api", "copy", "read"])).optional(),
+  pairs: z.array(z.enum(["copy-api", "copy-read", "read-api"])).optional() });
 export type WorkerAlert = z.infer<typeof workerAlertSchema>;
 export const adminSystemSchema = z.object({
   sampledAt: iso,
@@ -152,6 +155,11 @@ export const adminSystemSchema = z.object({
     /** The fast leader source's lane on the same egress (a kick's reads per
      * watched mainnet leader; it announces no demand). Additive. */
     sourceLane: wireMeterLaneDemandSchema.optional(),
+    /** Both Hyperliquid meters as the api reads their rows (D12): the copy
+     * side's shared meter (this api's own) and the read worker's
+     * (`<key>:read`), each with its background cap and what each class of
+     * charge holds now. Additive. */
+    meters: z.array(s.hyperliquidMeterUsageSchema).optional(),
     /** This api process's public egress identity (HL_EGRESS_IDENTITY;
      * absent while off). Additive. */
     egressIdentity: s.egressIdentitySchema.optional(),

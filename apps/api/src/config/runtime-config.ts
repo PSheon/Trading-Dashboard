@@ -5,7 +5,8 @@ import { WALLET_NETWORKS } from "@trading-dashboard/shared/contracts";
 import { booleanValue, databaseUrl, integerValue, servicePermissions } from "./parse-env.js";
 import { workerRoleValue } from "../runtime/worker-role.js";
 import { liveSetupTimings, liveStopTimings, type LiveSetupTimings, type LiveStopTimings } from "./live-timings.js";
-import { HYPERLIQUID_BACKGROUND_REST_CAP, MAINNET_WORKER_WEIGHT } from './constants/hyperliquid.js';
+import { HYPERLIQUID_BACKGROUND_REST_CAP, MAINNET_WORKER_WEIGHT, READ_WORKER_BACKGROUND_REST_CAP } from './constants/hyperliquid.js';
+import { isReadMeterKey, readMeterKey, type HyperliquidMeter } from '../hyperliquid/hyperliquid-meter-key.js';
 import { FAST_SOURCE_GRACE_MS, LIVE_EVIDENCE_MAX_AGE_MS, LIVE_TESTNET_EVIDENCE_MAX_AGE_CAP_MS } from './constants/timings.js';
 import { DATABASE_POOL_MAX_API, DATABASE_POOL_MAX_COPY_WORKER, DATABASE_POOL_MAX_READ_WORKER, DATABASE_POOL_MAX_WORKER } from './constants/database.js';
 import { COPY_EQUITY_FULL_RESOLUTION_MS } from './constants/cache-ttls.js';
@@ -455,28 +456,62 @@ export function validateEnvironment(source: Environment = process.env) {
   const telegram = { botToken, botUsername, dryRun, polling, systemChatId: optional(source.TELEGRAM_SYSTEM_CHAT_ID),
     linkBaseUrl: urlValue("TELEGRAM_LINK_BASE_URL", source.TELEGRAM_LINK_BASE_URL, "https://app.orbie.fun", ["http:", "https:"]),
   };
-  const egressKey = optional(source.HYPERLIQUID_EGRESS_KEY);
-  if (source.HYPERLIQUID_EGRESS_KEY !== undefined && (!egressKey || !/^[A-Za-z0-9:._-]{1,128}$/.test(egressKey))) throw new Error('HYPERLIQUID_EGRESS_KEY must be a canonical shared egress identifier');
+  const sharedEgressKey = optional(source.HYPERLIQUID_EGRESS_KEY);
+  if (source.HYPERLIQUID_EGRESS_KEY !== undefined && (!sharedEgressKey || !/^[A-Za-z0-9:._-]{1,128}$/.test(sharedEgressKey))) throw new Error('HYPERLIQUID_EGRESS_KEY must be a canonical shared egress identifier');
+  // `<key>:read` is the read worker's own meter (below): a shared key that
+  // already carries the segment would put the copy side on it.
+  if (sharedEgressKey && isReadMeterKey(sharedEgressKey)) throw new Error("HYPERLIQUID_EGRESS_KEY must not contain a `read` segment: `<key>:read` is the read worker's own meter (HYPERLIQUID_READ_METER)");
   // The shared quota refuses every info call without the alias: fail at
   // startup rather than pass readiness and then fail every read.
-  if (production && !egressKey) throw new Error("HYPERLIQUID_EGRESS_KEY is required in staging and production (the same value on the api and the worker)");
+  if (production && !sharedEgressKey) throw new Error("HYPERLIQUID_EGRESS_KEY is required in staging and production (the same value on the api and the worker)");
+  // HYPERLIQUID_READ_METER (decision D12, 2026-10-23; hyperliquid-meter-key.ts):
+  // the read worker's meter. `own` (default): its own public IP's 1,200 a
+  // minute under `<HYPERLIQUID_EGRESS_KEY>:read`, background capped at
+  // READ_WORKER_BACKGROUND_REST_CAP (900) so READ_WORKER_PAGE_RESERVE (300)
+  // stays for its on-demand reads. `shared`: the rollback, back on the copy
+  // side's meter with its priorities, as before D12 (if Hyperliquid counts
+  // the two IPs together). Meaningless anywhere else, so refused there.
+  const readMeter = oneOf("HYPERLIQUID_READ_METER", source.HYPERLIQUID_READ_METER, ["shared", "own"], "own");
+  const readWorker = isWorker && workerRole === "read";
+  if (optional(source.HYPERLIQUID_READ_METER) !== undefined && !readWorker) throw new Error("HYPERLIQUID_READ_METER applies to the read worker only (IS_WORKER=true, WORKER_ROLE=read)");
+  const meter: HyperliquidMeter = readWorker && readMeter === "own" ? "read" : "copy";
+  const egressKey = meter === "read" && sharedEgressKey ? readMeterKey(sharedEgressKey) : sharedEgressKey;
+  // The read meter's background cap is the constant: a value copied from the
+  // copy side (a canary's 400) would starve it again, silently.
+  if (meter === "read" && source.HYPERLIQUID_BACKGROUND_REST_CAP !== undefined) throw new Error(`HYPERLIQUID_BACKGROUND_REST_CAP does not apply to the read worker's own meter (READ_WORKER_BACKGROUND_REST_CAP, ${READ_WORKER_BACKGROUND_REST_CAP}): delete it on worker-read, or set HYPERLIQUID_READ_METER=shared`);
   const wallet = walletNetwork(source), mainnetWorker = isWorker && wallet.network === "mainnet";
+  // The read meter's local bucket may spend what its background cap allows
+  // (its own IP); HYPERLIQUID_WORKER_WEIGHT_* (one machine, one .env) else
+  // HYPERLIQUID_WEIGHT_* may lower it, never raise it above the cap.
+  const readRate = source.HYPERLIQUID_WORKER_WEIGHT_BUDGET_PER_MIN !== undefined ? ["HYPERLIQUID_WORKER_WEIGHT_BUDGET_PER_MIN", source.HYPERLIQUID_WORKER_WEIGHT_BUDGET_PER_MIN] as const : ["HYPERLIQUID_WEIGHT_BUDGET_PER_MIN", source.HYPERLIQUID_WEIGHT_BUDGET_PER_MIN] as const;
+  const readBurst = source.HYPERLIQUID_WORKER_WEIGHT_BURST !== undefined ? ["HYPERLIQUID_WORKER_WEIGHT_BURST", source.HYPERLIQUID_WORKER_WEIGHT_BURST] as const : ["HYPERLIQUID_WEIGHT_BURST", source.HYPERLIQUID_WEIGHT_BURST] as const;
   const hyperliquid = {
-    /** All application processes sharing outbound capacity use this exact
-     * alias. Missing configuration never grants unmetered actual execution. */
+    /** The meter this process charges (hyperliquid-meter-key.ts): the shared
+     * one (`copy`: the api and the copy worker, HYPERLIQUID_EGRESS_KEY) or the
+     * read worker's own (`read`: `<key>:read`). Missing configuration never
+     * grants unmetered actual execution. */
     egressKey,
+    /** HYPERLIQUID_EGRESS_KEY as set: the copy side's shared meter, which the
+     * admin overview shows beside the read meter derived from it. */
+    sharedEgressKey,
+    meter,
+    readMeter,
     apiUrl: urlValue("HYPERLIQUID_API_URL", source.HYPERLIQUID_API_URL, "https://api.hyperliquid.xyz/info", ["http:", "https:"]),
     wsUrl: urlValue("HYPERLIQUID_WS_URL", source.HYPERLIQUID_WS_URL, "wss://api.hyperliquid.xyz/ws", ["ws:", "wss:"]),
-    /** This process's share of the per-IP REST limit; the api's and the
+    /** This process's share of the per-IP REST limit; the api's and the copy
      * worker's draw on the same meter. A worker reading the api's .env takes
      * HYPERLIQUID_WORKER_WEIGHT_* (as it takes WORKER_PORT). A worker on the
      * MAINNET wallet network always does (MAINNET_WORKER_WEIGHT): copy orders'
      * evidence is paid from this bucket, and one two-account order plus its
-     * leader (772) must fit its burst; the startup check refuses otherwise. */
-    budgetPerMin: isWorker && (mainnetWorker || source.HYPERLIQUID_WORKER_WEIGHT_BUDGET_PER_MIN !== undefined)
+     * leader (772) must fit its burst; the startup check refuses otherwise.
+     * The read worker on its own meter (D12) has the meter's background cap
+     * (READ_WORKER_BACKGROUND_REST_CAP) as rate and burst unless lowered. */
+    budgetPerMin: meter === "read" ? integerValue(readRate[0], readRate[1], READ_WORKER_BACKGROUND_REST_CAP, 1, READ_WORKER_BACKGROUND_REST_CAP)
+      : isWorker && (mainnetWorker || source.HYPERLIQUID_WORKER_WEIGHT_BUDGET_PER_MIN !== undefined)
       ? integerValue("HYPERLIQUID_WORKER_WEIGHT_BUDGET_PER_MIN", source.HYPERLIQUID_WORKER_WEIGHT_BUDGET_PER_MIN, MAINNET_WORKER_WEIGHT.perMin, 1, 1199)
       : integerValue("HYPERLIQUID_WEIGHT_BUDGET_PER_MIN", source.HYPERLIQUID_WEIGHT_BUDGET_PER_MIN, 840, 1, 1199),
-    burst: isWorker && (mainnetWorker || source.HYPERLIQUID_WORKER_WEIGHT_BURST !== undefined)
+    burst: meter === "read" ? integerValue(readBurst[0], readBurst[1], READ_WORKER_BACKGROUND_REST_CAP, 1, READ_WORKER_BACKGROUND_REST_CAP)
+      : isWorker && (mainnetWorker || source.HYPERLIQUID_WORKER_WEIGHT_BURST !== undefined)
       ? integerValue("HYPERLIQUID_WORKER_WEIGHT_BURST", source.HYPERLIQUID_WORKER_WEIGHT_BURST, MAINNET_WORKER_WEIGHT.burst, 1, 1200)
       : integerValue("HYPERLIQUID_WEIGHT_BURST", source.HYPERLIQUID_WEIGHT_BURST, 200, 1, 1200),
     /** Share of the budget rate the page reserve keeps refilling at while
@@ -495,7 +530,7 @@ export function validateEnvironment(source: Environment = process.env) {
      * orders. Default 840. On a mainnet copy canary lower it (e.g. 400, the same
      * value on the api and the worker) so one order's evidence (≤ 772 a minute)
      * always finds room. */
-    backgroundRestCap: integerValue("HYPERLIQUID_BACKGROUND_REST_CAP", source.HYPERLIQUID_BACKGROUND_REST_CAP, HYPERLIQUID_BACKGROUND_REST_CAP, 0, 1200),
+    backgroundRestCap: meter === "read" ? READ_WORKER_BACKGROUND_REST_CAP : integerValue("HYPERLIQUID_BACKGROUND_REST_CAP", source.HYPERLIQUID_BACKGROUND_REST_CAP, HYPERLIQUID_BACKGROUND_REST_CAP, 0, 1200),
     wallet,
   };
   const alert = { maxActionAgeSeconds: integerValue("ALERT_MAX_ACTION_AGE_SECONDS", source.ALERT_MAX_ACTION_AGE_SECONDS, 120, 1, 86400) };

@@ -12,6 +12,10 @@ import { SETTLEMENT_OWNER_WINDOW_MS, SNAPSHOT_STALE_MS, WORKER_GUARD_CHECK_MS } 
 
 /** Heartbeat fields the `read` worker owns once roles are split; the rest is the `copy` worker's. */
 const READ_HEARTBEAT_FIELDS = ["lastSnapshotAt", "lastSnapshotAttemptAt", "lastSnapshotFailureAt", "lastSweepAt", "discovery", "archive", "dryRun"] as const;
+/** The three processes whose public IPs are compared, and every pair of them (an alert names the pair). */
+type EgressPeerRole = NonNullable<WorkerAlert["peers"]>[number];
+type EgressPair = NonNullable<WorkerAlert["pairs"]>[number];
+const EGRESS_PAIRS: readonly (readonly [EgressPeerRole, EgressPeerRole, EgressPair])[] = [["copy", "api", "copy-api"], ["copy", "read", "copy-read"], ["read", "api", "read-api"]];
 
 type WorkerMonitorSample = z.infer<typeof workerMonitorSchema>;
 type WireHeartbeat = NonNullable<WorkerMonitorSample["heartbeat"]>;
@@ -37,8 +41,10 @@ function mergeHeartbeats<T extends HeartbeatResponse | WireHeartbeat>(main: T, r
  *   SETTLEMENT_OWNER_WINDOW_MS reports it settles (only the copy worker's
  *   live engine settles terminal copies; the api never does: D13).
  * - snapshots_stale: no read-worker snapshot newer than SNAPSHOT_STALE_MS.
- * - egress_identity_shared: a copy-worker public IP is also the api's or the
- *   read worker's (sets compared: a static gateway has several).
+ * - egress_identity_shared: two of the api, the copy worker and the read
+ *   worker report a common public IP (sets compared: a static gateway has
+ *   several). Any pair breaks the meter split (D12): the copy side's shared
+ *   meter and the read worker's own are then one limit at the provider.
  * ALERT lines are rate-limited to ALERT_EVERY_MS; while a guard applies the api
  * polls every WORKER_GUARD_CHECK_MS (not in tests). The api's start counts as
  * the last time all was well, so a restarted api waits a full window.
@@ -68,7 +74,7 @@ export class WorkerFleetService implements OnApplicationBootstrap, OnModuleDestr
   }
 
   onApplicationBootstrap(): void {
-    const egressGuard = this.identity.mode !== "off" && !!this.config.value.app.workerUrl;
+    const egressGuard = this.identity.mode !== "off" && !!(this.config.value.app.workerUrl || this.readUrl());
     if (this.config.value.app.nodeEnv === "test" || (!this.settlementGuardApplies() && !this.readUrl() && !egressGuard)) return;
     this.timer = setInterval(() => void this.check(), WORKER_GUARD_CHECK_MS);
     this.timer.unref();
@@ -141,14 +147,27 @@ export class WorkerFleetService implements OnApplicationBootstrap, OnModuleDestr
     const ips = heartbeat.egressIdentity?.publicIps ?? [];
     if (read) this.readIps = ips;
     else if (!worker || runsCopy(worker.role)) this.copyIps = ips;
-    if (this.copyIps.length && !this.egressShared()) this.egressOkAt = this.now();
+    if ((this.copyIps.length || this.readIps.length) && !this.egressShared()) this.egressOkAt = this.now();
   }
 
-  /** The copy worker's addresses that the api (its own) or the read worker also report; null when none. */
-  private egressShared(): { ips: string[]; peers: ("api" | "read")[] } | null {
-    const api = sharedIps(this.copyIps, this.identity.ips()), read = sharedIps(this.copyIps, this.readIps);
-    if (!api.length && !read.length) return null;
-    return { ips: [...new Set([...api, ...read])].sort(), peers: [...(api.length ? ["api" as const] : []), ...(read.length ? ["read" as const] : [])] };
+  /**
+   * Addresses two of the three roles both report (the api: its own; the
+   * workers: their heartbeats), by pair; null when none. Any pair breaks a
+   * meter split: the copy worker beside the api or the read worker (its
+   * limiter is not its own), and the read worker beside the api (D12: the
+   * read worker's own meter and the api's shared one would be one limit on
+   * the provider's side).
+   */
+  private egressShared(): { ips: string[]; peers: EgressPeerRole[]; pairs: EgressPair[] } | null {
+    const sets: Record<EgressPeerRole, readonly string[]> = { api: this.identity.ips(), copy: this.copyIps, read: this.readIps };
+    const ips = new Set<string>(), peers = new Set<EgressPeerRole>(), pairs: EgressPair[] = [];
+    for (const [a, b, pair] of EGRESS_PAIRS) {
+      const both = sharedIps(sets[a], sets[b]);
+      if (!both.length) continue;
+      both.forEach(ip => ips.add(ip)); peers.add(a); peers.add(b); pairs.push(pair);
+    }
+    if (!pairs.length) return null;
+    return { ips: [...ips].sort(), peers: [...peers].sort(), pairs };
   }
 
   /** What is wrong now, from what the api has seen. */
@@ -160,7 +179,7 @@ export class WorkerFleetService implements OnApplicationBootstrap, OnModuleDestr
     if (this.readUrl() && now - snapshotAt > SNAPSHOT_STALE_MS)
       alerts.push({ code: "snapshots_stale", lastOkAt: new Date(snapshotAt).toISOString() });
     const shared = this.egressShared();
-    if (shared) alerts.push({ code: "egress_identity_shared", lastOkAt: new Date(this.egressOkAt).toISOString(), ips: shared.ips, peers: shared.peers });
+    if (shared) alerts.push({ code: "egress_identity_shared", lastOkAt: new Date(this.egressOkAt).toISOString(), ips: shared.ips, peers: shared.peers, pairs: shared.pairs });
     return alerts;
   }
 
@@ -187,5 +206,5 @@ export class WorkerFleetService implements OnApplicationBootstrap, OnModuleDestr
 const ALERT_CONTEXT: Record<WorkerAlert["code"], Record<string, string>> = {
   terminal_settlement_unowned: { reason: "no copy worker heartbeat in the last 2 minutes reports its live engine running (worker.terminalSettlement): terminal copies are not settled" },
   snapshots_stale: { reason: "the read worker (WORKER_READ_URL) has shown no snapshot in the last 15 minutes" },
-  egress_identity_shared: { reason: "the copy worker shares a public IP with the api or the read worker: its Hyperliquid per-IP limit is not its own (check its static egress gateway)" },
+  egress_identity_shared: { reason: "two of the api, the copy worker and the read worker share a public IP (pairs): the Hyperliquid per-IP meters they keep apart (D12: the copy side's shared meter, the read worker's own) are one limit on the provider's side; check the services' egress, or set HYPERLIQUID_READ_METER=shared on worker-read" },
 };

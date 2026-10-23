@@ -366,6 +366,28 @@ export const meterLaneDemandSchema = z.object({
   held: z.number().nonnegative(),
   until: z.coerce.date().nullable(),
 });
+/** Which Hyperliquid per-IP meter a process charges (decision D12): `copy`,
+ * the shared meter of the api and the copy worker (HYPERLIQUID_EGRESS_KEY),
+ * or `read`, the read worker's own (`<key>:read`, HYPERLIQUID_READ_METER=own).
+ * `backgroundCap`: what background may hold of its 1,200 window;
+ * `reserved`: the rest (1,200 − cap), which background never takes. */
+export const hyperliquidMeterSchema = z.object({
+  meter: z.enum(["copy", "read"]),
+  egressKey: z.string().nullable(),
+  backgroundCap: z.number().int().nonnegative(),
+  reserved: z.number().int().nonnegative(),
+});
+export type HyperliquidMeterInfo = z.infer<typeof hyperliquidMeterSchema>;
+/** One meter's REST window as the api reads its row (the admin overview
+ * shows the copy side's and the read worker's side by side): what each
+ * class of charge holds now, and the 1-unit markers (never sent). */
+export const hyperliquidMeterUsageSchema = hyperliquidMeterSchema.extend({
+  rest: z.object({
+    total: z.number().nonnegative(), background: z.number().nonnegative(), page: z.number().nonnegative(), live: z.number().nonnegative(),
+    source: z.number().nonnegative(), setup: z.number().nonnegative(), other: z.number().nonnegative(), markers: z.number().nonnegative(),
+  }),
+});
+export type HyperliquidMeterUsage = z.infer<typeof hyperliquidMeterUsageSchema>;
 /** What a process learned of its own public IPv4 (HL_EGRESS_IDENTITY, an IP
  * echo outside Hyperliquid): its role (`api`, or the worker's WORKER_ROLE),
  * its HYPERLIQUID_EGRESS_KEY, the latest address seen and every address
@@ -469,6 +491,10 @@ export const heartbeatResponseSchema = z.object({
    * source's reads alive (a kick's `userFillsByTime` per watched mainnet
    * leader), what they hold, when the last ends. Additive. */
   sourceLane: meterLaneDemandSchema.optional(),
+  /** The meter this worker charges (D12: the copy side's shared meter, or
+   * the read worker's own), its background cap and what it keeps free of
+   * background; the lanes above are that meter's. Additive. */
+  meter: hyperliquidMeterSchema.optional(),
   /** Age of the discovery pool's stored performance figures: the rows the
    * boards and home rows show (`visible`) and the whole pool. Additive. */
   discovery: z.object({

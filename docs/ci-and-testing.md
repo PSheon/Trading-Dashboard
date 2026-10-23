@@ -152,6 +152,21 @@ The web typecheck includes `.next-e2e/dev/types`. After a page is removed, a
 `.next-e2e` left by an earlier browser run still points at it and typecheck
 fails locally (never in CI, which starts clean): delete `apps/web/.next-e2e`.
 
+## Acceptance verdict scripts (read-only)
+
+`scripts/ops/copy-acceptance.mjs --strategy <id>` prints the D16 verdict for
+one live copy (legs seen per type, every refusal reason split into the
+expected list and the rest with first/last dispatch, quarantine, settlements
+that went to the owner, the clean-streak day of 7, PASS/FAIL; exit 0/1/2) and
+`scripts/ops/site-freshness.mjs [--base-url https://<web>]` the D19 one (share
+of trader cards with figures older than 24 h, the coin-icon route). Both read
+`DATABASE_URL` inside one `BEGIN READ ONLY` … `ROLLBACK` statement and never
+write; `--sql-only` prints that statement for any psql that reaches the
+database (`-At`), and `--input <file>` turns the JSON line it printed into the
+verdict offline. `node --test scripts/ops/*.test.mjs` checks the verdict
+logic without a database and, with `TEST_DATABASE_ADMIN_URL` set, runs the
+statements against a migrated scratch database (`scripts/test-database.mjs`).
+
 ## Pre-push hook
 
 `scripts/pre-push.sh` runs the checks that most often turn CI red: generated

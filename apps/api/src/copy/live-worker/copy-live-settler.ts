@@ -1,7 +1,5 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { Logger } from '@nestjs/common';
-import type { SettlementClaim } from './copy-live-settlement-claim.js';
-import { settlementFencedPool } from './copy-live-settlement-fenced-pool.js';
 import { Pool } from 'pg';
 import { WALLET_NETWORKS, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
 import { drizzle } from 'drizzle-orm/node-postgres';
@@ -49,15 +47,9 @@ export class CopyLiveSettler {
   constructor(readonly network: HyperliquidNetwork, private readonly pool: Pool, private readonly global: HyperliquidGlobalTransport, private readonly budget: RequestBudgeterService,
     private readonly scanner: { runFor(accountId: string): Promise<void> }, private readonly now = Date.now) {}
 
-  async settle(request: LiveSettleRequest, claim?: SettlementClaim): Promise<LiveSettleOutcome> {
-    if (claim) await claim.assertHeld();
-    const fetchInfo: typeof fetch = claim ? async (input, init) => {
-      await claim.assertHeld();
-      const response = await this.global.fetchInfo(input, { ...init, signal: init?.signal ? AbortSignal.any([claim.signal, init.signal]) : claim.signal });
-      await claim.assertHeld();
-      return response;
-    } : this.global.fetchInfo;
-    const record = await this.record(request.key, claim);
+  async settle(request: LiveSettleRequest): Promise<LiveSettleOutcome> {
+    const fetchInfo: typeof fetch = this.global.fetchInfo;
+    const record = await this.record(request.key);
     if (!record || !TERMINAL_STATES.has(record.state)) return { kind: 'pending', reason: 'live_settlement_not_terminal' };
     // Another network's order is history: never read or settled here.
     if (record.authorization.network !== this.network) return { kind: 'pending', reason: 'live_other_network' };
@@ -65,7 +57,7 @@ export class CopyLiveSettler {
     // Durable unsent marker: no grace, no provider read; releaseUnsent re-checks
     // the marker and that no oid, receipt or exchange evidence exists.
     if (isDefinitelyUnsent(record)) {
-      const released = await new PostgresLiveRiskScope(this.pool, this.now, claim, { kind: 'settlement_release_unsent', id: request.key }).run({ userId: request.userId, network: this.network, accountAddress: request.accountAddress,
+      const released = await new PostgresLiveRiskScope(this.pool, this.now, { kind: 'settlement_release_unsent', id: request.key }).run({ userId: request.userId, network: this.network, accountAddress: request.accountAddress,
         source: { network: request.sourceNetwork, leaderAddress: request.leaderAddress } }, async (_scope, session) =>
         new PostgresLiveSettlement(this.now).releaseUnsent(session, { accountId: request.accountId, key: request.key }));
       return released.kind === 'released' ? { kind: 'unplaced', unsent: true } : released;
@@ -77,14 +69,13 @@ export class CopyLiveSettler {
       (record.outcome?.filledSize===undefined||record.outcome.filledSize==='0')&&record.outcome?.exchangeOrderId===undefined&&
       Number.isSafeInteger(at)&&Number.isSafeInteger(deadline)&&at>=record.createdAt&&at>=record.updatedAt&&at<=deadline;
     if(mayWait(waitStarted)) {
-      const [local]=await drizzle(claim?settlementFencedPool(this.pool,claim):this.pool).select({
+      const [local]=await drizzle(this.pool).select({
         hasReceipt:sql<boolean>`exists(select 1 from ${copyFollowerReceipts} where ${copyFollowerReceipts.executionKey}=${request.key})`,
         hasReservationOid:sql<boolean>`exists(select 1 from ${copyLiveRiskReservations} where ${copyLiveRiskReservations.key}=${request.key} and ${copyLiveRiskReservations.exchangeOrderId} is not null)`,
         hasEvidenceOid:sql<boolean>`exists(select 1 from ${copyLiveExecutionEvidence} where ${copyLiveExecutionEvidence.key}=${request.key} and ${copyLiveExecutionEvidence.exchangeOrderId} is not null)`,
       }).from(copyLiveExecutions).where(and(eq(copyLiveExecutions.key,request.key),eq(copyLiveExecutions.state,'rejected'),
         eq(copyLiveExecutions.updatedAt,new Date(record.updatedAt)),sql`${copyLiveExecutions.record}->>'errorCode'=${NEVER_PLACED}`,
         sql`${copyLiveExecutions.record}=${JSON.stringify(record)}::jsonb`));
-      if(claim)await claim.assertHeld();
       const checkedNow=this.now();
       if(checkedNow>=waitStarted&&mayWait(checkedNow)&&local?.hasReceipt===false&&local.hasReservationOid===false&&local.hasEvidenceOid===false)
         return {kind:'pending',reason:'live_settlement_never_placed_grace'};
@@ -92,10 +83,10 @@ export class CopyLiveSettler {
     // A crash can leave the dispatch submitted after the release committed. This
     // hint only picks the path: the locked DAL replays every proof.
     if (this.network === 'testnet') {
-      const [hint] = await drizzle(claim ? settlementFencedPool(this.pool, claim) : this.pool).select({ state: copyLiveRiskReservations.state, revision: copyLiveRiskReservations.revision,
+      const [hint] = await drizzle(this.pool).select({ state: copyLiveRiskReservations.state, revision: copyLiveRiskReservations.revision,
         releaseReason: copyLiveRiskReservations.releaseReason }).from(copyLiveRiskReservations).where(eq(copyLiveRiskReservations.key, request.key));
       if (hint?.state === 'released' && hint.releaseReason === 'verified_settlement') {
-        const scope = new PostgresLiveRiskScope(this.pool, this.now, claim, { kind: 'settlement_replay', id: request.key });
+        const scope = new PostgresLiveRiskScope(this.pool, this.now, { kind: 'settlement_replay', id: request.key });
         return scope.run({ userId: request.userId, network: this.network, accountAddress: request.accountAddress,
           source: { network: request.sourceNetwork, leaderAddress: request.leaderAddress } }, async (_scope, session) => {
           const decision = await new PostgresLiveSettlement(this.now).replaySettlement(session, { accountId: request.accountId, key: request.key,
@@ -105,7 +96,7 @@ export class CopyLiveSettler {
       }
     }
     // Skip the scan once the fill-scan cursor is past this order (scanCovered).
-    const scan = !!record.outcome?.filledSize && record.outcome.filledSize !== '0' && !await this.scanCovered(request.accountId, record, claim);
+    const scan = !!record.outcome?.filledSize && record.outcome.filledSize !== '0' && !await this.scanCovered(request.accountId, record);
     // Prepay the reads (market, orderStatus, account observation) before taking
     // the locks; the estimate grants no authority (the scope revalidates all).
     let prepaid = (record.action.orders[0]!.a < 10_000 ? 20 : 40) + 2 + (record.errorCode === NEVER_PLACED ? 0 : observerRestWeight(request.accountAddress, liveReadCache(this.network)));
@@ -114,7 +105,6 @@ export class CopyLiveSettler {
     // The claim is keyed by the order: a pass that gives up waiting keeps its
     // place, and the next pass renews that claim instead of queueing behind it.
     const token = await this.claimLive((scan ? 2 * RESPONSE_WEIGHT : 0) + prepaid, request.key);
-    if (claim) await claim.assertHeld();
     // Its charges are the live lane's under that token, named the settlement's (`live:<token>:settle:`).
     const lane = <T>(work: () => Promise<T>) => this.global.runOwned('settle', () => token === undefined ? work() : this.global.runLive(token, work));
     // The pass's reads are over (sent or refused): its claim keeps nothing free.
@@ -122,21 +112,18 @@ export class CopyLiveSettler {
     // Book fills now (the scheduled scan is slow); it also advances the proven
     // horizon the next order's position projection needs.
     if (scan) {
-      if (claim) await claim.assertHeld();
       // A fill of another order still in flight holds the scan back (follower_attribution_pending):
       // a wait, not a failed pass; this order's receipts, if not yet booked, keep it pending.
       try { await this.scanner.runFor(request.accountId); }
       catch (error) { if (!(error instanceof LiveBoundaryError && error.code === 'follower_attribution_pending')) throw error; }
-      if (claim) await claim.assertHeld();
     }
-    await reserveLive(this.budget, prepaid, { maxWaitMs: Math.min(180_000, this.budget.refillMs()), ...(claim ? { signal: claim.signal } : {}) });
+    await reserveLive(this.budget, prepaid, { maxWaitMs: Math.min(180_000, this.budget.refillMs()) });
     const acquire = async (weight: number) => {
-      claim?.assertFresh();
       const credit = Math.min(prepaid, weight); prepaid -= credit;
-      try { if (weight > credit) await reserveLive(this.budget, weight - credit, { maxWaitMs: 5000, ...(claim ? { signal: claim.signal } : {}) }); }
+      try { if (weight > credit) await reserveLive(this.budget, weight - credit, { maxWaitMs: 5000 }); }
       catch (error) { prepaid += credit; throw error; }
     };
-    const scope = new PostgresLiveRiskScope(this.pool, this.now, claim, { kind: 'settlement', id: request.key });
+    const scope = new PostgresLiveRiskScope(this.pool, this.now, { kind: 'settlement', id: request.key });
     try { return await scope.run({ userId: request.userId, network: this.network, accountAddress: request.accountAddress,
       source: { network: request.sourceNetwork, leaderAddress: request.leaderAddress } }, async (_scope, session) => this.global.runOriginal(session, async () => {
       this.global.currentQuota();
@@ -144,7 +131,7 @@ export class CopyLiveSettler {
       try {
         const resolver = new HyperliquidLiveMarketResolver(this.network, acquire, fetchInfo, this.now);
         const settlement = new PostgresLiveSettlement(this.now);
-        const evidence = await this.orderEvidence(record, resolver, acquire, fetchInfo, claim);
+        const evidence = await this.orderEvidence(record, resolver, acquire, fetchInfo);
         const observed = await settlement.observe(session, { accountId: request.accountId, key: request.key, evidence });
         if (observed.kind !== 'recorded') return observed;
         // Never placed (expired unknown by cloid): release, nothing to settle.
@@ -172,9 +159,8 @@ export class CopyLiveSettler {
    * so nothing retries it or claims live demand for it again. No provider read.
    * `flat`: the account's stop proven flat after the order, for the ALERT.
    */
-  async quarantine(request: LiveSettleRequest, reason: string, claim?: SettlementClaim): Promise<LiveQuarantineOutcome> {
-    if (claim) await claim.assertHeld();
-    return new PostgresLiveRiskScope(this.pool, this.now, claim, { kind: 'settlement_quarantine', id: request.key }).run({ userId: request.userId, network: this.network,
+  async quarantine(request: LiveSettleRequest, reason: string): Promise<LiveQuarantineOutcome> {
+    return new PostgresLiveRiskScope(this.pool, this.now, { kind: 'settlement_quarantine', id: request.key }).run({ userId: request.userId, network: this.network,
       accountAddress: request.accountAddress, source: { network: request.sourceNetwork, leaderAddress: request.leaderAddress } }, async (_scope, session) =>
       new PostgresLiveSettlement(this.now).quarantineUnsettled(session, { accountId: request.accountId, key: request.key, reason }));
   }
@@ -198,28 +184,27 @@ export class CopyLiveSettler {
    * plus PROVIDER_CLOCK_SKEW_MS + liveFillScanMarginMs() (the DAL's own
    * margin), so a scan would book nothing more. Path choice only; the DAL still proves.
    */
-  private async scanCovered(accountId: string, record: LiveExecutionRecord, claim?: SettlementClaim): Promise<boolean> {
-    const [row] = await drizzle(claim ? settlementFencedPool(this.pool, claim) : this.pool).select({ through: copyFollowerScans.through, issue: copyFollowerScans.issue })
+  private async scanCovered(accountId: string, record: LiveExecutionRecord): Promise<boolean> {
+    const [row] = await drizzle(this.pool).select({ through: copyFollowerScans.through, issue: copyFollowerScans.issue })
       .from(copyFollowerScans).where(eq(copyFollowerScans.accountId, accountId));
-    if (claim) await claim.assertHeld();
     return !!row && row.issue === null && row.through !== null && Number.isSafeInteger(record.updatedAt) &&
       row.through >= record.updatedAt + PROVIDER_CLOCK_SKEW_MS + liveFillScanMarginMs(this.network);
   }
 
-  private async record(key: string, claim?: SettlementClaim): Promise<LiveExecutionRecord | null> {
-    const [row] = await drizzle(claim ? settlementFencedPool(this.pool, claim) : this.pool).select().from(copyLiveExecutions).where(eq(copyLiveExecutions.key, key));
+  private async record(key: string): Promise<LiveExecutionRecord | null> {
+    const [row] = await drizzle(this.pool).select().from(copyLiveExecutions).where(eq(copyLiveExecutions.key, key));
     return row ? decodeLiveExecutionRow(row) : null;
   }
 
   /** Settlement-grade orderStatus by the original cloid, via the shared quota. */
-  private async orderEvidence(record: LiveExecutionRecord, resolver: HyperliquidLiveMarketResolver, acquire: (weight: number) => Promise<void>, fetchInfo: typeof fetch, claim?: SettlementClaim): Promise<LiveOrderEvidence> {
+  private async orderEvidence(record: LiveExecutionRecord, resolver: HyperliquidLiveMarketResolver, acquire: (weight: number) => Promise<void>, fetchInfo: typeof fetch): Promise<LiveOrderEvidence> {
     // Default dex: meta and orderStatus go together under one charge. Named dexes take the lookup path below.
     if (record.action.orders[0]!.a < 10_000) {
       const status = { type: 'orderStatus', user: record.authorization.accountAddress, oid: record.action.orders[0]!.c };
       const shared = new LiveSharedReads(this.network, fetchInfo, (bodies, onDispatch, signal) =>
         this.global.fetchInfoBatch(WALLET_NETWORKS[this.network].infoUrl, bodies, {
-          maxWaitMs: 0, signal: claim ? AbortSignal.any([claim.signal, signal]) : signal,
-          onDispatch: () => { claim?.assertFresh(); onDispatch(); return signal; },
+          maxWaitMs: 0, signal,
+          onDispatch: () => { onDispatch(); return signal; },
         }), this.now, liveEvidenceMaxAgeMs(this.network), acquire);
       try {
         await shared.pay(22);
@@ -242,7 +227,7 @@ export class CopyLiveSettler {
     await boundedLiveRead(() => acquire(2), remaining());
     const response = await boundedLiveRead(() => fetchInfo(WALLET_NETWORKS[this.network].infoUrl, { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ type: 'orderStatus', user: record.authorization.accountAddress, oid: record.action.orders[0]!.c }),
-      signal: claim ? AbortSignal.any([claim.signal, AbortSignal.timeout(remaining())]) : AbortSignal.timeout(remaining()), redirect: 'error' }), remaining());
+      signal: AbortSignal.timeout(remaining()), redirect: 'error' }), remaining());
     if (!response.ok) throw new LiveBoundaryError('exchange_http_failure');
     const raw = await boundedLiveRead(() => readInfoJson(response, 'live order evidence', 256 * 1024), remaining());
     const completedAt = this.now();

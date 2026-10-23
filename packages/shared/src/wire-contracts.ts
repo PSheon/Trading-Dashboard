@@ -93,12 +93,10 @@ export const operationalSwitchesSchema = z.object({
   archiveEnabled: z.boolean(),
   archiveMaxDailyUsd: z.number(),
   maxFavoritesPerUserDefault: z.number().int(),
-  /** WORKER_ROLE (a worker: all, copy or read), API_SETUP_DRIVE and the
-   * terminal settlement loop's switches as this process applies them.
-   * Optional while older processes roll out. */
+  /** WORKER_ROLE (a worker: all, copy or read) and API_SETUP_DRIVE as this
+   * process applies them. Optional while older processes roll out. */
   workerRole: z.enum(["all", "copy", "read"]).optional(),
   setupDrive: z.enum(["local", "worker"]).optional(),
-  terminalSettlement: z.boolean().optional(),
 });
 export type OperationalSwitches = z.infer<typeof operationalSwitchesSchema>;
 export const workerMonitorSchema = z.object({
@@ -123,9 +121,9 @@ export const retentionStatusSchema = z.object({
 export type RetentionStatus = z.infer<typeof retentionStatusSchema>;
 /** A condition across processes that the api watches (WorkerFleetService)
  * and logs as a rate-limited ALERT:
- * - terminal_settlement_unowned: API_TERMINAL_SETTLEMENT=off on a testnet
- *   copy deployment, and no copy worker heartbeat in the last 2 minutes
- *   reported its terminal settlement loop on.
+ * - terminal_settlement_unowned: on a live copy deployment, no copy worker
+ *   heartbeat in the last 2 minutes reported its live engine running
+ *   (worker.terminalSettlement); only that engine settles terminal copies.
  * - snapshots_stale: WORKER_READ_URL is set and the read worker's
  *   heartbeats have shown no snapshot in the last 15 minutes.
  * - egress_identity_shared: a public IP the copy worker reports (its

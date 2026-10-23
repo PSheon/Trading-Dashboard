@@ -177,14 +177,14 @@ describe('distributed user and account risk serialization', () => {
   // nothing saying who held the lock.
   it('names the lock and its holder (kind, id, how long) in a live_risk_busy refusal', async () => {
     let clock = 1_000_000;
-    const order = new PostgresLiveRiskScope(pool, () => clock, undefined, { kind: 'order', id: 'testnet:0xab:0x01' });
+    const order = new PostgresLiveRiskScope(pool, () => clock, { kind: 'order', id: 'testnet:0xab:0x01' });
     await order.run(identity, async (_scope, session) => {
       // pg_locks spans every database on the server: under a concurrent suite
       // another run's scope can hold the same key in its own database. Only
       // this scope's backend is the holder asserted here.
       const holderPid = await backendPid(session);
       clock += 1_500;
-      const refused = await new PostgresLiveRiskScope(pool, () => clock, undefined, { kind: 'settlement' }).run({ ...identity, userId: 2 }, async () => 'unsafe').catch((error: unknown) => error);
+      const refused = await new PostgresLiveRiskScope(pool, () => clock, { kind: 'settlement' }).run({ ...identity, userId: 2 }, async () => 'unsafe').catch((error: unknown) => error);
       expect(refused).toBeInstanceOf(LiveRiskBusyError);
       expect((refused as LiveRiskBusyError).detail).toMatchObject({ lock: 'account', holders: [{ kind: 'order', id: 'testnet:0xab:0x01', heldMs: 1_500 }] });
       // The holding session as pg_locks shows it (any process, any writer).
@@ -510,32 +510,5 @@ describe('distributed user and account risk serialization', () => {
       await expect(scopes.run(input as typeof identity, async () => 'unsafe')).rejects.toThrow('live_risk_invalid_identity');
       expect(connect).not.toHaveBeenCalled();
     } finally { connect.mockRestore(); }
-  });
-});
-
-describe('external settlement claim is a restrictive original-scope fence', () => {
-  it('bounds the additional risk connection wait and returns late admission without retaining locks', async () => {
-    const held = await Promise.all(Array.from({ length: 4 }, () => pool.connect()));
-    let ran = false;
-    const fence = { assertFresh: () => {}, signal: new AbortController().signal };
-    try {
-      const scope = new PostgresLiveRiskScope(pool, Date.now, fence);
-      await expect(scope.run(identity, async () => { ran = true; })).rejects.toThrow('live_settlement_pool_busy');
-      expect(ran).toBe(false);
-      held.pop()!.release();
-      await new Promise(resolve => setTimeout(resolve, 10));
-      expect(pool.idleCount).toBe(1);
-    } finally { held.forEach(client => client.release()); }
-  });
-  it('rolls back when claim is lost inside an otherwise valid original SQL transaction', async () => {
-    await pool.query('create table if not exists live_scope_claim_probe(id text primary key)');
-    await pool.query('delete from live_scope_claim_probe');
-    let lost = false;
-    const scope = new PostgresLiveRiskScope(pool, Date.now, { assertFresh: () => { if (lost) throw new Error('claim_lost'); }, signal: new AbortController().signal } as never);
-    await expect(scope.run(identity, async (_scope, session) => session.transaction(async tx => {
-      await tx.execute(sql`insert into live_scope_claim_probe values ('lost')`);
-      lost = true;
-    }))).rejects.toThrow('claim_lost');
-    expect((await pool.query('select * from live_scope_claim_probe')).rows).toEqual([]);
   });
 });

@@ -3,7 +3,6 @@ import { workerMonitorSchema, type HeartbeatResponse, type WorkerAlert } from "@
 import type { z } from "zod";
 
 import { AppConfig } from "../../config/app-config.js";
-import { terminalSettlementApplies } from "../../copy/live-worker/copy-live-api-settlement.service.js";
 import { EgressIdentityMonitor, egressIdentity, sharedIps } from "../../runtime/egress-identity.js";
 import { workerCallHeaders, workerMonitorKey } from "../../runtime/worker-calls.js";
 import { runsCopy, runsRead } from "../../runtime/worker-role.js";
@@ -34,8 +33,9 @@ function mergeHeartbeats<T extends HeartbeatResponse | WireHeartbeat>(main: T, r
  * The api's view of its workers: WORKER_URL (`copy` or `all`) and, when set,
  * WORKER_READ_URL (`read`), merged for /health and the admin overview. It
  * alerts on what no single process can see:
- * - terminal_settlement_unowned: API_TERMINAL_SETTLEMENT=off and no copy
- *   worker heartbeat within SETTLEMENT_OWNER_WINDOW_MS reports it settles.
+ * - terminal_settlement_unowned: no copy worker heartbeat within
+ *   SETTLEMENT_OWNER_WINDOW_MS reports it settles (only the copy worker's
+ *   live engine settles terminal copies; the api never does: D13).
  * - snapshots_stale: no read-worker snapshot newer than SNAPSHOT_STALE_MS.
  * - egress_identity_shared: a copy-worker public IP is also the api's or the
  *   read worker's (sets compared: a static gateway has several).
@@ -75,11 +75,11 @@ export class WorkerFleetService implements OnApplicationBootstrap, OnModuleDestr
   }
   onModuleDestroy(): void { clearInterval(this.timer); }
 
-  /** The api's own terminal settlement loop is off on a deployment that has
-   * one: a copy worker must run it. */
+  /** The api of a live copy deployment (COPY_TRADING_MODE testnet or live)
+   * with a copy worker to watch: that worker must report it settles. */
   settlementGuardApplies(): boolean {
-    const app = this.config.value.app;
-    return !app.isWorker && terminalSettlementApplies(this.config) && app.terminalSettlement?.api === false;
+    const { app, copy } = this.config.value;
+    return !app.isWorker && !!app.workerUrl && copy.live !== undefined;
   }
   private readUrl(): string | undefined { return this.config.value.app.workerReadUrl; }
 
@@ -185,7 +185,7 @@ export class WorkerFleetService implements OnApplicationBootstrap, OnModuleDestr
 
 /** What each ALERT line says beside its fields. */
 const ALERT_CONTEXT: Record<WorkerAlert["code"], Record<string, string>> = {
-  terminal_settlement_unowned: { reason: "API_TERMINAL_SETTLEMENT=off and no copy worker heartbeat in the last 2 minutes reports WORKER_TERMINAL_SETTLEMENT on: terminal copies are not settled" },
+  terminal_settlement_unowned: { reason: "no copy worker heartbeat in the last 2 minutes reports its live engine running (worker.terminalSettlement): terminal copies are not settled" },
   snapshots_stale: { reason: "the read worker (WORKER_READ_URL) has shown no snapshot in the last 15 minutes" },
   egress_identity_shared: { reason: "the copy worker shares a public IP with the api or the read worker: its Hyperliquid per-IP limit is not its own (check its static egress gateway)" },
 };

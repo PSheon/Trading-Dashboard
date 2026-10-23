@@ -18,8 +18,5 @@ export function operationalSwitches(config: RuntimeConfig): OperationalSwitches 
     archiveMaxDailyUsd: config.archive.maxDailyUsd,
     maxFavoritesPerUserDefault: config.limits.favoritesPerUser,
     ...(config.app.isWorker ? { workerRole: config.app.workerRole } : { setupDrive: config.app.setupDrive }),
-    // Whether this process runs the terminal settlement loop (it also needs
-    // a testnet copy deployment: CopyLiveApiSettlementService).
-    terminalSettlement: config.app.isWorker ? config.app.terminalSettlement.worker : config.app.terminalSettlement.api,
   };
 }

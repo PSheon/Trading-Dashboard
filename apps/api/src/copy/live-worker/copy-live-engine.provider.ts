@@ -114,7 +114,7 @@ export const liveEngineProvider: FactoryProvider<CopyLiveEngine | null> = {
       // No feed (or a socket down): the pass polls the fast leaders instead.
       feedUp: () => { const status = feed?.status(); return !!status && status.socketsTotal > 0 && status.disconnectedSince === null; },
     } : undefined;
-    return new CopyLiveEngine({ network, apiTerminalSettlement: network === 'testnet', setups, stopper: { tick: async () => { await stopper.tick(); await manual.tick(); } },
+    return new CopyLiveEngine({ network, setups, stopper: { tick: async () => { await stopper.tick(); await manual.tick(); } },
       // The heaviest order these copies can send now (its evidence and
       // boundary, what the read cache holds left out; at most the startup
       // bound fit.weight) and its settlement kept free on the shared meter

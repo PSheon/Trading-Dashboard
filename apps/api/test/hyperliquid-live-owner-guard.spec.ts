@@ -84,10 +84,9 @@ describe('every production user of a live entry point names its owner (api and w
   it('a `fetchInfo`, `acquireExchange` or `fetchInfoBatch` outside an owner\'s work is wrapped on its own line (runDefaultOwner / fetchInfoOwned), or lives in a file whose entry points run under runOwned',()=>{
     const unowned=hits.filter(h=>!OWNED_WORK_FILES.has(h.file)&&!OWNER_ON_LINE.test(h.text));
     expect(unowned.map(h=>`${h.file}:${h.line}`)).toEqual([]);
-    // The api's wiring in particular: the authorization verifier, the setup's absence reader and abort observer, the api settlement scan, the engine's receipt reader and testnet source.
+    // The api's wiring in particular: the authorization verifier, the setup's absence reader and abort observer, the engine's receipt reader and testnet source.
     const wired=(file:string)=>[...hits.filter(h=>h.file===file).map(()=>'bare'),...readFileSync(join(root,file),'utf8').matchAll(/fetchInfoOwned\(([^)]*)\)/g)].map(m=>typeof m==='string'?m:m[1]!);
     expect(wired('copy/copy.module.ts')).toEqual(["'auth'",'SETUP_OWNER','SETUP_OWNER']);
-    expect(wired('copy/live-worker/copy-live-api-settlement.provider.ts')).toEqual(["'settle'"]);
     expect(wired('copy/live-worker/copy-live-engine.provider.ts')).toEqual(['RECEIPT_OWNER',"'testnet-source'"]);
     expect(hits.some(h=>h.file==='copy/copy-funding-exchange.client.ts')).toBe(true);
     expect(hits.some(h=>h.file==='wallet/withdrawal-exchange.client.ts')).toBe(true);

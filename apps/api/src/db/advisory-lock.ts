@@ -193,11 +193,6 @@ export const ADVISORY_LOCKS = {
       { file: "src/copy/copy-live-source.repository.ts", args: "hashtextextended(${`live-risk-source:${network}:${leaderAddress}`}, 8)" },
     ],
   },
-  SETTLEMENT: {
-    purpose: "API settlement claim fence (session lock, raw pg client).",
-    scope: "session", form: "hashtextextended", seed: 31, key: { kind: "prefixed", prefix: "copy-live-settlement:", format: "<key>" },
-    sites: [{ file: "src/copy/live-worker/copy-live-settlement-claim.ts", args: "hashtextextended($1, 31)", count: 2 }],
-  },
   FOLLOWER_SCAN_BUDGET: {
     purpose: "Per-network follower scan budget (try, skip when busy).",
     scope: "xact", form: "hashtext", key: { kind: "prefixed", prefix: "copy-follower-scan-budget:", format: "<network>" },

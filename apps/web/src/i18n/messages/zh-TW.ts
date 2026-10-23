@@ -1167,7 +1167,7 @@ export const zhTW = {
     "seconds": "{value} 秒",
     "milliseconds": "{value} 毫秒",
     "alertsTitle": "警示",
-    "alert_terminal_settlement_unowned": "已結束的跟單目前無人結算：api 的結算迴圈已關閉（API_TERMINAL_SETTLEMENT=off），且超過 2 分鐘沒有任何 copy worker 回報其結算迴圈開啟（WORKER_TERMINAL_SETTLEMENT）。",
+    "alert_terminal_settlement_unowned": "已結束的跟單目前無人結算：超過 2 分鐘沒有任何 copy worker 回報其跟單引擎運作中（只有 copy worker 會結算）。",
     "alertLastOk": "上次正常",
     "alert_snapshots_stale": "快照已過期：read worker（WORKER_READ_URL）超過 15 分鐘沒有新的快照。",
     "alert_egress_identity_shared": "copy worker 與 api 或 read worker 共用同一個對外 IP：它在 Hyperliquid 的每 IP 額度不是自己獨享的。請檢查它的靜態出口閘道。"

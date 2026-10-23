@@ -1,7 +1,3 @@
-import { CopyLiveApiSettlementRepository } from '../src/copy/live-worker/copy-live-api-settlement.repository.js';
-import { apiSettlementProvider } from '../src/copy/live-worker/copy-live-api-settlement.provider.js';
-import { terminalSettlementRuns } from '../src/copy/live-worker/copy-live-api-settlement.service.js';
-import { BackgroundJobs } from '../src/runtime/background-jobs.service.js';
 import { testConfig } from './config-test-utils.js';
 import { liveCopyMandateIntentSchema } from '@trading-dashboard/shared/contracts';
 import { generateKeyPairSync } from 'node:crypto';
@@ -14,6 +10,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { privateKeyToAccount } from 'viem/accounts';
 import type { TypedDataDefinition } from 'viem';
 import { AppConfig } from '../src/config/app-config.js';
+import { SETTLEMENT_CLAIM_WAIT_MS } from '../src/config/constants/timings.js';
 import { validateEnvironment } from '../src/config/runtime-config.js';
 import { UnitOfWork } from '../src/db/unit-of-work.js';
 import { HyperliquidGlobalTransport } from '../src/hyperliquid/hyperliquid-global-transport.js';
@@ -168,12 +165,12 @@ async function providers(endpoint: string, body: Record<string, unknown> | undef
   if (!(String(body!.type) in values)) throw Error(`Unsupported offline INFO ${String(body!.type)}`);
   return Response.json(values[String(body!.type)]);
 }
-function engine(midPrice = '100', egress = global, withStopper = false, apiTerminalSettlement = false, settleEgress = 'e2e-settle-egress') {
+function engine(midPrice = '100', egress = global, withStopper = false, settleEgress = 'e2e-settle-egress', settleBudget?: RequestBudgeterService) {
   // Settlement right after the order (scan 240 + status + account ~630): an
   // order and its settlement exceed one minute's 1200 testnet weight, so in
   // production settlement waits for a later pass; here it gets its own room.
   const settleGlobal = new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(new UnitOfWork(drizzle(pool, { schema }))), { egressKey: settleEgress, ownerId: `${settleEgress}-owner` }, raw);
-  const settleBudget = new RequestBudgeterService(new AppConfig({ ...config.value, hyperliquid: { ...config.value.hyperliquid, budgetPerMin: 200, burst: 1000 } }));
+  settleBudget ??= new RequestBudgeterService(new AppConfig({ ...config.value, hyperliquid: { ...config.value.hyperliquid, budgetPerMin: 200, burst: 1000 } }));
   const reference = { network: 'mainnet' as const, read: vi.fn(async () => ({ midPrice, midObservedAt: Date.now(), leaderEquity: null, leaderEquityObservedAt: null })) };
   const options = { slippageBps: '30', extraRiskBufferBps: '5', restingOrderBuilderFeeCapTenthsBps: 100, maxSourceDeviationBps: '500' };
   const stops = new CopyLiveStopWorkerRepository(db, new UnitOfWork(db), testConfig()), closer = new ReduceOnlyCloser('testnet', pool, db, new UnitOfWork(db), config, egress, budget, 100, clock);
@@ -182,7 +179,7 @@ function engine(midPrice = '100', egress = global, withStopper = false, apiTermi
     new HyperliquidFollowerReceiptReader('testnet', weight => budget.acquire(weight, 'live', undefined, { signal: AbortSignal.timeout(5000) }), egress.fetchInfo, clock)),
     missedFlatReset ? { owed: async () => [], reset: async () => true } : new CopyLiveFlatCarry('testnet', pool, clock), message => logs.push(message));
   const stopper = withStopper ? { tick: async () => { await stopOnly.tick(); await manual.tick(); } } : undefined;
-  return new CopyLiveEngine({ stopper, apiTerminalSettlement,
+  return new CopyLiveEngine({ stopper,
     network: 'testnet', repository: new CopyLiveWorkerRepository(db, new UnitOfWork(db), testConfig()), sources: new CopyLiveSourceRepository(db), uow: new UnitOfWork(db),
     watched: new WatchedMainnetSource(db, clock), testnetSource: { read: vi.fn() } as never,
     runtime: hooks => new LiveExecutionRuntime('testnet', pool, config, egress, budget, options, clock, { ...hooks, reference }),
@@ -283,148 +280,52 @@ describe('testnet copy of a mainnet leader, end to end against provider doubles'
     // Later passes neither sign nor send again.
     await e.tick(); expect(exchangeBodies).toHaveLength(1);
   });
-  it('admits original terminal receipt proof from protected live weight while ordinary reads exhaust the main bucket', async () => {
-    const e = engine('100', global, false, true);
-    await e.tick(); await leaderOpens(); await e.tick(); await e.tick();
-    expect((await db.select().from(schema.copyLiveDispatches))[0]).toMatchObject({ state: 'submitted' });
-    const apiPool = new Pool({ connectionString: process.env.TEST_DATABASE_URL, max: 4 });
-    const apiConfig = new AppConfig({ ...config.value, hyperliquid: { ...config.value.hyperliquid, budgetPerMin: 400, burst: 800 } });
-    const apiBudget = new RequestBudgeterService(apiConfig), jobs = new BackgroundJobs();
-    const apiTransport = new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(new UnitOfWork(drizzle(apiPool, { schema }))),
-      { egressKey: 'e2e-shared-egress', ownerId: 'e2e-api-priority' }, raw);
-    const api = await apiSettlementProvider.useFactory(apiConfig, apiPool, { network: 'testnet', budget: apiBudget, transport: apiTransport, config: apiConfig }, jobs);
-    let running: Promise<void> | undefined;
+  it.each([true, false])('a terminal settlement goes out on the live lane while ordinary reads exhaust the main bucket (live lane kept: %s)', { timeout: 60_000 }, async kept => {
+    // The settler's bucket as the api loop's was (400/min, burst 800): background may spend 288 of
+    // the main 320; the rest (LIVE_RESERVE_SHARE) and the page reserve are the live lane's alone.
+    const settleBudget = new RequestBudgeterService(new AppConfig({ ...config.value, hyperliquid: { ...config.value.hyperliquid, budgetPerMin: 400, burst: 800 } }));
+    const e = engine('100', global, false, 'e2e-settle-egress', settleBudget);
+    const stop = new AbortController();
+    let reads: Promise<void> | undefined;
     try {
-      // A reporting pass has consumed the background allowance. The protected
-      // live reserve still has enough for the original terminal receipt pass.
-      await apiBudget.acquire(288, 'background');
-      const before = exchangeBodies.length, nonces = await db.select().from(schema.copySignerNonces);
-      raw.mockClear(); running = api.tick();
-      await vi.waitFor(() => expect(raw.mock.calls.some(([, init]) =>
-        init?.body && JSON.parse(String(init.body)).type === 'userFillsByTime')).toBe(true), { timeout: 1500, interval: 10 });
-      await running;
-      expect((await db.select().from(schema.copyLiveDispatches))[0]).toMatchObject({ state: 'settled', attempts: 1 });
-      expect((await db.select().from(schema.copyLiveRiskReservations))[0]).toMatchObject({ state: 'released', releaseReason: 'verified_settlement' });
-      expect(await db.select().from(schema.copyFollowerReceipts)).toHaveLength(1);
-      expect(exchangeBodies).toHaveLength(before);
-      expect(await db.select().from(schema.copySignerNonces)).toEqual(nonces);
-    } finally { api.onModuleDestroy(); await running; apiBudget.onModuleDestroy(); await apiPool.end(); }
-  });
-  it.each([false, true])('API terminal settlement uses its existing wallet budget, books receipts and replays after a crash (stopped old generation %s)', async stopped => {
-    const e = engine('100', global, false, true);
-    await e.tick(); await leaderOpens(); await e.tick(); await e.tick();
-    expect((await db.select().from(schema.copyLiveDispatches))[0]).toMatchObject({ state: 'submitted' });
-    const [heldReservation] = await db.select().from(schema.copyLiveRiskReservations);
-    await db.update(schema.copyLiveRiskReservations).set({ network: 'mainnet' }).where(eq(schema.copyLiveRiskReservations.key, heldReservation!.key));
-    await expect(new CopyLiveApiSettlementRepository(db).load(heldReservation!.key)).rejects.toThrow('live_settlement_claim_identity');
-    await db.update(schema.copyLiveRiskReservations).set({ network: 'testnet' }).where(eq(schema.copyLiveRiskReservations.key, heldReservation!.key));
-    if (stopped) {
-      const [m] = await db.select().from(schema.copyLiveMandates);
-      const stopService = new CopyLiveStopService(new CopyLiveStopRepository(new CopyLiveMandateRepository(db, testConfig())), new UnitOfWork(db));
-      await stopService.request(1, 'mandate', { idempotencyKey: 'terminal-held-stop-key', expectedMandateRevision: m!.revision });
-      const [barrier] = await db.select().from(schema.copyLiveStopOperations);
-      expect(barrier!.targetManifest.executions).toEqual(expect.arrayContaining([expect.objectContaining({ state: 'filled', reservationState: 'unknown' })]));
-      expect((await db.select().from(schema.copyLiveRiskReservations))[0]!.state).not.toBe('released');
-      await db.update(schema.copyLiveMandates).set({ state: 'expired' });
-      await db.update(schema.copyStrategies).set({ status: 'stopped', stoppedAt: new Date() });
-    }
-    const apiPool = new Pool({ connectionString: process.env.TEST_DATABASE_URL, max: 4 });
-    const apiConfig = new AppConfig({ ...config.value, hyperliquid: { ...config.value.hyperliquid, budgetPerMin: 400, burst: 800 } });
-    const apiBudget = new RequestBudgeterService(apiConfig), jobs = new BackgroundJobs();
-    const apiTransport = new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(new UnitOfWork(drizzle(apiPool, { schema }))),
-      { egressKey: 'e2e-shared-egress', ownerId: 'e2e-api' }, raw);
-    const api = await apiSettlementProvider.useFactory(apiConfig, apiPool, { network: 'testnet', budget: apiBudget, transport: apiTransport, config: apiConfig }, jobs);
-    try {
-      const before = exchangeBodies.length, nonces = await db.select().from(schema.copySignerNonces);
-      raw.mockClear();
-      const provider = raw.getMockImplementation()!;
-      let entered!: () => void, unblock!: () => void;
-      const observed = new Promise<void>(resolve => { entered = resolve; }), held = new Promise<void>(resolve => { unblock = resolve; });
-      let paused = false;
-      raw.mockImplementation(async (url, init) => {
-        const body = init?.body ? JSON.parse(String(init.body)) : undefined;
-        if (!paused && body?.type === 'userFillsByTime') { paused = true; entered(); await held; }
-        return provider(url, init);
-      });
-      const first = api.tick(); await observed;
-      const paid = raw.mock.calls.length;
-      const replica = await apiSettlementProvider.useFactory(apiConfig, apiPool, { network: 'testnet', budget: apiBudget, transport: apiTransport, config: apiConfig }, jobs);
-      await replica.tick(); replica.onModuleDestroy();
-      expect(raw.mock.calls.length).toBe(paid);
-      unblock(); await first;
-      const [dispatch] = await db.select().from(schema.copyLiveDispatches);
-      expect(dispatch).toMatchObject({ state: 'settled', attempts: 1 });
-      expect((await db.select().from(schema.copyLiveRiskReservations))[0]).toMatchObject({ state: 'released', releaseReason: 'verified_settlement' });
-      expect(await db.select().from(schema.copyFollowerReceipts)).toHaveLength(1);
-      expect(await db.select().from(schema.copyFollowerObservations)).toHaveLength(1);
-      expect(raw.mock.calls.every(([url]) => String(url).endsWith('/info'))).toBe(true);
-      expect(exchangeBodies).toHaveLength(before);
-      expect(await db.select().from(schema.copySignerNonces)).toEqual(nonces);
-      await db.update(schema.copyLiveDispatches).set({ state: 'submitted' }).where(eq(schema.copyLiveDispatches.id, dispatch!.id));
-      raw.mockClear(); await api.tick();
-      expect((await db.select().from(schema.copyLiveDispatches))[0]).toMatchObject({ state: 'settled', attempts: 1 });
-      expect(raw).not.toHaveBeenCalled();
-      expect(await db.select().from(schema.copySignerNonces)).toEqual(nonces);
-    } finally { api.onModuleDestroy(); apiBudget.onModuleDestroy(); await apiPool.end(); }
-  });
-  it('the api and the copy worker both run the terminal settlement loop (the cutover): a claim one holds is skipped by the other, nothing is lost or settled twice', async () => {
-    const e = engine('100', global, false, true);
-    await e.tick(); await leaderOpens(); await e.tick(); await e.tick();
-    expect((await db.select().from(schema.copyLiveDispatches))[0]).toMatchObject({ state: 'submitted' });
-    // Two processes: the api (API_TERMINAL_SETTLEMENT on, the default) and a
-    // copy worker (WORKER_ROLE=copy: its loop is on by default), each with its
-    // own pool, bucket and transport on the shared egress meter.
-    const env = { DATABASE_URL: process.env.TEST_DATABASE_URL, HYPERLIQUID_EGRESS_KEY: 'e2e-shared-egress', HYPERLIQUID_NETWORK: 'testnet', NODE_ENV: 'test',
-      PRIVY_APP_ID: 'offline-app', PRIVY_APP_SECRET: 'offline-secret', PRIVY_AGENT_AUTHORIZATION_KEY: authorizationKey, PRIVY_AGENT_WORKER_QUORUM_ID: 'worker',
-      COPY_TRADING_MODE: 'testnet', HYPERLIQUID_STARTUP_PACE_SECONDS: '0', HYPERLIQUID_WEIGHT_BUDGET_PER_MIN: '400', HYPERLIQUID_WEIGHT_BURST: '800' };
-    const processes = await Promise.all([{}, { IS_WORKER: 'true', WORKER_ROLE: 'copy' }].map(async (extra, i) => {
-      const processConfig = new AppConfig(validateEnvironment({ ...env, ...extra }));
-      expect(terminalSettlementRuns(processConfig)).toBe(true);
-      const processPool = new Pool({ connectionString: process.env.TEST_DATABASE_URL, max: 4 });
-      const processBudget = new RequestBudgeterService(processConfig), jobs = new BackgroundJobs();
-      const transport = new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(new UnitOfWork(drizzle(processPool, { schema }))),
-        { egressKey: 'e2e-shared-egress', ownerId: i === 0 ? 'e2e-api' : 'e2e-copy-worker' }, raw);
-      const loop = await apiSettlementProvider.useFactory(processConfig, processPool, { network: 'testnet', budget: processBudget, transport, config: processConfig }, jobs);
-      return { loop, close: async () => { loop.onModuleDestroy(); processBudget.onModuleDestroy(); await processPool.end(); } };
-    }));
-    const [api, worker] = processes as [typeof processes[0], typeof processes[0]];
-    try {
-      const before = exchangeBodies.length, nonces = await db.select().from(schema.copySignerNonces);
-      const provider = raw.getMockImplementation()!;
-      let entered!: () => void, unblock!: () => void;
-      const observed = new Promise<void>(resolve => { entered = resolve; }), held = new Promise<void>(resolve => { unblock = resolve; });
-      let paused = false;
-      raw.mockClear();
-      raw.mockImplementation(async (url, init) => {
-        const body = init?.body ? JSON.parse(String(init.body)) : undefined;
-        if (!paused && body?.type === 'userFillsByTime') { paused = true; entered(); await held; }
-        return provider(url, init);
-      });
-      // The copy worker claims the terminal work and is mid-proof...
-      const first = worker.loop.tick(); await observed;
-      const paid = raw.mock.calls.length;
-      // ...while the api's loop comes round: the claim is held, it reads nothing and settles nothing.
-      await api.loop.tick();
-      expect(raw.mock.calls.length).toBe(paid);
+      // The order is sent on the second pass; the engine settles it on a later one (the former testnet handoff to the api is gone).
+      await e.tick(); await leaderOpens(); await e.tick();
       expect((await db.select().from(schema.copyLiveDispatches))[0]).toMatchObject({ state: 'submitted' });
-      unblock(); await first;
-      // The worker finished it, once.
+      const before = exchangeBodies.length, nonces = await db.select().from(schema.copySignerNonces);
+      // A reporting pass has consumed the background allowance...
+      await settleBudget.acquire(288, 'background');
+      const original = settleBudget.acquire.bind(settleBudget);
+      // ...and without the live lane (its reserve, its place ahead of background) the settlement's reads would be ordinary reads, each waiting at most 3 s.
+      if (!kept) vi.spyOn(settleBudget, 'acquire').mockImplementation((weight, _priority, _rank, options) =>
+        original(weight, 'background', undefined, { ...options, signal: options?.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(3000)]) : AbortSignal.timeout(3000) }));
+      // ...while ordinary reads keep asking for every unit that refills.
+      let drained = 0;
+      reads = (async () => { while (!stop.signal.aborted) { try { await original(20, 'background', undefined, { signal: AbortSignal.any([stop.signal, AbortSignal.timeout(500)]) }); drained += 20; } catch { /* no room yet */ } } })();
+      const started = Date.now();
+      let settled = false; raw.mockClear();
+      while (!settled && Date.now() - started < SETTLEMENT_CLAIM_WAIT_MS) {
+        await e.tick();
+        settled = (await db.select().from(schema.copyLiveDispatches))[0]!.state === 'settled';
+        if (!settled) await new Promise(resolve => setTimeout(resolve, 250));
+      }
       const [dispatch] = await db.select().from(schema.copyLiveDispatches);
-      expect(dispatch).toMatchObject({ state: 'settled', attempts: 1 });
-      expect((await db.select().from(schema.copyLiveRiskReservations))[0]).toMatchObject({ state: 'released', releaseReason: 'verified_settlement' });
-      expect(await db.select().from(schema.copyFollowerReceipts)).toHaveLength(1);
-      expect(await db.select().from(schema.copyFollowerObservations)).toHaveLength(1);
-      // A dispatch left `submitted` after the committed proof (a crash between
-      // the two writes) is finished by whichever loop comes next, from the
-      // journal, without provider reads: here the api's.
-      await db.update(schema.copyLiveDispatches).set({ state: 'submitted' }).where(eq(schema.copyLiveDispatches.id, dispatch!.id));
-      raw.mockClear(); await Promise.all([api.loop.tick(), worker.loop.tick()]);
-      expect((await db.select().from(schema.copyLiveDispatches))[0]).toMatchObject({ state: 'settled', attempts: 1 });
-      expect(raw).not.toHaveBeenCalled();
-      expect(await db.select().from(schema.copyFollowerReceipts)).toHaveLength(1);
+      if (kept) {
+        // Its receipt scan and evidence reads went out on the live lane within the claim's wait, the order settled once, nothing was signed or sent.
+        expect(dispatch).toMatchObject({ state: 'settled', attempts: 1 });
+        expect((await db.select().from(schema.copyLiveRiskReservations))[0]).toMatchObject({ state: 'released', releaseReason: 'verified_settlement' });
+        expect(await db.select().from(schema.copyFollowerReceipts)).toHaveLength(1);
+        expect(raw.mock.calls.some(([, init]) => init?.body && (JSON.parse(String(init.body)) as { type: string }).type === 'userFillsByTime')).toBe(true);
+      } else {
+        // As an ordinary read it never got its weight within the claim's wait: no scan went out, the dispatch is still submitted.
+        expect(dispatch).toMatchObject({ state: 'submitted' });
+        expect(await db.select().from(schema.copyFollowerReceipts)).toHaveLength(0);
+        expect(raw.mock.calls.some(([, init]) => init?.body && (JSON.parse(String(init.body)) as { type: string }).type === 'userFillsByTime')).toBe(false);
+        // The ordinary reads took what refilled meanwhile.
+        expect(drained).toBeGreaterThan(0);
+      }
       expect(exchangeBodies).toHaveLength(before);
       expect(await db.select().from(schema.copySignerNonces)).toEqual(nonces);
-    } finally { for (const p of processes) await p.close(); }
+    } finally { stop.abort(); await reads; settleBudget.onModuleDestroy(); }
   });
   it('recovers a dispatch interrupted after committed settlement without provider reads or another order', async () => {
     const e = engine(); await e.tick(); await leaderOpens(); await e.tick();
@@ -509,7 +410,7 @@ describe('testnet copy of a mainnet leader, end to end against provider doubles'
     const sizes: number[] = [], prepared: number[] = [], assessed: number[] = [];
     for (let i = 0; i < 30; i++) {
       budget.onModuleDestroy(); budget = new RequestBudgeterService(config);
-      e = engine('100', new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(new UnitOfWork(drizzle(pool, { schema }))), { egressKey: `e2e-many-${i}`, ownerId: `e2e-many-${i}` }, raw), false, false, `e2e-many-settle-${i}`);
+      e = engine('100', new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(new UnitOfWork(drizzle(pool, { schema }))), { egressKey: `e2e-many-${i}`, ownerId: `e2e-many-${i}` }, raw), false, `e2e-many-settle-${i}`);
       if (i % 2 === 0) await leaderOpens(2000 + i); else await leaderOpens(2000 + i, 'BTC', 'A', '1', '1', 'Close Long');
       const assessments = liveSettlementProofCacheStats().assessments, started = Date.now(); await e.tick(); prepared.push(Date.now() - started);
       let rows = await db.select().from(schema.copyLiveDispatches).orderBy(schema.copyLiveDispatches.leaderTime);
@@ -599,7 +500,7 @@ describe('testnet copy of a mainnet leader, end to end against provider doubles'
       let e = engine(); await e.tick();
       for (const [i, close] of [[0, false], [1, true]] as const) {
         budget.onModuleDestroy(); budget = new RequestBudgeterService(config);
-        e = engine('100', new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(new UnitOfWork(drizzle(pool, { schema }))), { egressKey: `e2e-trips-${i}`, ownerId: `e2e-trips-${i}` }, raw), false, false, `e2e-trips-settle-${i}`);
+        e = engine('100', new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(new UnitOfWork(drizzle(pool, { schema }))), { egressKey: `e2e-trips-${i}`, ownerId: `e2e-trips-${i}` }, raw), false, `e2e-trips-settle-${i}`);
         if (close) await leaderOpens(3001, 'BTC', 'A', '1', '1', 'Close Long'); else await leaderOpens(3000);
         await e.tick();
         for (let pass = 0; pass < 5 && (await db.select().from(schema.copyLiveDispatches)).some(r => r.state !== 'settled'); pass++) {

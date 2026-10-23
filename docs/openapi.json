@@ -12602,9 +12602,6 @@
                                     "local",
                                     "worker"
                                   ]
-                                },
-                                "terminalSettlement": {
-                                  "type": "boolean"
                                 }
                               },
                               "required": [
@@ -13180,9 +13177,6 @@
                                             "local",
                                             "worker"
                                           ]
-                                        },
-                                        "terminalSettlement": {
-                                          "type": "boolean"
                                         }
                                       },
                                       "required": [
@@ -14360,9 +14354,6 @@
                                             "local",
                                             "worker"
                                           ]
-                                        },
-                                        "terminalSettlement": {
-                                          "type": "boolean"
                                         }
                                       },
                                       "required": [

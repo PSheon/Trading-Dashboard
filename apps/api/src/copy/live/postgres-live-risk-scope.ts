@@ -1,6 +1,5 @@
 import type { Pool, PoolClient } from 'pg';
 import { performance } from 'node:perf_hooks';
-import { acquireSettlementConnection, type SettlementClaim } from '../live-worker/copy-live-settlement-claim.js';
 import * as schema from '@trading-dashboard/shared/database';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import type { DbExecutor, DbTransaction } from '../../db/unit-of-work.js';
@@ -128,8 +127,7 @@ function capture(value: LiveRiskIdentity): Readonly<LiveRiskIdentity> {
  * a proof producer must still load current ownership and complete liabilities. */
 export class PostgresLiveRiskScope {
   /** `holder`: what this scope is held for, named in another's live_risk_busy. */
-  constructor(private readonly pool: Pool, private readonly now = Date.now, private readonly externalFence?: Pick<SettlementClaim, 'assertFresh' | 'signal'>,
-    private readonly holder: LiveRiskHolder = { kind: 'risk_scope' }) {}
+  constructor(private readonly pool: Pool, private readonly now = Date.now, private readonly holder: LiveRiskHolder = { kind: 'risk_scope' }) {}
   async run<T>(rawIdentity: LiveRiskIdentity, work: (scope: LiveRiskScope, session: LiveRiskDatabaseSession) => Promise<T>): Promise<T> {
     const identity = capture(rawIdentity);
     const holding = { kind: label(this.holder.kind) || 'risk_scope', id: this.holder.id === undefined ? null : label(this.holder.id), since: this.now() };
@@ -173,8 +171,7 @@ export class PostgresLiveRiskScope {
       }
       throw new LiveRiskBusyError({ lock: lock.lock, holders: mine, sessions });
     };
-    this.externalFence?.assertFresh();
-    const client = this.externalFence ? await acquireSettlementConnection(this.pool, this.externalFence.signal) : await this.pool.connect();
+    const client = await this.pool.connect();
     const acquired: typeof locks = [];
     let held = false, lost = false, checkedAt = NaN;
     let databaseBusy = false, activeOperation: Promise<unknown> | undefined;
@@ -256,14 +253,12 @@ export class PostgresLiveRiskScope {
       return issueCheck();
     };
     const assertFresh = () => {
-      this.externalFence?.assertFresh();
       if (!held || lost) fail('live_risk_serialization_lost');
       const now = this.now();
       if (!Number.isSafeInteger(now) || now <= 0 || !Number.isSafeInteger(checkedAt) ||
           now < checkedAt || now - checkedAt > liveEvidenceMaxAgeMs()) fail('live_risk_serialization_stale');
     };
     const scope: LiveRiskScope = Object.freeze({ identity, assertFresh, assertHeld: async () => {
-      this.externalFence?.assertFresh();
       if (!held || lost) fail('live_risk_serialization_lost');
       try {
         const check = lockCheck();
@@ -395,20 +390,16 @@ export class PostgresLiveRiskScope {
       // or prepared order can be consumed by a concurrent owner of this scope.
       holding.since = this.now();
       for (const lock of locks) {
-        this.externalFence?.assertFresh();
         assertCounted();
         let result = await client.query<{ locked: boolean }>(lock.acquire, lock.values);
-        this.externalFence?.assertFresh();
         if (lost) fail('live_risk_busy');
         // An exclusive lock another scope holds for a few hundred ms (an order,
         // a settlement) is tried again for LIVE_RISK_LOCK_WAIT_MS before
         // live_risk_busy: still a try, nothing read or reserved meanwhile.
         for (const until = performance.now() + LIVE_RISK_LOCK_WAIT_MS; result.rows[0]?.locked !== true && !lock.shared && performance.now() + LIVE_RISK_LOCK_POLL_MS <= until;) {
-          await sleep(LIVE_RISK_LOCK_POLL_MS, undefined, this.externalFence ? { signal: this.externalFence.signal } : undefined);
-          this.externalFence?.assertFresh();
+          await sleep(LIVE_RISK_LOCK_POLL_MS);
           assertCounted();
           result = await client.query<{ locked: boolean }>(lock.acquire, lock.values);
-          this.externalFence?.assertFresh();
           if (lost) fail('live_risk_busy');
         }
         if (result.rows[0]?.locked !== true) await busy(lock);
@@ -434,7 +425,6 @@ export class PostgresLiveRiskScope {
         if (named?.size === 0) holders.delete(lock.name);
       }
       let discard = lost || client.getTransactionStatus() !== 'I';
-      if (this.externalFence) { try { this.externalFence.assertFresh(); } catch { discard = true; } }
       if (activeOperation) {
         let timer: ReturnType<typeof setTimeout> | undefined;
         try {

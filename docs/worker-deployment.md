@@ -76,4 +76,4 @@ Privy 設定檢查另見 [2026-09-30 audit](privy-configuration-audit-2026-09-30
 
 ## 角色拆分（2026-10-14）
 
-`WORKER_ROLE=copy|read`（未設定＝`all`，即現況）可把 worker 拆成 worker-copy 與 worker-read 兩個 Railway 服務，各持一把 lease（73106,1／73106,2）。變數、上線與回滾順序見 `docs/railway-deploy.md`「Worker roles」一節；設計見 `docs/design-hl-egress-2026-10-13.md` §2、§3、§8。api 端相關變數：`WORKER_READ_URL`、`API_SETUP_DRIVE`、`API_TERMINAL_SETTLEMENT`。
+`WORKER_ROLE=copy|read`（未設定＝`all`，即現況）可把 worker 拆成 worker-copy 與 worker-read 兩個 Railway 服務，各持一把 lease（73106,1／73106,2）。變數、上線與回滾順序見 `docs/railway-deploy.md`「Worker roles」一節；設計見 `docs/design-hl-egress-2026-10-13.md` §2、§3、§8。api 端相關變數：`WORKER_READ_URL`、`API_SETUP_DRIVE`（結算只在 copy worker 的跟單引擎上跑，api 沒有結算迴圈也沒有開關：D13，2026-10-23）。

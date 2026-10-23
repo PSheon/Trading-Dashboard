@@ -1,14 +1,11 @@
 import 'reflect-metadata';
 import { ConflictException, Logger } from '@nestjs/common';
 import { afterEach, expect, it, vi } from 'vitest';
-import { AppConfig } from '../src/config/app-config.js';
 import { CopyLiveSetupAbortService } from '../src/copy/copy-live-setup-abort.service.js';
-import { CopyLiveApiSettlementService } from '../src/copy/live-worker/copy-live-api-settlement.service.js';
 import { CopyLiveStopper, type StopperDependencies } from '../src/copy/live-worker/copy-live-stopper.js';
 import { HyperliquidBudgetWait } from '../src/hyperliquid/hyperliquid-budget-wait.js';
 import { DEFAULT_LIVE_STOP_TIMINGS } from '../src/config/live-timings.js';
 import { LiveBoundaryError } from '../src/copy/live/wallet-authorization.js';
-import { BackgroundJobs } from '../src/runtime/background-jobs.service.js';
 import { testConfig } from './config-test-utils.js';
 
 // Loops that keep going past a failure say what it was: the code (an
@@ -53,51 +50,6 @@ it("the stopper stores a boundary code as it is (and anything else as stop_step_
   vi.spyOn(fast, 'step').mockResolvedValue(undefined);
   await fast.tick(); clock += 5_000; await fast.tick();
   expect(stopExpiring).toHaveBeenCalledTimes(4);
-});
-
-it('API settlement logs which key failed and why, and still goes on to the next key', async () => {
-  const c = testConfig().value;
-  const config = new AppConfig({ ...c, app: { ...c.app, nodeEnv: 'development', isWorker: false }, hyperliquid: { ...c.hyperliquid, wallet: { ...c.hyperliquid.wallet, network: 'testnet' } },
-    copy: { ...c.copy, live: { network: 'testnet' } } } as never);
-  const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
-  const run = vi.fn().mockRejectedValueOnce(busy()).mockResolvedValueOnce(undefined);
-  const api = new CopyLiveApiSettlementService(config, new BackgroundJobs(), { candidates: async () => ['testnet:a:k1', 'testnet:a:k2'] } as never, { run } as never, () => { throw Error('unused'); });
-  await api.tick();
-  expect(run).toHaveBeenCalledTimes(2);
-  const lines = warn.mock.calls.map(([line]) => String(line));
-  expect(lines).toHaveLength(1);
-  expect(lines[0]).toMatch(/^Terminal settlement testnet:a:k1 pending; durable journal retained \{/);
-  expect(payload(lines[0]!)).toMatchObject({ code: 'hyperliquid_busy', wait: { weight: 613, bucket: 'wallet:testnet' } });
-  // Admission itself failing says why too.
-  const failing = new CopyLiveApiSettlementService(config, new BackgroundJobs(), { candidates: async () => { throw new TypeError('db down'); } } as never, { run } as never, () => { throw Error('unused'); });
-  await failing.tick();
-  expect(payload(String(warn.mock.calls.at(-1)![0]))).toMatchObject({ code: 'unexpected', error: expect.stringMatching(/^TypeError/) });
-  api.onModuleDestroy(); failing.onModuleDestroy();
-});
-
-it('the terminal settlement loop logs why an order is still pending, at most once per order per 30 s', async () => {
-  const c = testConfig().value;
-  const config = new AppConfig({ ...c, hyperliquid: { ...c.hyperliquid, wallet: { ...c.hyperliquid.wallet, network: 'testnet' } },
-    copy: { ...c.copy, live: { network: 'testnet' } } } as never);
-  const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
-  let clock = 1_000_000; vi.spyOn(Date, 'now').mockImplementation(() => clock);
-  const claim = { assertFresh: () => undefined };
-  const run = vi.fn(async (_key: string, work: (claim: unknown) => Promise<void>) => { await work(claim); return true; });
-  const finish = vi.fn(async () => undefined);
-  const work = () => ({ repository: { load: async () => ({ request: {}, row: {} }), finish }, saveSettlement: async () => true,
-    settle: async () => ({ kind: 'pending' as const, reason: 'live_settlement_terminal_stale' }) });
-  const api = new CopyLiveApiSettlementService(config, new BackgroundJobs(), { candidates: async () => ['testnet:a:k1', 'testnet:a:k2'] } as never, { run } as never, work as never);
-  const pending = () => warn.mock.calls.map(([line]) => String(line)).filter(line => line.startsWith('settlement '));
-  // A pending pass is a failed one: the next is due SETTLEMENT_RETRY_MS (6 s) later.
-  await api.tick(); clock += 6000; await api.tick(); clock += 23_000; await api.tick();
-  expect(pending()).toEqual(['settlement testnet:a:k1 pending: live_settlement_terminal_stale', 'settlement testnet:a:k2 pending: live_settlement_terminal_stale']);
-  clock += 1000; await api.tick();
-  expect(pending()).toHaveLength(2);
-  clock += 6000; await api.tick();
-  expect(pending()).toHaveLength(4);
-  // What the loop stores and does next is unchanged.
-  expect(finish).toHaveBeenCalledTimes(8);
-  api.onModuleDestroy();
 });
 
 it("a setup abort logs a child's reconcile it keeps for the next pass, and finishes the pass as before", async () => {

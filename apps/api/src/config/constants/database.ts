@@ -9,22 +9,21 @@
 
 /** basis: guessed — cost reduction 2026-10-22 (§1 #7): the api's dedicated connections counted in the code, with headroom; verify: pg_stat_activity per application_name ('td-api') at a gate's busiest minute
  * Held for the process's life: three LISTEN relays (SettingsRelay, ActionRelayListener,
- * CopyFeedListener). Held while one runs: the terminal settlement loop (on the api unless
- * API_TERMINAL_SETTLEMENT=off) takes a claim and a risk-scope connection and is refused below
- * three free (CopyLiveSettlementClaims). 3 + 2 + one pooled statement of that settlement leave
- * 4 for request handlers' short queries. Was 20 (2026-10-12).
+ * CopyFeedListener). The api runs no settlement loop (D13, 2026-10-23: terminal settlement is
+ * the copy worker's live engine's), so nothing else holds a connection across a provider call:
+ * 3 LISTEN leave 7 for request handlers' short queries. Was 20 (2026-10-12).
  */
 export const DATABASE_POOL_MAX_API = 10;
 
 /** basis: guessed — cost reduction 2026-10-22 (§1 #7): the copy worker's dedicated connections counted in the code, doubled for headroom on the money path; verify: pg_stat_activity per application_name ('td-worker-copy') at a gate's busiest minute
  * Held for the process's life: two LISTEN connections (SettingsRelay, CopySetupDueListener).
  * Held while one runs, each beside one pooled statement at a time: the live engine's drain
- * (serial: one order, stop, close or settlement at a time) takes the order lock (journal) and
- * the risk scope = 2 + 1; the terminal settlement loop (serial over orders) a claim and a risk
- * scope = 2 + 1; setup drives (one per woken setup, in parallel) use pooled transactions only,
- * ~1 each with two or three at once; the funding monitor, watcher and trade feed ~2. About 13 at
- * once; 20 keeps a live order from waiting on the pool (an order's evidence has 5 s). The
- * proposal's 15 left two spare at that count. Was 30 (2026-10-12).
+ * (serial: one order, stop, close or settlement at a time; it settles terminal orders itself on
+ * both networks, D13) takes the order lock (journal) and the risk scope = 2 + 1; setup drives
+ * (one per woken setup, in parallel) use pooled transactions only, ~1 each with two or three at
+ * once; the funding monitor, watcher and trade feed ~2. About 10 at once (13 before D13 removed
+ * the claim-based settlement loop's 2 + 1); 20 keeps a live order from waiting on the pool (an
+ * order's evidence has 5 s). Was 30 (2026-10-12).
  */
 export const DATABASE_POOL_MAX_COPY_WORKER = 20;
 

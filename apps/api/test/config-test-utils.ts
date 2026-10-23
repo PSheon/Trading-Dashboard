@@ -10,7 +10,7 @@ export function testConfig(): AppConfig {
     http: { corsOrigins: [] },
     limits: { ingressPerMinute: 100000, readPerMinute: 100000, writePerMinute: 100000, expensivePerMinute: 100000, favoritesPerUser: getIntEnv("MAX_FAVORITES_PER_USER", 100, 1, 10000) },
     app: { isWorker: process.env.IS_WORKER === "true", workerUrl: process.env.WORKER_URL, workerReadUrl: process.env.WORKER_READ_URL, trustedProxyCidrs: [], nodeEnv: process.env.NODE_ENV ?? "test", port: 3000,
-      workerRole: "all" as const, setupDrive: "local" as const, terminalSettlement: { api: true, worker: false } },
+      workerRole: "all" as const, setupDrive: "local" as const },
     database: { url: "postgres://unused@localhost/unused_test", poolMax: 20 },
     auth: { serviceToken: env.serviceToken(), permissions: env.servicePermissions(), adminEmails: env.adminEmails(), appId: env.privyAppId(), appSecret: env.privyAppSecret(), verificationKey: env.privyVerificationKey(),
       deletionMarker: { key: process.env.ACCOUNT_DELETION_MARKER_KEY || undefined, previousKeys: (process.env.ACCOUNT_DELETION_MARKER_PREVIOUS_KEYS ?? "").split(",").map((v) => v.trim()).filter(Boolean) } },

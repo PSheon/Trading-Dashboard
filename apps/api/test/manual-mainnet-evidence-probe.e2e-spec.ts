@@ -208,7 +208,7 @@ describe.skipIf(env.HL_MAINNET_PROBE !== '1')('mainnet evidence probe (manual, r
     const at = () => Math.round(performance.now() - base);
     const raw: Record<string, unknown> = { run, case: kind, claimedWeight: weight, liveToken: token !== undefined };
     let error: string | undefined;
-    await recorder.run(() => lane(() => new PostgresLiveRiskScope(pool, Date.now, undefined, { kind: 'order', id: `probe-${kind}-${run}` })
+    await recorder.run(() => lane(() => new PostgresLiveRiskScope(pool, Date.now, { kind: 'order', id: `probe-${kind}-${run}` })
       .run({ userId: 1, network: 'mainnet', accountAddress: config.follower, source: { network: 'mainnet', leaderAddress: config.leader } },
         async (_scope, session) => global.runOriginal(session, async () => {
           global.currentQuota();

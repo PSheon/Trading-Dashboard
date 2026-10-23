@@ -11,7 +11,8 @@ import { roleLeases } from "../runtime/worker-role.js";
 import { WatcherService } from "../watcher/watcher.service.js";
 import { clockSkew } from "../copy/live/clock-skew.js";
 import { explorerHealth } from "../copy/explorer-health.js";
-import { terminalSettlementRuns } from "../copy/live-worker/copy-live-api-settlement.service.js";
+import { LIVE_ENGINE } from "../copy/live-worker/copy-live-engine.provider.js";
+import type { CopyLiveEngine } from "../copy/live-worker/copy-live-engine.js";
 import { EgressIdentityMonitor, egressIdentity } from "../runtime/egress-identity.js";
 import { foreignUsage } from "../hyperliquid/foreign-usage.js";
 
@@ -32,6 +33,8 @@ export class WorkerHeartbeatService {
     @Optional() @Inject(WALLET_NETWORK_HL) private readonly wallet?: WalletNetworkHyperliquid,
     /** The process's egress identity (tests pass their own). */
     @Optional() @Inject(EgressIdentityMonitor) private readonly identity: EgressIdentityMonitor = egressIdentity,
+    // The live engine, which settles terminal copies: a `copy` or `all` worker with live copy on (null when off; absent on a `read` worker).
+    @Optional() @Inject(LIVE_ENGINE) private readonly engine: CopyLiveEngine | null = null,
   ) {}
 
   async heartbeat(): Promise<HeartbeatResponse> {
@@ -86,9 +89,9 @@ export class WorkerHeartbeatService {
       dryRun: this.config.value.telegram.dryRun,
       // Progress of the S3 archive ingest; a failed read must not fail the heartbeat.
       archive: this.archive?.enabled ? await this.archive.status().catch(() => undefined) : undefined,
-      // WORKER_ROLE and its leases; terminalSettlement is what the api's guard checks while
-      // API_TERMINAL_SETTLEMENT=off (WorkerFleetService).
-      worker: { role: this.config.value.app.workerRole, leases: [...roleLeases(this.config.value.app.workerRole)], terminalSettlement: terminalSettlementRuns(this.config) },
+      // WORKER_ROLE and its leases; terminalSettlement: this process's live engine runs, so it settles
+      // terminal copies (only the copy worker does; the api's guard checks it: WorkerFleetService).
+      worker: { role: this.config.value.app.workerRole, leases: [...roleLeases(this.config.value.app.workerRole)], terminalSettlement: this.engine !== null },
       // Public IPs (HL_EGRESS_IDENTITY), compared across processes by WorkerFleetService.
       egressIdentity: this.identity.mode === "off" ? undefined : this.identity.snapshot(),
       // Hyperliquid's rate limits met here, and those while our own meter

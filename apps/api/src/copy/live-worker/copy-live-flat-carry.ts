@@ -49,7 +49,7 @@ export class CopyLiveFlatCarry {
   async reset(row: CloseRow, accountAddress: string, owed: readonly OwedCarry[]): Promise<boolean> {
     if (!owed.length) return true;
     try {
-      return await new PostgresLiveRiskScope(this.pool, this.now, undefined, { kind: 'flat_carry', id: row.coin }).run({ userId: row.userId, network: this.network, accountAddress }, async (scope, session) => session.transaction(async tx => {
+      return await new PostgresLiveRiskScope(this.pool, this.now, { kind: 'flat_carry', id: row.coin }).run({ userId: row.userId, network: this.network, accountAddress }, async (scope, session) => session.transaction(async tx => {
         const current = await this.rows(tx, row).for('update', { of: copyLiveReductionCarry }); await scope.assertHeld();
         if (!isDeepStrictEqual(current, [...owed])) throw new Deferred();
         for (const c of current) {

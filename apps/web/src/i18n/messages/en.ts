@@ -1164,7 +1164,7 @@ export const en: Messages = {
     "seconds": "{value} seconds",
     "milliseconds": "{value} ms",
     "alertsTitle": "Alerts",
-    "alert_terminal_settlement_unowned": "Terminal copies are not being settled: the api's settlement loop is off (API_TERMINAL_SETTLEMENT=off) and no copy worker has reported its loop on (WORKER_TERMINAL_SETTLEMENT) for over 2 minutes.",
+    "alert_terminal_settlement_unowned": "Terminal copies are not being settled: no copy worker has reported its live engine running for over 2 minutes (only the copy worker settles).",
     "alertLastOk": "Last seen fine",
     "alert_snapshots_stale": "Snapshots are stale: the read worker (WORKER_READ_URL) has shown no snapshot for over 15 minutes.",
     "alert_egress_identity_shared": "The copy worker shares a public IP with the api or the read worker: its Hyperliquid per-IP limit is not its own. Check its static egress gateway."

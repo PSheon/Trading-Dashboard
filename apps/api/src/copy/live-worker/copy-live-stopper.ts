@@ -298,7 +298,7 @@ export class StopCanceller {
     const signer = new PrivyTrackedCancellationSigner(new BoundaryPrivyOrderSigningClient(this.network, { appId: auth.appId, appSecret: auth.appSecret }, fetch, this.now), authority,
       async () => ({ authorization_context: { authorization_private_keys: [key] } }), this.now);
     const transport = new HyperliquidTrackedCancellationTransport(signer, this.global, fetch, this.now);
-    const evidence = await new PostgresLiveRiskScope(this.pool, this.now, undefined, { kind: 'stop', id: String(stop.id) }).run({ userId: stop.userId, network: this.network, accountAddress: stop.accountAddress },
+    const evidence = await new PostgresLiveRiskScope(this.pool, this.now, { kind: 'stop', id: String(stop.id) }).run({ userId: stop.userId, network: this.network, accountAddress: stop.accountAddress },
       async (_scope, session) => this.global.runOwned('stop', () => this.global.runOriginal(session, () => transport.attempt(operation, () => undefined))));
     await this.repository.attempted(claim.id, evidence.state, { ...evidence, response: undefined, responseDigest: createHash('sha256').update(JSON.stringify(evidence.response ?? null)).digest('hex') });
     return 'attempted';

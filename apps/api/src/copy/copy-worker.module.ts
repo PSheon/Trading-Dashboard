@@ -16,7 +16,7 @@ import { CopyLiveSourceRepository } from "./copy-live-source.repository.js";
 import { CopyLiveWorkerRepository } from "./live-worker/copy-live-worker.repository.js";
 import { CopyLiveStopWorkerRepository } from "./live-worker/copy-live-stop-worker.repository.js";
 import { CopyLiveWorkerService } from "./live-worker/copy-live-worker.service.js";
-import { liveEngineProvider } from "./live-worker/copy-live-engine.provider.js";
+import { LIVE_ENGINE, liveEngineProvider } from "./live-worker/copy-live-engine.provider.js";
 import { WatcherRuntimeModule } from "../watcher/watcher-runtime.module.js";
 import { CopyReadModule } from "./copy-read.module.js";
 import { CopySetupDueListener } from "./live-worker/copy-setup-due.listener.js";
@@ -97,5 +97,7 @@ export class CopyReportingWorkerModule {}
   providers: [CopyFundingMonitor, CopyLiveSourceRepository, CopyLiveWorkerRepository, CopyLiveStopWorkerRepository, liveEngineProvider, CopyLiveWorkerService,
     // API_SETUP_DRIVE=worker: the api's confirm and advance wake this worker.
     CopySetupDueListener],
+  // LIVE_ENGINE: the heartbeat reports whether this process settles terminal copies (WorkerHeartbeatService).
+  exports: [LIVE_ENGINE],
 })
 export class CopyLiveWorkerModule {}

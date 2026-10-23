@@ -1017,6 +1017,8 @@ export const es: Messages = {
       copyPositionsDesc: "Replica las posiciones que el trader ya tiene abiertas cuando empiezas. Desactívalo para copiar solo las posiciones nuevas.",
       amount: "Monto a copiar (USDC)",
       enterAmount: "Introduce un importe",
+      suggestedMin: "Sugerido ≥ ${amount}",
+      suggestedMinTip: "10 × el capital del trader ÷ el nocional mediano de sus ampliaciones en los últimos 30 días; se actualiza cada hora.",
       minToCopy: "Mínimo ${min} para copiar",
       tooActive: {
         rate: "Este trader opera con demasiada frecuencia para que la copia lo siga ({orders} órdenes en las últimas 24 horas, hasta {peak} por minuto), así que no se puede copiar. El límite es {perDay} al día y {perMinute} por minuto.",

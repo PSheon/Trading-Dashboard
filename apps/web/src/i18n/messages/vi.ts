@@ -1017,6 +1017,8 @@ export const vi: Messages = {
       copyPositionsDesc: "Sao chép luôn những vị thế trader đang nắm giữ tại thời điểm bạn bắt đầu. Tắt để chỉ sao chép các vị thế mở mới.",
       amount: "Số tiền sao chép (USDC)",
       enterAmount: "Nhập số tiền",
+      suggestedMin: "Đề xuất ≥ ${amount}",
+      suggestedMinTip: "10 × vốn của trader ÷ giá trị danh nghĩa trung vị của các lệnh gia tăng vị thế trong 30 ngày gần nhất, cập nhật mỗi giờ.",
       minToCopy: "Tối thiểu ${min} để sao chép",
       tooActive: {
         rate: "Trader này giao dịch quá thường xuyên nên việc sao chép không theo kịp ({orders} lệnh trong 24 giờ qua, tối đa {peak} lệnh mỗi phút), vì vậy chưa thể sao chép. Giới hạn là {perDay} lệnh mỗi ngày và {perMinute} lệnh mỗi phút.",

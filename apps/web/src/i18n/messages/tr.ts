@@ -1017,6 +1017,8 @@ export const tr: Messages = {
       copyPositionsDesc: "Başlarken trader'ın halihazırda taşıdığı pozisyonları da yansıtır. Kapatırsanız yalnızca yeni açılan pozisyonlar kopyalanır.",
       amount: "Kopyalanacak tutar (USDC)",
       enterAmount: "Bir tutar girin",
+      suggestedMin: "Önerilen ≥ ${amount}",
+      suggestedMinTip: "10 × traderın öz sermayesi ÷ son 30 gündeki ekleme emirlerinin medyan nominal değeri; saatlik güncellenir.",
       minToCopy: "Kopyalamak için en az ${min}",
       tooActive: {
         rate: "Bu trader kopyalamanın yetişemeyeceği kadar sık işlem yapıyor (son 24 saatte {orders} emir, dakikada en fazla {peak}), bu yüzden kopyalanamaz. Sınır günde {perDay}, dakikada {perMinute} emirdir.",

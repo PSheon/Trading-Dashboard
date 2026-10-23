@@ -1017,6 +1017,8 @@ export const ja: Messages = {
       copyPositionsDesc: "開始時点でトレーダーが保有しているポジションもミラーします。オフにすると、新規に開かれたポジションのみをコピーします。",
       amount: "コピーする金額（USDC）",
       enterAmount: "金額を入力",
+      suggestedMin: "推奨 ≥ ${amount}",
+      suggestedMinTip: "10 × トレーダーの資産 ÷ 直近 30 日の追加建玉の名目額の中央値。毎時更新。",
       minToCopy: "コピーは最低 ${min} から",
       tooActive: {
         rate: "このトレーダーは取引頻度が高すぎるため（直近 24 時間で {orders} 件、ピーク時 1 分あたり {peak} 件）、コピーが追いつけません。現在コピーできません。上限は 1 日 {perDay} 件、1 分あたり {perMinute} 件です。",

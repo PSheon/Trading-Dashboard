@@ -24,6 +24,7 @@ import { ExposurePanel } from '@/components/copy/portfolio-parts';
 import type { ExposureCopy } from '@/lib/copy-portfolio';
 import { TraderAvatar, boardName } from '@/components/discover/board-bits';
 import { RoiPill } from '@/components/traders/bits';
+import { SuggestedBudgetPill } from '@/components/trader/suggested-budget-pill';
 import { Drawer } from '@/components/ui/drawer';
 import { truncateAddress } from '@/lib/format';
 import { LiveCopyActions } from '@/components/copy/live-copy-actions';
@@ -253,6 +254,9 @@ function LiveCopyCard({ item, leader, account, onOpen, onEquity }: { item: LiveC
       <span className="flex min-w-0 items-center gap-2 pl-12">
         <span className="text-xs text-muted-foreground">{t('folio.pnl')}</span>
         <span className={cn('num text-[0.9375rem] font-bold', pnl === null ? 'text-muted-foreground' : pnl >= 0 ? 'text-positive' : 'text-negative')}>{pnl === null ? '—' : format.usd(pnl, { sign: true, digits: 2 })}</span>
+        {/* D9: the budget is under the leader's suggested minimum (D7); the explanation is the pill's title (the card is a button). */}
+        {typeof item.suggestedMinBudgetUsd === 'number' && Number(item.budgetUsd) < item.suggestedMinBudgetUsd
+          ? <SuggestedBudgetPill suggested={item.suggestedMinBudgetUsd} budget={Number(item.budgetUsd)} tip={false} testId="live-copy-budget-warning" /> : null}
         {pnl === null ? <UnconfirmedPill className="ml-auto" /> : roi === null ? null : <RoiPill value={roi} className="ml-auto" />}
       </span>
     </button>

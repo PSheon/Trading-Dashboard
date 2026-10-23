@@ -1807,6 +1807,8 @@ export const en: Messages = {
       copyPositionsDesc: "Mirror the positions the trader already holds when you start. Turn off to only copy newly opened positions.",
       amount: "Amount to copy (USDC)",
       enterAmount: "Enter an amount",
+      suggestedMin: "Suggested ≥ ${amount}",
+      suggestedMinTip: "10 × the trader’s equity ÷ the median notional of their adds over the last 30 days, updated hourly.",
       minToCopy: "Minimum ${min} to copy",
       tooActive: {
         rate: "This trader trades too often for copying to keep up ({orders} orders in the last 24 hours, up to {peak} a minute), so copying is not available. The limit is {perDay} a day and {perMinute} a minute.",

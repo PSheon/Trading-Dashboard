@@ -26,7 +26,7 @@ import { useLiveCopyPortfolio } from "@/lib/copy-live-portfolio";
 import { useWallet } from "@/lib/wallet";
 import type { CopyStrategySettings, LiveCopySetup } from "@trading-dashboard/shared/contracts";
 import type { LeaderCopyActivity } from "@/lib/contracts";
-import { useLeaderCopyActivity, useSiteSettings } from "@/lib/queries";
+import { useLeaderCopyActivity, useSiteSettings, useTraderProfile } from "@/lib/queries";
 import { amountInput } from "@/lib/amount-input";
 import { hedgeWarning } from "@/lib/copy-portfolio";
 import { coinLabel, truncateAddress } from "@/lib/format";
@@ -35,6 +35,7 @@ import { Collapsible, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Switch } from "@/components/ui/switch";
 import { useTraderCopyFlow } from "./trader-copy-flow";
 import { CopyFitSummary } from "./copy-fit-summary";
+import { SuggestedBudgetPill } from "./suggested-budget-pill";
 
 type Direction = "same" | "reverse";
 /**
@@ -184,6 +185,12 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName, li
   // its largest budget); the paper limits apply to 模擬 only.
   const { min, max } = copyAmountBounds(testnet, overview.data?.limits, deployment?.caps);
   const value = Number.parseFloat(amount);
+  // The leader's suggested minimum budget (D7/D9): a pill by the amount, warning once the typed amount is under it.
+  // Ratio sizing only, as the fit summary: a fixed amount per trade is checked against the minimum by its own field.
+  const ratioSized = !testnet || (!fixedOnly && sizing === "ratio");
+  const profile = useTraderProfile(address);
+  const suggested = ratioSized ? profile.data?.suggestedMinBudgetUsd ?? null : null;
+  const suggestedPill = suggested !== null ? <SuggestedBudgetPill suggested={suggested} budget={Number.isFinite(value) && value > 0 ? value : null} /> : null;
   const pct = balance > 0 ? Math.min(100, Math.round(((Number.isFinite(value) ? value : 0) / balance) * 100)) : 0;
   const paused = overview.data && (overview.data.platform.pauseNewRisk || overview.data.platform.reduceOnly || overview.data.user.pauseNewRisk || overview.data.user.reduceOnly);
 
@@ -540,6 +547,7 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName, li
             />
             <span className="leading-none font-bold text-muted-foreground" style={{ fontSize: `${fit.unit}rem` }}>USDC</span>
           </div>
+          {suggestedPill}
         </div>
       ) : (
         <div
@@ -575,6 +583,7 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName, li
           />
           {/* Orbit: the amount is the big figure, the unit a quiet suffix. */}
           <span className="shrink-0 self-center pt-[0.35em] font-display leading-none text-muted-foreground" style={{ fontSize: AMOUNT_UNIT_PX }}>USDC</span>
+          {suggestedPill}
           <button
             type="button"
             onClick={() => setFromPct(100)}
@@ -703,7 +712,7 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName, li
       </div>
 
       {/* Ratio sizing only: a fixed amount per trade is checked against the minimum by its own field. */}
-      {!testnet || (!fixedOnly && sizing === "ratio") ? <CopyFitSummary address={address} allocation={Number.isFinite(value) ? value : 0} /> : null}
+      {ratioSized ? <CopyFitSummary address={address} allocation={Number.isFinite(value) ? value : 0} /> : null}
 
       {tooActive ? (
         <p role="alert" data-testid="copy-leader-too-active" className="flex items-start gap-2 rounded-xl bg-warning/10 px-3 py-2.5 text-xs leading-relaxed text-warning">

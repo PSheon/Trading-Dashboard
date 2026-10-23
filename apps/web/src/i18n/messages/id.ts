@@ -1017,6 +1017,8 @@ export const id: Messages = {
       copyPositionsDesc: "Menyalin posisi yang sudah dipegang trader saat kamu mulai. Matikan untuk hanya menyalin posisi yang baru dibuka.",
       amount: "Jumlah untuk disalin (USDC)",
       enterAmount: "Masukkan jumlah",
+      suggestedMin: "Disarankan ≥ ${amount}",
+      suggestedMinTip: "10 × ekuitas trader ÷ nilai nosional median penambahan posisinya dalam 30 hari terakhir, diperbarui setiap jam.",
       minToCopy: "Minimum ${min} untuk menyalin",
       tooActive: {
         rate: "Trader ini terlalu sering bertransaksi sehingga penyalinan tidak bisa mengikuti ({orders} order dalam 24 jam terakhir, hingga {peak} per menit), jadi belum bisa disalin. Batasnya {perDay} per hari dan {perMinute} per menit.",

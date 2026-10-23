@@ -1017,6 +1017,8 @@ export const ko: Messages = {
       copyPositionsDesc: "시작 시점에 트레이더가 이미 보유한 포지션까지 함께 복제합니다. 끄면 새로 열리는 포지션만 카피합니다.",
       amount: "카피할 금액 (USDC)",
       enterAmount: "금액을 입력하세요",
+      suggestedMin: "권장 ≥ ${amount}",
+      suggestedMinTip: "10 × 트레이더 자산 ÷ 최근 30일 추가 진입의 중위 명목 금액, 매시간 갱신.",
       minToCopy: "최소 ${min}부터 카피 가능",
       tooActive: {
         rate: "이 트레이더는 거래가 너무 잦아(최근 24시간 {orders}건, 최대 분당 {peak}건) 카피가 따라갈 수 없어 지금은 카피할 수 없습니다. 한도는 하루 {perDay}건, 분당 {perMinute}건입니다.",

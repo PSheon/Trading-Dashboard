@@ -1811,6 +1811,8 @@ export const zhTW = {
       copyPositionsDesc: "在你開始跟單時，一併鏡像交易員目前已持有的倉位。關閉則僅跟單之後新開的倉位。",
       amount: "跟單金額（USDC）",
       enterAmount: "請輸入金額",
+      suggestedMin: "建議 ≥ ${amount}",
+      suggestedMinTip: "10 × 交易員權益 ÷ 他近 30 天加倉的中位名目額，每小時更新。",
       minToCopy: "最低 ${min} 才能跟單",
       tooActive: {
         rate: "此交易員交易太頻繁（近 24 小時 {orders} 筆、尖峰每分鐘 {peak} 筆），系統無法即時跟上，暫不開放跟單。上限為每日 {perDay} 筆、每分鐘 {perMinute} 筆。",

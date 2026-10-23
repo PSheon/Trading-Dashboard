@@ -1017,6 +1017,8 @@ export const zhCN: Messages = {
       copyPositionsDesc: "在你开始跟单时，一并镜像交易员当前已持有的仓位。关闭则仅跟单之后新开的仓位。",
       amount: "跟单金额（USDC）",
       enterAmount: "请输入金额",
+      suggestedMin: "建议 ≥ ${amount}",
+      suggestedMinTip: "10 × 交易员权益 ÷ 他近 30 天加仓的中位名义额，每小时更新。",
       minToCopy: "最低 ${min} 才能跟单",
       tooActive: {
         rate: "此交易员交易太频繁（近 24 小时 {orders} 笔、峰值每分钟 {peak} 笔），系统无法实时跟上，暂不开放跟单。上限为每日 {perDay} 笔、每分钟 {perMinute} 笔。",

@@ -12844,6 +12844,91 @@
                               ],
                               "additionalProperties": false
                             },
+                            "meters": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "meter": {
+                                    "type": "string",
+                                    "enum": [
+                                      "copy",
+                                      "read"
+                                    ]
+                                  },
+                                  "egressKey": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "backgroundCap": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                  },
+                                  "reserved": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                  },
+                                  "rest": {
+                                    "type": "object",
+                                    "properties": {
+                                      "total": {
+                                        "type": "number",
+                                        "minimum": 0
+                                      },
+                                      "background": {
+                                        "type": "number",
+                                        "minimum": 0
+                                      },
+                                      "page": {
+                                        "type": "number",
+                                        "minimum": 0
+                                      },
+                                      "live": {
+                                        "type": "number",
+                                        "minimum": 0
+                                      },
+                                      "source": {
+                                        "type": "number",
+                                        "minimum": 0
+                                      },
+                                      "setup": {
+                                        "type": "number",
+                                        "minimum": 0
+                                      },
+                                      "other": {
+                                        "type": "number",
+                                        "minimum": 0
+                                      },
+                                      "markers": {
+                                        "type": "number",
+                                        "minimum": 0
+                                      }
+                                    },
+                                    "required": [
+                                      "total",
+                                      "background",
+                                      "page",
+                                      "live",
+                                      "source",
+                                      "setup",
+                                      "other",
+                                      "markers"
+                                    ],
+                                    "additionalProperties": false
+                                  }
+                                },
+                                "required": [
+                                  "meter",
+                                  "egressKey",
+                                  "backgroundCap",
+                                  "reserved",
+                                  "rest"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
                             "egressIdentity": {
                               "type": "object",
                               "properties": {
@@ -13780,6 +13865,39 @@
                                                 "count",
                                                 "held",
                                                 "until"
+                                              ],
+                                              "additionalProperties": false
+                                            },
+                                            "meter": {
+                                              "type": "object",
+                                              "properties": {
+                                                "meter": {
+                                                  "type": "string",
+                                                  "enum": [
+                                                    "copy",
+                                                    "read"
+                                                  ]
+                                                },
+                                                "egressKey": {
+                                                  "type": [
+                                                    "string",
+                                                    "null"
+                                                  ]
+                                                },
+                                                "backgroundCap": {
+                                                  "type": "integer",
+                                                  "minimum": 0
+                                                },
+                                                "reserved": {
+                                                  "type": "integer",
+                                                  "minimum": 0
+                                                }
+                                              },
+                                              "required": [
+                                                "meter",
+                                                "egressKey",
+                                                "backgroundCap",
+                                                "reserved"
                                               ],
                                               "additionalProperties": false
                                             },
@@ -14960,6 +15078,39 @@
                                               ],
                                               "additionalProperties": false
                                             },
+                                            "meter": {
+                                              "type": "object",
+                                              "properties": {
+                                                "meter": {
+                                                  "type": "string",
+                                                  "enum": [
+                                                    "copy",
+                                                    "read"
+                                                  ]
+                                                },
+                                                "egressKey": {
+                                                  "type": [
+                                                    "string",
+                                                    "null"
+                                                  ]
+                                                },
+                                                "backgroundCap": {
+                                                  "type": "integer",
+                                                  "minimum": 0
+                                                },
+                                                "reserved": {
+                                                  "type": "integer",
+                                                  "minimum": 0
+                                                }
+                                              },
+                                              "required": [
+                                                "meter",
+                                                "egressKey",
+                                                "backgroundCap",
+                                                "reserved"
+                                              ],
+                                              "additionalProperties": false
+                                            },
                                             "discovery": {
                                               "type": "object",
                                               "properties": {
@@ -15706,7 +15857,19 @@
                                   "type": "string",
                                   "enum": [
                                     "api",
+                                    "copy",
                                     "read"
+                                  ]
+                                }
+                              },
+                              "pairs": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "enum": [
+                                    "copy-api",
+                                    "copy-read",
+                                    "read-api"
                                   ]
                                 }
                               }

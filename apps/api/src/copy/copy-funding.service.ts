@@ -27,7 +27,8 @@ import { BUSY_RETRY_AFTER_MS } from '../config/constants/http.js';
 import { jsonDigest as digest } from "../common/crypto/digest.js";
 
 /** An operator's ledger read: a full page reads on (oldest first), at most
- * this many pages, as the withdrawal resolution. */
+ * this many pages, as the withdrawal resolution (wallet/withdrawal.service.ts: the page
+ * floor is a conservative 500 under the 2,000-row list cap; a batch at or above it reads on). */
 const RESOLVE_LEDGER_PAGE = 500, RESOLVE_LEDGER_MAX_PAGES = 20;
 /** Explorer reads an operator's "never executed" may pay for. */
 const RESOLVE_MAX_CANDIDATES = 20;

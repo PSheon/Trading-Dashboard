@@ -12,7 +12,7 @@ import type { BoardTrader } from "../src/lib/contracts";
 
 const pushed: string[] = [];
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh() {}, push(href: string) { pushed.push(href); } }), usePathname: () => "/" }));
-vi.mock("next/link", () => ({ default: ({ children, href, prefetch: _prefetch, ...rest }: { children: React.ReactNode; href: string; prefetch?: boolean } & React.ComponentProps<"a">) => <a href={href} {...rest}>{children}</a> }));
+vi.mock("next/link", () => ({ default: ({ children, href, prefetch, ...rest }: { children: React.ReactNode; href: string; prefetch?: boolean } & React.ComponentProps<"a">) => <a href={href} data-prefetch={String(prefetch)} {...rest}>{children}</a> }));
 
 /**
  * The explore card was one `<a>` wrapping everything, 跟單 `<button>` included:

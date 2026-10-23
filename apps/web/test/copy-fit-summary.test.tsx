@@ -51,16 +51,15 @@ it("says the fills could not be read instead of showing nothing", () => {
   expect(render(100)).toContain("暫時讀不到交易員的近期成交");
 });
 
-it("suggests an allocation when most opens would be skipped, and not once the amount is enough (Paul 2026-10-11)", () => {
-  // Leader 1,000,000 with opens of 1k…10k: at 50 every one is under $10; about 80% place from 3,340.
+it("suggests no amount of its own, even when every open would be skipped: the api's suggested minimum budget is the one rule (D7, 2026-10-23)", () => {
+  // Leader 1,000,000 with opens of 1k…10k: at 50 every one is under $10 — the old summary said 建議至少 $3,340 here.
   read.accountValue = 1_000_000;
   read.fills = Array.from({ length: 10 }, (_, i) => fill("BTC", 1000, i + 1, i));
-  expect(render(50)).toContain("想讓約 80% 的單能下出，跟單資金建議至少 $3,340。");
-  expect(render(3340)).not.toContain("建議至少");
-  // A few skipped opens (under 20%) need no suggestion.
-  read.accountValue = 100_000;
-  read.fills = [fill("NEAR", 5.3864, 1000, 1), ...Array.from({ length: 9 }, (_, i) => fill("BTC", 100_000, 0.2, 10 + i))];
-  expect(render(100)).not.toContain("建議至少");
+  const html = render(50);
+  expect(html).toContain("不會執行");
+  expect(html).not.toContain("建議至少");
+  expect(html).not.toContain("copy-fit-suggested");
+  expect((zhTW.trader.copy.fit as Record<string, string>).suggested).toBeUndefined();
 });
 
 it("never says an open under the minimum is raised: the test floor is gone (D6, 2026-10-23)", () => {

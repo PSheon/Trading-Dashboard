@@ -1028,7 +1028,6 @@ export const es: Messages = {
         title: "Estimación de compatibilidad",
         belowMin: "Escaladas por proporción, unas {below} de las últimas {opens} aperturas ({pct}%) quedarían por debajo de la orden mínima de ${min} y no se ejecutarían.",
         allFit: "Escaladas por proporción, las últimas {opens} aperturas alcanzan la orden mínima de ${min}.",
-        suggested: "Para ejecutar cerca del {pct}%, copia con al menos ${amount}.",
         hip3: "Otras {count} son mercados HIP-3 que la política de riesgo de la plataforma puede no copiar.",
         sample: "Muestra: operaciones {from} – {to} (UTC). No incluye PnL posterior, límites ni vigencia de señales; cuenta el historial de órdenes.",
         unknownEquity: "No se puede leer el valor de la cuenta del trader, así que no se pueden estimar los tamaños por proporción.",

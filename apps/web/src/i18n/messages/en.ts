@@ -1818,7 +1818,6 @@ export const en: Messages = {
         title: "Copy fit estimate",
         belowMin: "Scaled by ratio, about {below} of the last {opens} opens ({pct}%) would be under the ${min} minimum order and not executed.",
         allFit: "Scaled by ratio, all of the last {opens} opens reach the ${min} minimum order.",
-        suggested: "To place about {pct}% of them, copy with at least ${amount}.",
         hip3: "Another {count} are HIP-3 markets the platform's risk policy may not copy.",
         sample: "Sample: fills {from} – {to} (UTC). Later PnL, caps and signal age are not included; the order history is what counts.",
         unknownEquity: "The trader's account value can't be read, so ratio order sizes can't be estimated.",

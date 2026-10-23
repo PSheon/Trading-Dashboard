@@ -124,33 +124,6 @@ export function ActivityBadge({ activity, className }: { activity: TraderActivit
   );
 }
 
-export function LowSampleTag({
-  fills,
-  capped,
-  threshold,
-  className,
-}: {
-  fills: number;
-  capped: boolean;
-  threshold: number;
-  className?: string;
-}) {
-  const { t } = useI18n();
-  return (
-    <Tooltip content={t("common.lowSampleHint", { count: fills, threshold })}>
-      <span
-        tabIndex={0}
-        className={cn(
-          "num chip-sm bg-tag-warning text-tag-warning-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring",
-          className,
-        )}
-      >
-        {t(capped ? "common.lowSampleCapped" : "common.lowSample", { count: fills })}
-      </span>
-    </Tooltip>
-  );
-}
-
 export function FavoriteButton({
   address,
   favorite,

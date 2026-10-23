@@ -13,6 +13,7 @@ import {
   newestId,
   parseActionsQuery,
   readSseStream,
+  sleep,
   SseParser,
   streamQueryString,
   type ActionsParams,
@@ -34,12 +35,6 @@ const SILENCE_MS = 45_000;
 const HEALTHY_MS = 30_000;
 /** How long a newly arrived row stays highlighted. */
 const HIGHLIGHT_MS = 2_500;
-
-const sleep = (ms: number, signal: AbortSignal) =>
-  new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    signal.addEventListener("abort", () => { clearTimeout(timer); resolve(); }, { once: true });
-  });
 
 /** Applies one stream event to every cached first-page /actions list;
  * returns whether this stream's own list gained the row. */

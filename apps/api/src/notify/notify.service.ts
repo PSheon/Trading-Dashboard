@@ -15,7 +15,7 @@ import { renderAlertMessage, renderTestMessage, tradeSideOf } from "./message-te
 import { TelegramApiError, TelegramHttpClient } from "./telegram-http.client.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
 
-export type { AlertContext, AlertRecipient } from "./notify.types.js";
+export type { AlertContext } from "./notify.types.js";
 import { ALERT_MAX_AGE_MS } from '../config/constants/alerts.js';
 import { DELIVERY_DRAIN_BUDGET_MS, NOTIFY_RETRY_DELAYS_MS } from '../config/constants/background.js';
 

@@ -6,7 +6,7 @@
  * the server (the image route reads them), never from the URL, so a card
  * cannot be made to say what the data does not. Pure: no fetching, no JSX.
  */
-import { SHARE_FORMATS, type ShareFormat } from "@/lib/share-card";
+import type { ShareFormat } from "@/lib/share-card";
 
 export type TradeCardStyle = "card" | "poster";
 export const TRADE_CARD_STYLES: Array<{ key: TradeCardStyle; label: string }> = [
@@ -99,10 +99,3 @@ export function cells(d: TradeCardData): Array<[string, string]> {
 export function tradeCardQuery(style: TradeCardStyle, format: ShareFormat): string {
   return `style=${style}&format=${format}`;
 }
-
-export function tradeCardFileName(d: Pick<TradeCardData, "coin" | "closed">, style: TradeCardStyle, format: ShareFormat): string {
-  const coin = d.coin.replace(/[^\w-]+/g, "-").slice(0, 16) || "trade";
-  return `orbie-${coin}-${d.closed ? "trade" : "position"}-${style}-${format}`;
-}
-
-export const tradeCardSize = (format: ShareFormat) => SHARE_FORMATS[format];

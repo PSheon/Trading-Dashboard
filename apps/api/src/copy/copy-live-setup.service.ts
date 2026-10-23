@@ -36,9 +36,6 @@ import { SETUP_LOCAL_BUDGET, SETUP_REST_CAPACITY, SetupSteps, type SetupRestCapa
 export { setupFundingKey, type SetupSigner } from './copy-live-setup-shared.js';
 export { SETUP_LOCAL_BUDGET, SETUP_REST_CAPACITY, type SetupRestCapacity } from './copy-live-setup-steps.js';
 export { SETUP_CLAIM_RENEW_MS } from '../config/constants/hyperliquid.js';
-export { SETUP_CLAIM_LOG_EVERY_MS } from '../config/constants/timings.js';
-export { ALERT_EVERY_MS } from '../config/constants/alerts.js';
-export { AWAITING_CREDIT_ALERT_AFTER_MS } from '../config/constants/alerts.js';
 export { AWAITING_CREDIT_MAX_WAIT_MS } from '../config/constants/timings.js';
 
 const THROTTLED_STAGES: readonly SetupStage[] = ['funded', 'mode_set', 'agent_active'];

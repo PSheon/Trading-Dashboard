@@ -336,16 +336,6 @@ export function usePortfolio(address: string, window: TraderWindow, market: "all
   });
 }
 
-/**
- * A cold address's trade analytics take the api a while (it reads the
- * address's fill history from Hyperliquid): it answers 503 busy until they
- * are stored, and these queries keep asking, with the trader page's
- * backoff, for up to ~10 minutes. The page shows placeholders only for the
- * first few answers (`isComputing`), then its settled look, and fills in
- * when the data arrives.
- */
-export { ANALYTICS_BUSY_RETRIES } from "@/lib/query-policy";
-
 /** Still computing: no data yet, and either the first answer is on its way
  * or the last few were busy. Past `TRADER_RETRIES` busy answers the request
  * goes on in the background but the page no longer waits on it. */

@@ -66,13 +66,6 @@ export function EquityHistory({ data, compact = false }: { data: CopyPerformance
   </div>;
 }
 
-export function CopyEquitySparkline({ strategyId }: { strategyId: number }) {
-  const query = useCopyPerformance(strategyId);
-  const { t } = useI18n();
-  if (!query.data) return <span className="text-xs text-muted-foreground">{query.isError ? (t("copyUpdates.unavailable")) : "—"}</span>;
-  return <EquityHistory data={query.data} compact />;
-}
-
 export function CopyPerformance({ strategyId }: { strategyId: number }) {
   const [window, setWindow] = useState<CopyPerformanceWindow>("7d");
   const query = useCopyPerformance(strategyId, window);

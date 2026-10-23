@@ -16,8 +16,6 @@ import { api } from "@/lib/api";
 import { TraderName } from "@/components/traders/trader-name";
 import { coinLabel, toNumber } from "@/lib/format";
 
-export const ACTION_KINDS: readonly ActionKind[] = ["open", "add", "reduce", "close", "flip", "liquidation"];
-
 const KIND_STYLE: Record<ActionKind, string> = {
   open: "bg-tag-alert text-tag-alert-foreground",
   add: "bg-tag-alert text-tag-alert-foreground",

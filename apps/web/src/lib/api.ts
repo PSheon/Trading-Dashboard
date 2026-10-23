@@ -346,7 +346,3 @@ export const api = {
   patch: <T>(path: string, body?: unknown) => request<T>("PATCH", path, body),
   delete: <T>(path: string, options?: PostOptions) => request<T>("DELETE", path, undefined, undefined, options),
 };
-
-export function isUnauthorized(error: unknown): boolean {
-  return error instanceof ApiError && (error.status === 401 || error.status === 403);
-}

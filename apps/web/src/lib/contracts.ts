@@ -5,7 +5,6 @@ export * from "@trading-dashboard/shared/contracts";
 export type LeaderList = JsonWire<Domain.LeaderList>;
 export type Leader = JsonWire<Domain.Leader>;
 export type Fill = Domain.WireFill;
-export type Action = Domain.WireAction;
 export type AlertEntry = Domain.WireAlert;
 export type ActionFeedItem = Domain.WireAction;
 export type LeaderSummary = JsonWire<Domain.LeaderSummary>;

@@ -1,39 +1,11 @@
 "use client";
 
 import { DataList } from "@/components/ui/data-list";
-
-
-import { useQuery } from "@tanstack/react-query";
 import { cn } from "cn";
-import { OperationalSwitchesPanel } from "./operational-switches";
-import { WorkerHeartbeat } from "./worker-heartbeat";
 import { RETENTION_TABLES } from "@trading-dashboard/shared/contracts";
 import type { AdminSystemOverview } from "@/lib/contracts";
-import { api } from "@/lib/api";
-import { queryKeys } from "@/lib/query-keys";
-import { Panel, PanelSkeleton } from "@/components/page";
+import { Panel } from "@/components/page";
 import { useI18n } from "@/i18n/provider";
-import { Button } from "@/components/ui/button";
-
-export function AdminMonitoring() {
-  const { t, format } = useI18n();
-  const query = useQuery({ queryKey: queryKeys.adminSystem, queryFn: ({ signal }) => api.get<AdminSystemOverview>("/admin/system/overview", signal), refetchInterval: 15_000 });
-  // The worker's one coherent sample (feed, snapshots, budget, archive).
-  const heartbeat = query.data?.worker.sample?.heartbeat;
-  return <section className="space-y-4" aria-labelledby="monitoring-title" aria-busy={query.isFetching}>
-    <div className="flex flex-wrap items-start justify-between gap-4">
-      <div><h2 id="monitoring-title" className="type-h2">{t("monitoring.title")}</h2>
-        <p className="mt-1 text-xs text-muted-foreground">{t("monitoring.hint")}</p>
-        {query.data && <p className="mt-2 text-xs text-muted-foreground">{t("monitoring.sample")} · {format.dateTime(query.data.sampledAt)}</p>}
-      </div>
-      <Button type="button" variant="outline" size="sm" loading={query.isFetching} onClick={() => void query.refetch()}>{t("monitoring.refresh")}</Button>
-    </div>
-    {query.isError && <p role="alert" className="rounded-lg bg-warning/10 p-3 text-sm text-warning">{t(query.data ? "monitoring.cached" : "monitoring.unavailable")}</p>}
-    {query.data ? <MonitoringDetails data={query.data} /> : !query.isError && <PanelSkeleton rows={6} />}
-    {query.data && <OperationalSwitchesPanel api={query.data.api.switches} worker={query.data.worker.sample?.switches} archive={heartbeat?.archive} />}
-    {heartbeat && <WorkerHeartbeat data={heartbeat} />}
-  </section>;
-}
 
 export function MonitoringDetails({ data: d }: { data: AdminSystemOverview }) {
   const { t, format } = useI18n();

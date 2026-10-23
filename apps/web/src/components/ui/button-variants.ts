@@ -1,4 +1,4 @@
-import { cva, type VariantProps } from "class-variance-authority"
+import { cva } from "class-variance-authority"
 
 /**
  * Orbit pill buttons — the C-Styles (v29) token sheet. Three tiers plus the
@@ -42,5 +42,3 @@ export const buttonVariants = cva(
     },
   }
 )
-
-export type ButtonVariantProps = VariantProps<typeof buttonVariants>

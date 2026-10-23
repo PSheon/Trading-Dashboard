@@ -76,8 +76,8 @@ const WINDOWS: TradeWindow[] = ["all", "30d", "7d", "1d"];
 interface Cost {
   calls: number;
   weight: number;
-  /** Budgeter rank of the computation's calls; default `PAGE_RANK.fills`.
-   * The discovery pool passes an unranked value so pages go first. */
+  /** Budgeter rank of the computation's calls; default `RANK` (`PAGE_RANK.analytics`:
+   * after the pages' own calls). The discovery pool passes an unranked value so pages go first. */
   rank?: number;
   /** Who asked: decides whether a durable history job may be created. */
   caller?: HistoryCaller;
@@ -159,7 +159,7 @@ export class TradeAnalyticsService {
     const { watched } = read;
     let { row } = read;
     // A row stored before a window existed is recomputed first.
-    if (!(window in row.summary)) row = await this.compute(address, true, { caller });
+    if (!(window in row.summary)) row = await this.compute(address, { caller });
     const summaries = row.summary as Record<TradeWindow, unknown>;
     return {
       address,
@@ -212,12 +212,12 @@ export class TradeAnalyticsService {
    */
   private async current(address: string, caller: HistoryCaller): Promise<{ row: Stored; watched: boolean }> {
     const row = await this.repository.state(address);
-    if (!row) return { row: await this.compute(address, true, { caller }), watched: false };
+    if (!row) return { row: await this.compute(address, { caller }), watched: false };
     const watched = await this.traders.isTracked(address);
     const age = Date.now() - row.computedAt.getTime();
     // Nobody waits for a stale row's refresh, so it runs unranked, behind
     // every page's own calls (Stage, 2026-10-05).
-    if (age > (watched ? TRACKED_FALLBACK_MS : ANALYTICS_STALE_MS)) this.compute(address, false, { caller, rank: UNRANKED_BASE }).catch(() => undefined);
+    if (age > (watched ? TRACKED_FALLBACK_MS : ANALYTICS_STALE_MS)) this.compute(address, { caller, rank: UNRANKED_BASE }).catch(() => undefined);
     return { row, watched };
   }
 
@@ -246,7 +246,7 @@ export class TradeAnalyticsService {
       try {
         // Tracked rank (behind pages, ahead of pool/history/backfill):
         // unranked they timed out (gap audit 2026-10-05).
-        await this.compute(address, false, { rank: ESSENTIAL_RANK.tracked, funding: false });
+        await this.compute(address, { rank: ESSENTIAL_RANK.tracked, funding: false });
         // Awaited here, so a failed funding read backs the address off like
         // a failed rebuild instead of being retried every minute.
         if (funding) await this.fundingTurn(address);
@@ -273,13 +273,13 @@ export class TradeAnalyticsService {
   @OnEvent("fills.revised")
   onFillsRevised(event: { address: string }): void {
     if (this.jobs.stopping) return;
-    this.compute(event.address, false).catch(() => undefined);
+    this.compute(event.address).catch(() => undefined);
   }
 
   /** One computation per address at a time; callers share it. A joiner with
-   * a better rank promotes the one in flight. `rank` defaults to the trader
-   * page's fills rank; `funding: false` skips the funding step. */
-  compute(address: string, _cold: boolean, options: { rank?: number; funding?: boolean; caller?: HistoryCaller } = {}): Promise<AnalyticsRow> {
+   * a better rank promotes the one in flight. `rank` defaults to `RANK`
+   * (`PAGE_RANK.analytics`); `funding: false` skips the funding step. */
+  compute(address: string, options: { rank?: number; funding?: boolean; caller?: HistoryCaller } = {}): Promise<AnalyticsRow> {
     const { rank, funding = true, caller = "product" } = options;
     const existing = this.inflight.get(address);
     if (existing) {

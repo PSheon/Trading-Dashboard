@@ -7,8 +7,9 @@ import { RoundTripRepository, type ActionRow } from "./round-trip.repository.js"
 export interface RoundTrip {
   address: string;
   coin: string;
-  /** Side of the leg that closed (a flip's closing leg is the side it came
-   * *from*, not the new side it opened into). */
+  /** The position's side, long or short: the opening action's. The round
+   * trip a flip closes keeps the side it came from; the one the flip opens
+   * carries the flip's new side (`actions.side` of a flip is the side after it). */
   side: string;
   openTs: Date;
   closeTs: Date;

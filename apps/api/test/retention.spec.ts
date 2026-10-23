@@ -62,6 +62,20 @@ function lease(id: string, state: "reserved" | "open" | "closing" | "uncertain" 
 }
 
 describe("data retention", () => {
+  it("deletes sent alerts oldest first, like every other table, so a capped batch never leaves the oldest behind", async () => {
+    const { repository } = setup();
+    const user = await insertUser(db, { privyUserId: "did:privy:alerts-order" });
+    const oldest = await action(ago(50)), older = await action(ago(45)), old = await action(ago(40));
+    await db.insert(alerts).values([
+      { userId: user.id, address, coin: "BTC", actionId: old, payloadJson: {}, sentAt: ago(40), sendStatus: "sent" },
+      { userId: user.id, address, coin: "BTC", actionId: oldest, payloadJson: {}, sentAt: ago(50), sendStatus: "sent" },
+      { userId: user.id, address, coin: "BTC", actionId: older, payloadJson: {}, sentAt: ago(45), sendStatus: "sent" },
+    ]);
+    expect(await repository.deleteBatch("alerts", ago(30), 1, NOW)).toBe(1);
+    expect((await db.select().from(alerts)).map((r) => String(r.actionId)).sort((a, b) => a.localeCompare(b))).toEqual([String(older), String(old)].sort((a, b) => a.localeCompare(b)));
+    expect(await repository.deleteBatch("alerts", ago(30), 1, NOW)).toBe(1);
+    expect((await db.select().from(alerts)).map((r) => r.actionId)).toEqual([old]);
+  });
   it("has the periods the privacy policy states as defaults", () => {
     expect(RETENTION_DEFAULTS).toEqual({ enabled: true, snapshotDays: 90, auditDays: 365, accountDeletionDays: 365, queueDays: 30, alertDays: 30,
       copyEquityFullDays: 31, cohortMemberListDays: 30, followerObservationDays: 7, historyFillDays: 90 });

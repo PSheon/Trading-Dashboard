@@ -5,7 +5,7 @@ import { DRIZZLE_CLIENT } from '../db/db.constants.js';
 import type { DrizzleDb } from '../db/drizzle.provider.js';
 import type { DbTransaction } from '../db/unit-of-work.js';
 import type { LiveSourceReadResult } from './copy-live-source.client.js';
-import { decodeLiveSourceFill, InvalidLiveSourceEvidence, liveSourceDigest, reconcileLiveSourceFills, type LiveSourceNetwork } from './live/copy-live-source-evidence.js';
+import { decodeLiveSourceFill, InvalidLiveSourceEvidence, liveSourceDigest, reconcileLiveSourceFills, SOURCE_PAGE_ROWS, SOURCE_SATURATION_ROWS, type LiveSourceNetwork } from './live/copy-live-source-evidence.js';
 import { address, LiveBoundaryError } from './live/wallet-authorization.js';
 import { liveEvidenceMaxAgeMs } from '../config/live-evidence-window.js';
 type LiveSourceStream = typeof copyLiveSourceStreams.$inferSelect;
@@ -59,11 +59,11 @@ export class CopyLiveSourceRepository {
         invalid('window_range', { ...at, resultFrom: result.from, resultTo: result.to });
       if (window.observedAt < result.observedAt || window.completedAt < window.observedAt || window.completedAt > result.completedAt)
         invalid('window_time', { ...at, resultObservedAt: result.observedAt, resultCompletedAt: result.completedAt });
-      if (window.count < 0 || window.count > 2000 || window.saturated !== (window.count >= 500 && window.sealed !== true))
+      if (window.count < 0 || window.count > SOURCE_PAGE_ROWS || window.saturated !== (window.count >= SOURCE_SATURATION_ROWS && window.sealed !== true))
         invalid('window_count', { ...at, saturated: window.saturated, sealed: window.sealed ?? null });
       if (!/^[a-f0-9]{64}$/.test(window.responseDigest)) invalid('window_digest', at);
       // Only a single millisecond read whole, under the provider's page cap, is sealed.
-      if (window.sealed !== undefined && (window.sealed !== true || window.from !== window.to || window.count < 500 || window.count >= 2000))
+      if (window.sealed !== undefined && (window.sealed !== true || window.from !== window.to || window.count < SOURCE_SATURATION_ROWS || window.count >= SOURCE_PAGE_ROWS))
         invalid('window_sealed', { ...at, sealed: window.sealed });
     });
     const kinds = result.kinds ?? ['fills', 'twap'];

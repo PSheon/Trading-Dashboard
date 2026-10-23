@@ -57,6 +57,8 @@ async function bootstrap(): Promise<void> {
   // (validateEnvironment already refused a testnet window on mainnet).
   registerLiveEvidenceWindow(config.hyperliquid.wallet.network, config.copy.testnetEvidenceMaxAgeMs);
   const logger = redactingLogger(config);
+  // What validateEnvironment accepted but ignores (a read worker's Privy variables).
+  for (const warning of config.warnings) logger.warn(warning);
   installProcessGuards(logger);
   if (config.app.isWorker) {
     const { startWorker } = await import("./bootstrap/worker.bootstrap.js");

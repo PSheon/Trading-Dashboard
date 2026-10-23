@@ -30,12 +30,14 @@ export class TradersWorker implements OnApplicationBootstrap {
     return budgetConsumer("history", async () => {
       const address = await this.history.tick();
       // Publish a completed archive through the existing serialized analytics path.
-      if (address) await this.analytics.compute(address, false, { rank: UNRANKED_BASE, funding: false }).catch(() => undefined);
+      if (address) await this.analytics.compute(address, { rank: UNRANKED_BASE, funding: false }).catch(() => undefined);
     });
   }
   @Cron(CronExpression.EVERY_MINUTE) ingestTick() { return this.ingest.onTick(); }
-  /** Watched traders' trade analytics, kept within STALE_MS of their fills
-   * (nothing else refreshes them: a page read only serves the stored row). */
+  /** Watched traders' trade analytics, kept within STALE_MS of their fills.
+   * A page read serves the stored row and leaves a stale one to this tick,
+   * unless the row is older than TRACKED_FALLBACK_MS (no worker kept it
+   * fresh): then `TradeAnalyticsService.current()` refreshes it itself, unranked. */
   @Cron(CronExpression.EVERY_MINUTE) trackedTick() {
     return budgetConsumer("tracked", () => this.analytics.refreshTracked(), { queueMs: 2 * 60_000 }).catch((error: Error) => this.logger.warn(`Tracked analytics turn failed: ${safeErrorText(error)}`));
   }

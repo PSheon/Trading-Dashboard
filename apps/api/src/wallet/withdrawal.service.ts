@@ -18,7 +18,12 @@ import type { HlLedgerUpdate } from "../hyperliquid/types.js";
 import { safeErrorText } from "../runtime/safe-error-text.js";
 import { BUSY_RETRY_AFTER_MS } from '../config/constants/http.js';
 
-/** A ledger page of this many updates may have more after it. */
+/** A ledger page of this many updates may have more after it. A floor under
+ * Hyperliquid's 2,000-row list cap (`LEDGER_MAX_ITEMS`), kept low on purpose:
+ * no measurement of `userNonFundingLedgerUpdates`' own cap is on record (docs/
+ * http-contract.md assumes the 2,000 of the fill lists), and a batch at or above
+ * the floor only costs one more read, never a missed row. Raise it to the cap
+ * only with a measured page size. */
 const LEDGER_PAGE = 500;
 /** Pages read before an operator resolution gives up (too much activity to prove absence). */
 const LEDGER_MAX_PAGES = 20;

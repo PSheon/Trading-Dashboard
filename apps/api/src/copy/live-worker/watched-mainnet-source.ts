@@ -3,14 +3,13 @@ import { fillCoverage, fills } from '@trading-dashboard/shared/database';
 import { CHAIN_DEFAULT } from '@trading-dashboard/shared/contracts';
 import type { DbExecutor } from '../../db/unit-of-work.js';
 import type { LiveSourceReadResult } from '../copy-live-source.client.js';
-import { liveSourceDigest, parseLiveSourceFill, presumedTwapSlice, type LiveSourceFillEvidence } from '../live/copy-live-source-evidence.js';
+import { liveSourceDigest, parseLiveSourceFill, presumedTwapSlice, SOURCE_PAGE_ROWS, SOURCE_SATURATION_ROWS, type LiveSourceFillEvidence } from '../live/copy-live-source-evidence.js';
 import { address, LiveBoundaryError } from '../live/wallet-authorization.js';
 import { liveEvidenceMaxAgeMs } from '../../config/live-evidence-window.js';
 
-/** Rows per window; a fuller window stops one millisecond before its last row. */
+/** Rows per window, under SOURCE_SATURATION_ROWS so a complete window is never
+ * saturated; a fuller window stops one millisecond before its last row. */
 const WATCHED_WINDOW_ROWS = 400;
-/** Rows one window's observation may hold (the source evidence contract). */
-const MILLISECOND_ROWS = 2000;
 
 /**
  * Mainnet leader fills from the watcher's REST-confirmed `fills` table, with no
@@ -43,9 +42,10 @@ export class WatchedMainnetSource {
         // A full window all at `from`: read that millisecond whole as its own
         // window, or the stream could never pass it.
         through = from;
-        rows = await span(from, MILLISECOND_ROWS);
-        if (rows.length >= MILLISECOND_ROWS) return this.unreadable(leaderAddress, from, observedAt, rows);
-        sealed = rows.length >= 500;
+        rows = await span(from, SOURCE_PAGE_ROWS);
+        if (rows.length >= SOURCE_PAGE_ROWS) return this.unreadable(leaderAddress, from, observedAt, rows);
+        // At the contract's saturation threshold the window must say it was read whole.
+        sealed = rows.length >= SOURCE_SATURATION_ROWS;
       }
     }
     const receivedAt = this.now(), parsed = new Map<string, LiveSourceFillEvidence>();

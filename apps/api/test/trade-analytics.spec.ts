@@ -221,7 +221,7 @@ describe("trade analytics for any address", () => {
   });
 
   it("pages the round-trip ledger newest first with status filters, through the wire contract", async () => {
-    await service.compute(X, true);
+    await service.compute(X);
     const first = await get(`/traders/${X}/trades?limit=2`).set("x-api-contract", "1").expect(200);
     const parsed = wireTraderTradesSchema.safeParse(first.body.data);
     expect(parsed.success, parsed.success ? "" : parsed.error.message).toBe(true);
@@ -239,7 +239,7 @@ describe("trade analytics for any address", () => {
 
   it("refreshes incrementally: only fills after the cursor, continuing open trades", async () => {
     const clock = vi.spyOn(Date, "now").mockReturnValue(T(3));
-    try { await service.compute(X, true); await service.settled(); }
+    try { await service.compute(X); await service.settled(); }
     finally { clock.mockRestore(); }
     const [state] = await db.select().from(traderAnalytics);
     const cursor = state.fillCursor!.getTime();
@@ -272,7 +272,7 @@ describe("trade analytics for any address", () => {
 
   it("refreshes a stale row behind every page call: nobody waits for it (Stage, 2026-10-05)", async () => {
     const clock = vi.spyOn(Date, "now").mockReturnValue(T(3));
-    try { await service.compute(X, true); await service.settled(); }
+    try { await service.compute(X); await service.settled(); }
     finally { clock.mockRestore(); }
     history.push(fill("SOL", 5, -5, 12, T(1), { closedPnl: "10" }));
     info.userFillsByTime.mockClear();
@@ -291,7 +291,7 @@ describe("trade analytics for any address", () => {
       fetchedAt: new Date().toISOString(), perpEquity: null, positions: [],
       dataQuality: { partial: true },
     } });
-    await service.compute(X, true);
+    await service.compute(X);
     const res = await get(`/traders/${X}/trades?status=open`).expect(200);
     expect(res.body.data.items.map((t: { coin: string }) => t.coin)).toContain("SOL");
     expect((await get(`/traders/${X}/analytics`)).body.data.classification.perpAccountValue).toBe(2500000);
@@ -302,7 +302,7 @@ describe("trade analytics for any address", () => {
       fetchedAt: new Date().toISOString(), perpEquity: 2500000, positions: [],
     } });
     info.clearinghouseState.mockImplementationOnce(async () => ({ time: T(20), marginSummary: { accountValue: "1250000" }, assetPositions: [] }));
-    await service.compute(X, true);
+    await service.compute(X);
     expect((await get(`/traders/${X}/trades?status=open`)).body.data.items).toHaveLength(1);
   });
 
@@ -316,7 +316,7 @@ describe("trade analytics for any address", () => {
       await expect(service.refresh(X)).rejects.toThrow("checkpoint failed");
       expect(await repository.allTrades(X)).toEqual(before);
     } finally { save.mockRestore(); }
-    await service.compute(X, false);
+    await service.compute(X);
     expect((await get(`/traders/${X}/analytics`)).body.data.summary.trades).toBe(3);
   });
 
@@ -324,7 +324,7 @@ describe("trade analytics for any address", () => {
     let release!: () => void;
     latestGate = new Promise<void>(resolve => { release = resolve; });
     const work = Array.from({ length: MAX_CONCURRENT + MAX_WAITING + 3 }, (_, i) =>
-      service.compute(`0x${i.toString(16).padStart(40, "0")}`, false).then(() => "ok", () => "busy"));
+      service.compute(`0x${i.toString(16).padStart(40, "0")}`).then(() => "ok", () => "busy"));
     try {
       await new Promise(resolve => setImmediate(resolve));
       const early = await Promise.race([work.at(-1)!, Promise.resolve("pending")]);
@@ -391,7 +391,7 @@ describe("trade analytics for any address", () => {
 
   it("drops an open trade the account no longer holds (closed by fills we can't read)", async () => {
     livePositions = [];
-    await service.compute(X, true);
+    await service.compute(X);
     const res = await get(`/traders/${X}/trades?status=open`).expect(200);
     expect(res.body.data.items).toEqual([]);
     expect((await get(`/traders/${X}/analytics`)).body.data.summary).toMatchObject({ trades: 2, openTrades: 0 });
@@ -399,7 +399,7 @@ describe("trade analytics for any address", () => {
 
   it("marks coverage truncated when history starts mid-position, and counts the partial trade", async () => {
     history.unshift(fill("DOGE", 100, -100, 0.1, T(60), { closedPnl: "3" }));
-    await service.compute(X, true);
+    await service.compute(X);
     const res = await get(`/traders/${X}/analytics`).expect(200);
     expect(res.body.data.coverage).toMatchObject({ truncated: true, fills: 7 });
     expect(res.body.data.summary).toMatchObject({ trades: 3, wins: 2 });
@@ -416,7 +416,7 @@ describe("trade analytics for any address", () => {
       ["allTime", { accountValueHistory: [[T(1000), "0"], [NOW, "6000000"]], pnlHistory: [[T(1000), "0"], [NOW, "2000000"]], vlm: "0" }],
       ["perpAllTime", { accountValueHistory: [[T(1000), "0"], [NOW, "2500000"]], pnlHistory: [[T(1000), "0"], [NOW, "500000"]], vlm: "0" }],
     ] as never);
-    await service.compute(X, true);
+    await service.compute(X);
     const res = await get(`/traders/${X}/analytics`).expect(200);
     expect(res.body.data.classification).toMatchObject({
       allTimePnl: 500_000, pnlTier: "very_profitable",
@@ -426,19 +426,19 @@ describe("trade analytics for any address", () => {
     await service.settled();
     await db.execute(sql`update trader_analytics set computed_at = now() - interval '1 hour'`);
     traders.profileCache.peek.mockReturnValue({ value: { accountValue: 50_000 } });
-    await service.compute(X, false);
+    await service.compute(X);
     expect((await get(`/traders/${X}/analytics`)).body.data.classification).toMatchObject({ accountValue: 50_000, sizeTier: "medium" });
   });
 
   it("a failed portfolio or account read keeps the stored tiers instead of writing null over them (0x469e, gap audit 2026-10-05)", async () => {
-    await service.compute(X, true);
+    await service.compute(X);
     await service.settled();
     const before = (await get(`/traders/${X}/analytics`)).body.data.classification;
     expect(before).toMatchObject({ pnlTier: expect.any(String), sizeTier: expect.any(String), perpAccountValue: 2_500_000 });
     await db.execute(sql`update trader_analytics set computed_at = now() - interval '1 hour'`);
     traders.rawPortfolio.mockRejectedValueOnce(new Error("portfolio 429"));
     info.clearinghouseState.mockRejectedValueOnce(new Error("clearinghouse 500"));
-    await service.compute(X, false);
+    await service.compute(X);
     await service.settled();
     const after = (await get(`/traders/${X}/analytics`)).body.data.classification;
     expect(after).toMatchObject({ pnlTier: before.pnlTier, sizeTier: before.sizeTier, allTimePnl: before.allTimePnl, accountValue: before.accountValue, perpAccountValue: before.perpAccountValue });
@@ -449,7 +449,7 @@ describe("trade analytics for any address", () => {
     await db.insert(fills).values(history.map((f) => toFillRow(TRACKED, f)));
     // The watcher has verified the whole stored range and finished its backfill.
     await db.insert(fillCoverage).values({ address: TRACKED, verifiedFrom: new Date(T(60)), verifiedThrough: new Date(NOW), backfillFloor: new Date(T(60)), backfillStatus: "complete" });
-    await service.compute(TRACKED, true);
+    await service.compute(TRACKED);
     expect(info.userFillsByTime).not.toHaveBeenCalled();
     expect(traders.latestFills).not.toHaveBeenCalled();
     const res = await get(`/traders/${TRACKED}/analytics`).expect(200);
@@ -460,7 +460,7 @@ describe("trade analytics for any address", () => {
     // A rebuild keeps the same trades.
     await waitFor(async () => (await db.select().from(traderAnalytics))[0]?.fundingCursor != null);
     await db.execute(sql`update trader_analytics set computed_at = now() - interval '1 hour'`);
-    await service.compute(TRACKED, false);
+    await service.compute(TRACKED);
     expect(await db.select().from(traderTrades).where(eq(traderTrades.address, TRACKED))).toHaveLength(3);
   });
   it("a watched address nobody views is refreshed by the worker; a read only serves the stored row", async () => {
@@ -468,7 +468,7 @@ describe("trade analytics for any address", () => {
     await db.insert(leaders).values({ address: TRACKED });
     await db.insert(fills).values(history.map((f) => toFillRow(TRACKED, f)));
     await db.insert(fillCoverage).values({ address: TRACKED, verifiedFrom: new Date(T(60)), verifiedThrough: new Date(NOW), backfillFloor: new Date(T(60)), backfillStatus: "complete" });
-    await service.compute(TRACKED, true);
+    await service.compute(TRACKED);
     await service.settled();
     // 15 minutes later, nobody has opened the page: stale, and the worker's to refresh (audit A2).
     await db.execute(sql`update trader_analytics set computed_at = now() - interval '15 minutes'`);
@@ -504,7 +504,7 @@ describe("trade analytics for any address", () => {
       await db.insert(leaders).values({ address: TRACKED });
       await db.insert(fills).values(history.map((f) => toFillRow(TRACKED, f)));
       await db.insert(fillCoverage).values({ address: TRACKED, verifiedFrom: new Date(T(60)), verifiedThrough: new Date(NOW), backfillFloor: new Date(T(60)), backfillStatus: "complete" });
-      await service.compute(TRACKED, true);
+      await service.compute(TRACKED);
       await service.settled();
       // Just inside the fallback age: still left to the worker.
       await db.execute(sql`update trader_analytics set computed_at = now() - ${TRACKED_FALLBACK_MS - 60_000} * interval '1 millisecond'`);
@@ -525,7 +525,7 @@ describe("trade analytics for any address", () => {
   });
 
   it("an untracked address's stale read still refreshes it in the background", async () => {
-    await service.compute(X, true);
+    await service.compute(X);
     await service.settled();
     await db.execute(sql`update trader_analytics set computed_at = now() - interval '1 hour'`);
     const before = (await db.select().from(traderAnalytics))[0].computedAt;
@@ -580,7 +580,7 @@ describe("trade analytics for any address", () => {
     // The account still holds what the tail fill opened.
     livePositions = [["ETH", "2"]];
 
-    await production.compute(X, true, { funding: false });
+    await production.compute(X, { funding: false });
     await production.settled();
     // No cold read (range windows back from now) and no page before the
     // span: one REST range, from the end of the certified span.
@@ -623,7 +623,7 @@ describe("trade analytics for any address", () => {
     await new HistoryFillStore(db).insert([{ address: TRACKED, source: "regular", origin: "s3", fill: opening }]);
     const archive = new AnalysisHistoryService(new AnalysisHistoryRepository(db), info as unknown as HyperliquidInfoClient);
     const production = new TradeAnalyticsService(new TradeAnalyticsRepository(db), traders as unknown as TradersService, info as unknown as HyperliquidInfoClient, undefined, archive);
-    await production.compute(TRACKED, true, { funding: false });
+    await production.compute(TRACKED, { funding: false });
     await production.settled();
     const result = await production.analytics(TRACKED, "all");
     // Whole trade, opened from flat: not partial, hence complete.
@@ -650,7 +650,7 @@ describe("trade analytics for any address", () => {
     const archive = new AnalysisHistoryService(archiveRepository, info as unknown as HyperliquidInfoClient);
     const pages = vi.spyOn(archive, "archivedFillPages");
     const production = new TradeAnalyticsService(new TradeAnalyticsRepository(db), traders as unknown as TradersService, info as unknown as HyperliquidInfoClient, undefined, archive);
-    await production.compute(TRACKED, true, { funding: false });
+    await production.compute(TRACKED, { funding: false });
     const result = await production.analytics(TRACKED, "all");
     expect(result.summary).toMatchObject({ trades: 1, wins: 1 });
     expect(result.coverage).toMatchObject({ source: "tracked", fills: 7, truncated: false, from: new Date(opening.time) });
@@ -666,7 +666,7 @@ describe("trade analytics for any address", () => {
     expect(walked.every((page) => page.length <= 2 || new Set(page.map((tid) => [opening, ...adds, twin].find((f) => f.tid === tid)!.time)).size === 1)).toBe(true);
     // The next refresh at the same depth does not walk the archive again.
     await db.execute(sql`update trader_analytics set computed_at = now() - interval '11 minutes'`);
-    await production.compute(TRACKED, false, { funding: false });
+    await production.compute(TRACKED, { funding: false });
     expect(pages).toHaveBeenCalledTimes(1);
     tracked.delete(TRACKED);
   });
@@ -677,13 +677,13 @@ describe("trade analytics for any address", () => {
     const archiveRepository = new AnalysisHistoryRepository(db);
     const archive = new AnalysisHistoryService(archiveRepository, info as unknown as HyperliquidInfoClient);
     const production = new TradeAnalyticsService(new TradeAnalyticsRepository(db), traders as unknown as TradersService, info as unknown as HyperliquidInfoClient, undefined, archive);
-    await production.compute(X, true, { funding: false });
+    await production.compute(X, { funding: false });
     await production.settled();
     const prior = await new TradeAnalyticsRepository(db).allTrades(X);
     expect(prior[0].openTid).toBeLessThan(0n);
     history.unshift(fill("BTC", 0, 1, 100, T(20)));
     await archive.advance((await archiveRepository.state(X))!);
-    await production.compute(X, false, { funding: false });
+    await production.compute(X, { funding: false });
     await production.settled();
     const result = await production.analytics(X, "all");
     expect(result.coverage).toMatchObject({ truncated: true, backfill: { status: "caught_up", retentionLimited: true } });
@@ -705,7 +705,7 @@ describe("trade analytics for any address", () => {
     history.push(fill("BTC", 1, -1, 110, T(2), { closedPnl: "10" }));
     livePositions = [];
     const production = new TradeAnalyticsService(new TradeAnalyticsRepository(db), traders as unknown as TradersService, info as unknown as HyperliquidInfoClient, undefined, archive);
-    await production.compute(X, true, { funding: false });
+    await production.compute(X, { funding: false });
     await production.settled();
     const trades = await production.trades(X, { status: "all", limit: 20 });
     expect(trades.coverage.through?.getTime()).toBe(T(10));
@@ -721,7 +721,7 @@ describe("trade analytics for any address", () => {
     const production = new TradeAnalyticsService(new TradeAnalyticsRepository(db), traders as unknown as TradersService, info as unknown as HyperliquidInfoClient, undefined, archive);
     await archiveRepository.ensure(X);
     await archive.advance((await archiveRepository.state(X))!);
-    await production.compute(X, true, { funding: false });
+    await production.compute(X, { funding: false });
     await production.settled();
     const btc = BigInt(history[0].tid);
     expect((await new TradeAnalyticsRepository(db).allTrades(X)).map((t) => t.openTid)).toContain(btc);
@@ -735,7 +735,7 @@ describe("trade analytics for any address", () => {
     history.push(fill("SOL", 5, -5, 12, Date.now(), { closedPnl: "10" }));
     livePositions = [];
     await archive.advance((await archiveRepository.state(X))!);
-    await production.compute(X, false, { funding: false });
+    await production.compute(X, { funding: false });
     await production.settled();
 
     const trades = await new TradeAnalyticsRepository(db).allTrades(X);
@@ -760,7 +760,7 @@ describe("trade analytics for any address", () => {
     await new HistoryFillStore(db).insert([{ address: TRACKED, source: "regular", origin: "s3", fill: opening }]);
     const archive = new AnalysisHistoryService(new AnalysisHistoryRepository(db), info as unknown as HyperliquidInfoClient);
     const production = new TradeAnalyticsService(new TradeAnalyticsRepository(db), traders as unknown as TradersService, info as unknown as HyperliquidInfoClient, undefined, archive);
-    await production.compute(TRACKED, true, { funding: false });
+    await production.compute(TRACKED, { funding: false });
     await production.settled();
     expect(production.lastLog.get(TRACKED)!.at(-1)).toMatchObject({ kind: "tracked", fills: 2 });
 
@@ -771,7 +771,7 @@ describe("trade analytics for any address", () => {
     expect(await storedFills(db, TRACKED)).toEqual([]);
     const closing = fill("BTC", 1, -1, 125, T(1), { closedPnl: "25" });
     await db.insert(fills).values(toFillRow(TRACKED, closing));
-    await production.compute(TRACKED, false, { funding: false });
+    await production.compute(TRACKED, { funding: false });
     await production.settled();
 
     // Extended (the one new fill), not rebuilt from the cut: the trade keeps its opening.

@@ -12,6 +12,7 @@ import { CopyWalletService } from './copy-wallet.service.js';
 import { safeErrorText } from '../runtime/safe-error-text.js';
 import { LeaderActivityService } from '../traders/leader-activity.service.js';
 import { digest, Fail, refuse, SetupPart, setupFundingKey, Wait, type SetupContext } from './copy-live-setup-shared.js';
+import { SETUP_DEPOSIT_NONCE_REFRESH_MS } from '../config/constants/timings.js';
 
 /** What a setup prepares before consent (wallet, agent, deposit reservation, worker policy) and the
  * consent challenge itself, for a start or an edit. */
@@ -88,8 +89,9 @@ export class SetupProvisioning extends SetupPart {
       if (deposit && (deposit.status !== 'prepared' || deposit.attemptedAt)) {
         if (deposit.status === 'cancelled') deposit = null; else throw new Fail('setup_funding_rejected');
       }
-      // A reserved deposit's nonce stays valid for two days: reserve a new one before that.
-      if (deposit && this.now() - deposit.nonce > 86_400_000) { await this.fundingRows.cancel(userId, deposit.id); deposit = null; }
+      // A reserved deposit's nonce executes for FUNDING_NONCE_EXPIRY_MS (two days): a day in,
+      // reserve a new one, so what the owner signs always has a day left (the margin is intentional).
+      if (deposit && this.now() - deposit.nonce > SETUP_DEPOSIT_NONCE_REFRESH_MS) { await this.fundingRows.cancel(userId, deposit.id); deposit = null; }
       if (!deposit) {
         const reserved = await this.funding.reserve(userId, row.accountId!, { idempotencyKey: setupFundingKey(row), amount: row.budgetUsd }, { liveSetupId: row.id });
         deposit = await this.fundingRows.find(userId, reserved.id);

@@ -95,7 +95,7 @@ async function repairFills(options: RepairOptions) {
       for (let attempt = 0; ; attempt++) {
         await analytics.settled();
         try {
-          return await analytics.compute(address, false, { rank: UNRANKED_BASE });
+          return await analytics.compute(address, { rank: UNRANKED_BASE });
         } catch (error) {
           if (attempt >= 3) throw error;
         }

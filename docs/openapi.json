@@ -36153,7 +36153,7 @@
     },
     "/me/copy/funding": {
       "get": {
-        "description": "Testnet setup only; does not activate paper or live strategies.\n\nAccess: user (owner)",
+        "description": "Deposits into a copy's execution account on the deployment's network (COPY_TRADING_MODE testnet or live); does not activate paper strategies.\n\nAccess: user (owner)",
         "operationId": "CopyFundingController_overview",
         "parameters": [],
         "responses": {
@@ -36364,7 +36364,7 @@
     },
     "/me/copy/execution-wallets/{id}/funding": {
       "post": {
-        "description": "Destination is the verified user-owned execution account. No funds are moved by reservation.\n\nAccess: user (owner); testnet; verified execution account\n\nError codes: funding_pending",
+        "description": "Destination is the verified user-owned execution account on the deployment's network. No funds are moved by reservation.\n\nAccess: user (owner); live copy on the deployment's network (COPY_TRADING_MODE testnet or live); verified execution account\n\nError codes: funding_pending",
         "operationId": "CopyFundingController_reserve",
         "parameters": [
           {
@@ -36557,7 +36557,7 @@
             }
           }
         },
-        "summary": "Reserve testnet strategy funding",
+        "summary": "Reserve strategy funding",
         "tags": [
           "CopyFunding"
         ],

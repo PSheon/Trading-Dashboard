@@ -158,6 +158,40 @@ describe("startup environment", () => {
     });
   });
 
+  describe("the Privy variables belong to the roles that sign (the api, worker-copy); worker-read never signs", () => {
+    const key = generateKeyPairSync("ec", { namedCurve: "prime256v1" }).privateKey.export({ format: "der", type: "pkcs8" }).toString("base64");
+    const privy = { PRIVY_APP_ID: "app", PRIVY_APP_SECRET: "secret", PRIVY_AGENT_AUTHORIZATION_KEY: key, PRIVY_AGENT_WORKER_QUORUM_ID: "worker" };
+    const liveWorker = { ...base, COPY_TRADING_MODE: "live", HYPERLIQUID_NETWORK: "mainnet", HYPERLIQUID_EGRESS_KEY: "shared-egress", COPY_LIVE_ALLOWED_PRIVY_USER_IDS: "did:privy:paul", IS_WORKER: "true" };
+    it("worker-read starts without them, live mode and all, with no agent and no Privy app", () => {
+      const config = validateEnvironment({ ...liveWorker, WORKER_ROLE: "read" });
+      expect(config.copy.mode).toBe("live");
+      expect(config.copy.live?.network).toBe("mainnet");
+      expect(config.copy.agent).toBeUndefined();
+      expect(config.auth.appId).toBeUndefined();
+      expect(config.auth.appSecret).toBeUndefined();
+      expect(config.warnings).toEqual([]);
+    });
+    it("worker-read given them ignores them, with one warning naming the variables", () => {
+      const config = validateEnvironment({ ...liveWorker, WORKER_ROLE: "read", ...privy, PRIVY_VERIFICATION_KEY: "not-a-key" });
+      expect(config.copy.agent).toBeUndefined();
+      expect(config.auth).toMatchObject({ appId: undefined, appSecret: undefined, verificationKey: undefined });
+      expect(config.warnings).toEqual([expect.stringMatching(/^WORKER_ROLE=read never signs.*PRIVY_APP_ID, PRIVY_APP_SECRET, PRIVY_VERIFICATION_KEY, PRIVY_AGENT_AUTHORIZATION_KEY, PRIVY_AGENT_WORKER_QUORUM_ID/)]);
+      // Only the variables actually set are named.
+      expect(validateEnvironment({ ...liveWorker, WORKER_ROLE: "read", PRIVY_APP_ID: "app", PRIVY_APP_SECRET: "secret" }).warnings).toEqual([expect.stringMatching(/: PRIVY_APP_ID, PRIVY_APP_SECRET set but ignored/)]);
+      // The warning never carries a value.
+      expect(JSON.stringify(validateEnvironment({ ...liveWorker, WORKER_ROLE: "read", ...privy }).warnings)).not.toContain(key);
+    });
+    it("worker-copy, the single worker and the api refuse to start without them, and carry them when set", () => {
+      for (const process of [{ WORKER_ROLE: "copy" }, {}, { IS_WORKER: undefined }]) {
+        expect(() => validateEnvironment({ ...liveWorker, ...process })).toThrow("COPY_TRADING_MODE=live requires PRIVY_AGENT_AUTHORIZATION_KEY and PRIVY_AGENT_WORKER_QUORUM_ID");
+        const config = validateEnvironment({ ...liveWorker, ...process, ...privy });
+        expect(config.copy.agent?.workerQuorumId).toBe("worker");
+        expect(config.auth.appId).toBe("app");
+        expect(config.warnings).toEqual([]);
+      }
+    });
+  });
+
   it("requires a database explicitly", () => {
     expect(() => validateEnvironment({})).toThrow("DATABASE_URL");
   });

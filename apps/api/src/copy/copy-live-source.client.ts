@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { safeNonnegativeIntSchema } from '@trading-dashboard/shared/contracts';
-import { parseLiveSourceFill, liveSourceDigest, presumedTwapSlice, reconcileLiveSourceFills, type LiveSourceFillEvidence, type LiveSourceNetwork } from './live/copy-live-source-evidence.js';
+import { parseLiveSourceFill, liveSourceDigest, presumedTwapSlice, reconcileLiveSourceFills, SOURCE_PAGE_ROWS, SOURCE_SATURATION_ROWS, type LiveSourceFillEvidence, type LiveSourceNetwork } from './live/copy-live-source-evidence.js';
 import { address, LiveBoundaryError } from './live/wallet-authorization.js';
 import { boundedLiveRead } from './live/live-market-resolver.js';
 import { settleListAnswer } from '../hyperliquid/hyperliquid-global-transport.js';
@@ -28,7 +28,7 @@ const requestSchema = z.object({ leaderAddress: z.string(), from: integer, to: i
   maxRequests: z.number().int().min(1).max(64), maxDepth: z.number().int().min(0).max(48).default(24),
   maxFills: z.number().int().min(1).max(10000).default(10000),
 }).strict();
-const ROW_CAP = 2000, POSSIBLE_CAP = 500, BODY_CAP = 2 * 1024 * 1024;
+const ROW_CAP = SOURCE_PAGE_ROWS, POSSIBLE_CAP = SOURCE_SATURATION_ROWS, BODY_CAP = 2 * 1024 * 1024;
 const listWeight = (rows: number) => Math.min(SOURCE_READ_WORST_WEIGHT, 20 + Math.ceil(rows / 20));
 function fail(code: string): never { throw new LiveBoundaryError(code); }
 async function json(response: Response, remaining: () => number, signal: AbortSignal) {

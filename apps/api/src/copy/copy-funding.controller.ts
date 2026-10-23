@@ -11,9 +11,9 @@ import { CopyFundingService } from "./copy-funding.service.js";
 @UseFilters(BusyFilter)
 export class CopyFundingController {
   constructor(private readonly funding: CopyFundingService) {}
-  @Get("funding") @Header("Cache-Control", "no-store") @ApiDoc("List my durable strategy funding operations", "Testnet setup only; does not activate paper or live strategies.")
+  @Get("funding") @Header("Cache-Control", "no-store") @ApiDoc("List my durable strategy funding operations", "Deposits into a copy's execution account on the deployment's network (COPY_TRADING_MODE testnet or live); does not activate paper strategies.")
   overview(@CurrentUser() user: RequestUser | null) { return this.funding.overview(requireUserId(user)); }
-  @Post("execution-wallets/:id/funding") @HttpCode(200) @Header("Cache-Control", "no-store") @ApiDoc("Reserve testnet strategy funding", "Destination is the verified user-owned execution account. No funds are moved by reservation.")
+  @Post("execution-wallets/:id/funding") @HttpCode(200) @Header("Cache-Control", "no-store") @ApiDoc("Reserve strategy funding", "Destination is the verified user-owned execution account on the deployment's network. No funds are moved by reservation.")
   reserve(@CurrentUser() user: RequestUser | null, @Param() params: CopyWalletIdDto, @Body() body: CopyFundingInputDto) { return this.funding.reserve(requireUserId(user), params.id, body); }
   @Post("funding/:id/broadcast") @HttpCode(200) @Header("Cache-Control", "no-store") @ApiDoc("Claim one funding submission permission")
   claim(@CurrentUser() user: RequestUser | null, @Param() params: CopyFundingIdDto) { return this.funding.claim(requireUserId(user), params.id); }

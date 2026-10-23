@@ -11,7 +11,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import type { AuthService } from "../src/common/auth/auth.service.js";
 
 import type { SettingsService } from "../src/settings/settings.service.js";
-import { CurrentUser, Roles, type RequestUser } from "../src/common/auth/current-user.js";
+import { CurrentUser, type RequestUser } from "../src/common/auth/current-user.js";
 import { profileFromLinkedAccounts, SdkPrivyVerifier } from "../src/common/auth/privy-verifier.js";
 import { Public } from "../src/common/auth/public.decorator.js";
 import { RulesSeedService } from "../src/rules/rules-seed.service.js";
@@ -40,21 +40,21 @@ class ProbeController {
   @Get("permission-probe")
   permissions() { return { ok: true }; }
 
-  @Roles("admin")
+  @RequirePermissions("users.manage")
   @Get("admin")
   admin(@CurrentUser() user: RequestUser | null) {
     return { user };
   }
 
   @Public()
-  @Roles("admin")
+  @RequirePermissions("users.manage")
   @Get("public-admin")
   publicAdmin() {
     return { ok: true };
   }
 }
 
-@Roles("admin")
+@RequirePermissions("users.manage")
 @SkipTransform()
 @Controller("admin-class")
 class AdminClassController {
@@ -64,7 +64,7 @@ class AdminClassController {
   }
 }
 
-describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postgres, stubbed Privy)", () => {
+describe("AuthGuard — service token, Privy tokens, @Public, admin-only permissions (real Postgres, stubbed Privy)", () => {
   const db = getTestDb();
   const privy = stubPrivy({
     "alice-token": {
@@ -193,13 +193,13 @@ describe("AuthGuard — service token, Privy tokens, @Public, @Roles (real Postg
     });
   });
 
-  describe("@Roles", () => {
-    it("a non-admin user gets 403 on a @Roles('admin') route (method and class level)", async () => {
+  describe("admin-only permission (role packs)", () => {
+    it("a non-admin user gets 403 on an admin-only permission route (method and class level)", async () => {
       await get("/t/admin", "alice-token").expect(403);
       await get("/admin-class", "alice-token").expect(403);
     });
 
-    it("@Roles wins over @Public: anonymous 401, non-admin 403, admin 200", async () => {
+    it("a required permission wins over @Public: anonymous 401, non-admin 403, admin 200", async () => {
       await get("/t/public-admin").expect(401);
       await get("/t/public-admin", "alice-token").expect(403);
       await get("/t/public-admin", "boss-token").expect(200);

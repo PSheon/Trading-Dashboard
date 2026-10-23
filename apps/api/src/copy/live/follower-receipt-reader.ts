@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { settleListAnswer } from '../../hyperliquid/hyperliquid-global-transport.js';
 import { z } from 'zod';
-import { isHyperliquidNetwork, WALLET_NETWORKS, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
+import { isHyperliquidNetwork, WALLET_NETWORKS, type HyperliquidNetwork, safeNonnegativeIntSchema } from '@trading-dashboard/shared/contracts';
 import { readInfoJson } from '../../hyperliquid/response-validation.js';
 import { parseFollowerFill, parseFollowerFunding, type ParsedFollowerFill, type ParsedFollowerFunding } from './actual-fill-accounting.js';
 import { boundedLiveRead } from './live-market-resolver.js';
@@ -37,7 +37,7 @@ interface FollowerReceiptReadResult {
   readonly historicalCompleteness: 'unproven';
   readonly completenessReasons: readonly ('latest_10000_fills_limit' | 'provider_history_unproven' | 'unresolved_windows' | 'response_cap_observed')[];
 }
-const millisecond = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+const millisecond = safeNonnegativeIntSchema;
 const windowSchema = z.object({ kind: z.enum(['fills', 'funding']), from: millisecond, to: millisecond,
   depth: z.number().int().nonnegative().max(53) });
 const inputSchema = z.object({ accountAddress: z.string(), from: millisecond, to: millisecond,

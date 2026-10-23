@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { lowercaseAddressSchema } from "./primitives.js";
 import { withdrawalUnits } from "./wallet-withdrawal-contracts.js";
 
 export function canonicalUsdc(units: bigint): string {
@@ -11,7 +12,7 @@ export const copyFundingInputSchema = z.object({
     try { const units = withdrawalUnits(value); return units > 0n && units <= 1_000_000_000_000_000_000n; } catch { return false; }
   }).transform((value) => canonicalUsdc(withdrawalUnits(value))),
 }).strict();
-const address = z.string().regex(/^0x[0-9a-f]{40}$/);
+const address = lowercaseAddressSchema;
 export const copyFundingSchema = z.object({
   id: z.string().uuid(), accountId: z.string(), strategyId: z.number().int().positive(),
   network: z.enum(["testnet", "mainnet"]), address, destination: address,

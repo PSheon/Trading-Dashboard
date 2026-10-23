@@ -1,5 +1,7 @@
 # 減法清單：排程器落地時可刪的層，與調校常數稽核（2026-10-15）
 
+> **狀態 2026-10-23。** 歷史文件。Phase 2 記憶體排程器沒有做；§1 的刪除清單不再是驗收條件，被 D12（api＋跟單 worker 共用額度、讀取 worker 自己 IP 的 1200/分）與 D14（五層限流維持現狀）取代（`decisions-2026-10-23.md`）；`API_TERMINAL_SETTLEMENT` 已依 D13 刪除。§2 的調校常數稽核仍有參考價值（常數現集中在 `apps/api/src/config/constants/`）。因 review tracker 連結而保留。
+
 目的：`docs/design-hl-egress-2026-10-13.md` Phase 2 把 worker-copy 的限流改成單一記憶體排程器。這份清單是 Phase 2 的**驗收條件**：排程器合入時，§1 列的每一層都要同時刪除，不能並存。§2 是調校常數的依據稽核，給 Paul 決定砍哪些。行數以 `a6401fdf` 計。
 
 ## 0. 現況：五層限流

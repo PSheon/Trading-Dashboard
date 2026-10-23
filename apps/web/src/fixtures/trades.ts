@@ -3,16 +3,17 @@
  * (fixture mode only): a deterministic ledger per address, summarized the
  * way the api does (closed trades by exit time; win = net PnL > 0).
  */
-import type {
-  PnlTier,
-  RoundTrip,
-  SizeTier,
-  TradeCoin,
-  TradeSummary,
-  TradeWindow,
-  TraderAnalyticsResponse,
-  TraderTradesResponse,
-  TradingStyle,
+import {
+  median,
+  type PnlTier,
+  type RoundTrip,
+  type SizeTier,
+  type TradeCoin,
+  type TradeSummary,
+  type TradeWindow,
+  type TraderAnalyticsResponse,
+  type TraderTradesResponse,
+  type TradingStyle,
 } from "@trading-dashboard/shared/contracts";
 
 const COINS = ["BTC", "ETH", "SOL", "HYPE", "xyz:NVDA", "DOGE"];
@@ -82,13 +83,6 @@ export function fixtureTrades(address: string): RoundTrip[] {
   }
   ledgers.set(address, trades);
   return trades;
-}
-
-function median(values: number[]): number | null {
-  if (values.length === 0) return null;
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = sorted.length >> 1;
-  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
 function summarize(trades: RoundTrip[], window: TradeWindow, now: number): TradeSummary {

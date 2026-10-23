@@ -1,8 +1,9 @@
 import { z } from "zod";
+import { isoDatetimeOffsetSchema } from "./primitives.js";
 import { kolInputSchema, type KolInput } from "./schema/zod.js";
 import { parseKolCsv } from "./kol-csv.js";
 export const kolPreviewSchema = z.object({
-  sampledAt: z.string().datetime({ offset: true }),
+  sampledAt: isoDatetimeOffsetSchema,
   replace: z.boolean(),
   canImport: z.boolean(),
   inserted: z.number().int(),

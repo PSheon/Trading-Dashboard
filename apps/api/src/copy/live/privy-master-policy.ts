@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { Logger } from '@nestjs/common';
 import { PrivyClient } from '@privy-io/node';
 import type { PolicyRuleRequestBody } from '@privy-io/node/resources';
-import { COPY_MASTER_ACTION_TYPES, WALLET_NETWORKS, isHyperliquidNetwork, type CopyMasterPrimaryType, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
+import { COPY_MASTER_ACTION_TYPES, WALLET_NETWORKS, isHyperliquidNetwork, type CopyMasterPrimaryType, type HyperliquidNetwork, lowercaseAddressSchema } from '@trading-dashboard/shared/contracts';
 import { z } from 'zod';
 import { safeErrorText } from '../../runtime/safe-error-text.js';
 
@@ -31,7 +31,7 @@ import { safeErrorText } from '../../runtime/safe-error-text.js';
 const ZERO = `0x${'00'.repeat(20)}`;
 const DOMAIN = [{ name: 'name', type: 'string' }, { name: 'version', type: 'string' }, { name: 'chainId', type: 'uint256' }, { name: 'verifyingContract', type: 'address' }];
 type Primary = CopyMasterPrimaryType;
-const address = z.string().regex(/^0x[0-9a-f]{40}$/);
+const address = lowercaseAddressSchema;
 interface MasterPolicyBinding {
   /** The network the account lives on (the deployment's): the domain's
    * chainId and every rule's `hyperliquidChain`. */

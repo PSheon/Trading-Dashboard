@@ -3,7 +3,7 @@ import { Logger } from '@nestjs/common';
 import { safeErrorText } from '../../runtime/safe-error-text.js';
 import { providerTimeNotAfter } from './clock-skew.js';
 import { z } from 'zod';
-import { isHyperliquidNetwork, WALLET_NETWORKS, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
+import { isHyperliquidNetwork, WALLET_NETWORKS, type HyperliquidNetwork, safeNonnegativeIntSchema } from '@trading-dashboard/shared/contracts';
 import { HyperliquidAllDexsAccountSource, type LiveAllDexsAccountSource, type LiveAllDexsOrderEvidence } from './live-account-ws-source.js';
 export { HyperliquidAllDexsAccountSource } from './live-account-ws-source.js';
 import { Dec } from '../../common/decimal/dec.js';
@@ -93,7 +93,7 @@ export function observerRestWeight(user: string, cache?: LiveReadCache, pinned =
   const u = address(user), sent = (bodies: readonly Readonly<Record<string, unknown>>[]) => liveInfoWeights(bodies.filter(body => !pinned.has(bodyKey(body))));
   return 2 * sent(observerBodies(u)) + sent([{ type: 'spotMeta' }, { type: 'allPerpMetas' }]);
 }
-const integer = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+const integer = safeNonnegativeIntSchema;
 const decimal = z.string().max(80).regex(/^-?(?:0|[1-9]\d*)(?:\.\d{1,18})?$/).transform((v) => Dec.from(v).toString());
 const nonnegative = decimal.refine((v) => Dec.from(v).gte(0));
 const positive = decimal.refine((v) => Dec.from(v).gt(0));

@@ -25,7 +25,6 @@ import type {
   HomeBoardsResponse,
   DiscoverSearchResponse,
   TradingStyle,
-  CrowdResponse,
   Favorite,
   PublicSettings,
   PortfolioResponse,
@@ -84,14 +83,6 @@ export function useSiteSettings(initial?: InitialRead<PublicSettings> | null) {
     staleTime: 30_000,
     refetchInterval: 60_000,
     refetchOnWindowFocus: true,
-  });
-}
-
-export function useCrowd() {
-  return useQuery({
-    queryKey: queryKeys.crowd,
-    queryFn: ({ signal }) => api.get<CrowdResponse>("/insights/crowd", signal),
-    refetchInterval: 60_000,
   });
 }
 

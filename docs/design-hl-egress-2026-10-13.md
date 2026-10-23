@@ -1,6 +1,8 @@
 # HL egress capacity: design (2026-10-13)
 
-> Status: a design draft. No code was changed. Line numbers refer to `HEAD` = `195c82ce`.
+> **Status 2026-10-23.** Historical design. The Phase-2 in-memory scheduler (§2.4, `design-hl-scheduler-phase2-2026-10-15.md`) was not built; the quota plan is superseded by D12 (api + worker-copy share one quota, worker-read has its own IP's 1,200/min) and D14 (the fast/fallback/audit sources and the api's three LISTEN connections stay) in `decisions-2026-10-23.md`; `API_TERMINAL_SETTLEMENT` was removed (D13: only worker-copy settles). §2, §3 and §8 are kept as the code cites them (`WORKER_ROLE`, the leases, I-1…I-17); every `API_TERMINAL_SETTLEMENT` mention below is historical.
+>
+> Status when written: a design draft. No code was changed. Line numbers refer to `HEAD` = `195c82ce`.
 > Save as `docs/design-hl-egress-2026-10-13.md`.
 > Tags: **[code]** read from the code. **[SDK]** from the installed `@nktkas/hyperliquid@0.33.3` type definitions, which are not an HL contract. **[verify]** must be proven on testnet or by HL before anything relies on it. **[est]** is my own arithmetic.
 

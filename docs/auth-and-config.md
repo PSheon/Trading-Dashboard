@@ -7,8 +7,8 @@ records own role (`user`/`admin`) and disabled status. Email and wallet addresse
 are profile attributes, not authorization identifiers. Privy metadata does not
 supply application permissions.
 
-`AuthGuard` runs before `PermissionGuard`. Legacy `@Roles` applies only to human
-users. `@RequirePermissions` requires every declared permission and overrides
+`AuthGuard` runs before `PermissionGuard` (the `@Roles` decorator was removed on
+2026-10-23: no route used it). `@RequirePermissions` requires every declared permission and overrides
 `@Public`; method permission metadata replaces a class default. Each admin
 handler declares its own permission. `admin.access` is a fail-closed class
 default for future admin handlers; granting it alone grants none of today's
@@ -38,7 +38,7 @@ protected routes. Public browsing retains its anonymous fallback.
 Service tokens authenticate a distinct principal with only the comma-separated
 `AUTH_SERVICE_PERMISSIONS` grants. Omitted/empty grants mean **no administrative
 access**. Wildcards and unknown names are rejected. Service callers cannot use
-human-only `/me` resources or satisfy legacy human `@Roles`. Without
+human-only `/me` resources. Without
 `alerts.readAll`, their alert queries return no private rows.
 
 ## Migration from implicit service admin and recurring bootstrap
@@ -262,11 +262,14 @@ browser-side origin must be added to `csp.ts`, or it is blocked.
 Owner actions (Privy dashboard, not code):
 
 - **Allowed domains.** Set Privy's `allowed_domains` to the deployed origins
-  (`https://app.orbie.fun`, stage, and `http://localhost:3001` for development).
-  Privy's own iframe on `privy.stage.orbie.fun` already refuses to be framed
-  by any origin but `app.orbie.fun` and `stage.orbie.fun`, so a local build on
-  another port can open the login modal but can't finish signing in.
+  (`https://stage.orbie.fun` on the Stage Privy app, `https://orbie.fun` on the
+  Production one once it exists — D2/D3, each environment has its own Privy
+  app — and `http://localhost:3001` for development). Privy's own iframe on
+  `privy.stage.orbie.fun` refuses to be framed by any origin but the ones
+  allowed there (historically `app.orbie.fun` and `stage.orbie.fun`), so a
+  local build on another port can open the login modal but can't finish
+  signing in.
 - **HttpOnly cookie sessions.** Privy's cookie sessions need the custom auth
   domain on the same site as the app (e.g. `privy.orbie.fun` for
-  `app.orbie.fun`), configured when the production domain is set up; then
+  `orbie.fun`), configured when the Production domain is set up; then
   add it to `NEXT_PRIVY_AUTH_ORIGINS` if it isn't one of the built-in ones.

@@ -1,6 +1,8 @@
 # Phase 2 design: in-memory Hyperliquid egress scheduler on worker-copy (2026-10-15)
 
-> Status: design only. No code was changed. Line numbers refer to `HEAD` = `1cb76f76`.
+> **Status 2026-10-23.** Historical design, not built: the in-memory scheduler was superseded by D12 (api + worker-copy keep the shared quota and its priority; worker-read gets its own IP's 1,200/min) and D14 (the five limiter layers stay as they are) in `decisions-2026-10-23.md`; `API_TERMINAL_SETTLEMENT` was removed (D13), so its mention in the rollout list below is historical. Kept because the review tracker links it.
+>
+> Status when written: design only. No code was changed. Line numbers refer to `HEAD` = `1cb76f76`.
 > Save as `docs/design-hl-scheduler-phase2-2026-10-15.md`.
 > Inputs:
 > - `docs/design-hl-egress-2026-10-13.md` §2.4. §8 (I-1…I-17) overrides it where they differ.

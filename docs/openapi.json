@@ -219,7 +219,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user (own flows)"
       }
     },
@@ -837,7 +836,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "x-error-codes": [
           "copy_not_open",
           "copy_paused",
@@ -1473,7 +1471,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user (owner); read only"
       }
     },
@@ -2091,8 +2088,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/me/copy/live/setups/{id}": {
@@ -2709,7 +2705,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user (owner); read only"
       }
     },
@@ -3191,7 +3186,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "x-error-codes": [
           "setup_abort_unavailable",
           "setup_abort_key_conflict",
@@ -3666,8 +3660,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/me/copy/live/setups/{id}/confirm": {
@@ -4295,7 +4288,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "x-error-codes": [
           "consent_expired",
           "invalid_consent",
@@ -4931,8 +4923,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/me/copy/live/setups/{id}/cancel": {
@@ -5550,7 +5541,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "x-error-codes": [
           "funding_pending",
           "setup_past_funding",
@@ -6184,7 +6174,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "x-error-codes": [
           "setup_unavailable",
           "live_stop_in_progress",
@@ -6821,7 +6810,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "x-error-codes": [
           "renewal_unavailable"
         ]
@@ -7029,8 +7017,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/me/copy/live/stops": {
@@ -7232,8 +7219,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/me/copy/live/stops/by-key/{key}": {
@@ -7430,8 +7416,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/me/copy/live/execution-wallets/{id}/returns": {
@@ -7647,8 +7632,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/me/copy/live/returns/{id}/approve": {
@@ -7856,7 +7840,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "x-error-codes": [
           "worker_signer_missing",
           "setup_wallet_conflict",
@@ -7984,8 +7967,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/me/copy/live/portfolio": {
@@ -8741,8 +8723,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/me/copy/live/execution-wallets/{id}/positions/close": {
@@ -8889,8 +8870,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/me/copy/live/execution-wallets/{id}/closes": {
@@ -9040,8 +9020,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/me/referral": {
@@ -9248,7 +9227,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user (owner); confirmed entitlement only"
       }
     },
@@ -9338,7 +9316,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user (owner)"
       }
     },
@@ -9433,7 +9410,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user (owner); first eligible attribution only"
       }
     },
@@ -9599,7 +9575,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user (owner); anonymized referrals"
       }
     },
@@ -9781,7 +9756,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user (owner)"
       },
       "post": {
@@ -9923,8 +9897,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/me/referral/claims/by-key/{key}": {
@@ -10067,7 +10040,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user (owner); original read-only request recovery"
       }
     },
@@ -10211,7 +10183,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user (owner); original immutable request"
       }
     },
@@ -10306,7 +10277,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: public; code validity only"
       }
     },
@@ -10430,7 +10400,6 @@
           "admin.access",
           "sources.read"
         ],
-        "x-required-roles": [],
         "description": "Access: sources.read"
       }
     },
@@ -10957,7 +10926,6 @@
           "admin.access",
           "traders.read"
         ],
-        "x-required-roles": [],
         "description": "Access: traders.read"
       }
     },
@@ -11064,7 +11032,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user"
       },
       "post": {
@@ -11176,8 +11143,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/me/favorite-groups/{id}": {
@@ -11301,7 +11267,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user"
       },
       "delete": {
@@ -11343,7 +11308,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user"
       }
     },
@@ -11396,7 +11360,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user"
       },
       "delete": {
@@ -11447,7 +11410,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user"
       }
     },
@@ -11580,7 +11542,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: public"
       }
     },
@@ -11818,7 +11779,6 @@
           "admin.access",
           "audit.read"
         ],
-        "x-required-roles": [],
         "description": "Access: audit.read"
       }
     },
@@ -11973,7 +11933,6 @@
           "admin.access",
           "settings.read"
         ],
-        "x-required-roles": [],
         "description": "Access: settings.read"
       }
     },
@@ -12231,7 +12190,6 @@
           "admin.access",
           "jobs.read"
         ],
-        "x-required-roles": [],
         "description": "Access: jobs.read"
       }
     },
@@ -12451,7 +12409,6 @@
           "admin.access",
           "jobs.read"
         ],
-        "x-required-roles": [],
         "description": "Access: jobs.retry"
       }
     },
@@ -15803,7 +15760,6 @@
         "x-required-permissions": [
           "admin.access"
         ],
-        "x-required-roles": [],
         "description": "Access: admin.access"
       }
     },
@@ -16131,19 +16087,19 @@
                           "properties": {
                             "general": {
                               "type": "string",
-                              "pattern": "^[a-f0-9]{64}$"
+                              "pattern": "^[0-9a-f]{64}$"
                             },
                             "discovery": {
                               "type": "string",
-                              "pattern": "^[a-f0-9]{64}$"
+                              "pattern": "^[0-9a-f]{64}$"
                             },
                             "notifications": {
                               "type": "string",
-                              "pattern": "^[a-f0-9]{64}$"
+                              "pattern": "^[0-9a-f]{64}$"
                             },
                             "revenue": {
                               "type": "string",
-                              "pattern": "^[a-f0-9]{64}$"
+                              "pattern": "^[0-9a-f]{64}$"
                             }
                           },
                           "required": [
@@ -16209,7 +16165,6 @@
           "settings.read",
           "admin.access"
         ],
-        "x-required-roles": [],
         "description": "Access: settings.read"
       },
       "patch": {
@@ -16545,19 +16500,19 @@
                           "properties": {
                             "general": {
                               "type": "string",
-                              "pattern": "^[a-f0-9]{64}$"
+                              "pattern": "^[0-9a-f]{64}$"
                             },
                             "discovery": {
                               "type": "string",
-                              "pattern": "^[a-f0-9]{64}$"
+                              "pattern": "^[0-9a-f]{64}$"
                             },
                             "notifications": {
                               "type": "string",
-                              "pattern": "^[a-f0-9]{64}$"
+                              "pattern": "^[0-9a-f]{64}$"
                             },
                             "revenue": {
                               "type": "string",
-                              "pattern": "^[a-f0-9]{64}$"
+                              "pattern": "^[0-9a-f]{64}$"
                             }
                           },
                           "required": [
@@ -16623,7 +16578,6 @@
           "settings.write",
           "admin.access"
         ],
-        "x-required-roles": [],
         "description": "Access: settings.write"
       }
     },
@@ -16834,7 +16788,6 @@
           "users.read",
           "admin.access"
         ],
-        "x-required-roles": [],
         "description": "Access: users.read"
       }
     },
@@ -17006,7 +16959,6 @@
           "users.manage",
           "admin.access"
         ],
-        "x-required-roles": [],
         "description": "Access: users.manage"
       }
     },
@@ -17156,7 +17108,6 @@
           "overview.read",
           "admin.access"
         ],
-        "x-required-roles": [],
         "description": "Access: overview.read"
       }
     },
@@ -17348,7 +17299,6 @@
           "revenue.read",
           "admin.access"
         ],
-        "x-required-roles": [],
         "description": "Access: revenue.read"
       }
     },
@@ -17595,7 +17545,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: public"
       }
     },
@@ -17854,7 +17803,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: public; favorites requires user"
       }
     },
@@ -18174,7 +18122,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: public; favorites requires user; SSE"
       }
     },
@@ -18332,7 +18279,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: public"
       }
     },
@@ -18485,7 +18431,6 @@
         "x-required-permissions": [
           "rules.read"
         ],
-        "x-required-roles": [],
         "description": "Access: rules.read"
       },
       "post": {
@@ -18644,7 +18589,6 @@
           "rules.manage",
           "rules.read"
         ],
-        "x-required-roles": [],
         "description": "Access: rules.manage"
       }
     },
@@ -18885,8 +18829,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/health": {
@@ -18948,7 +18891,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: public; raw"
       }
     },
@@ -18999,7 +18941,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: public; raw"
       }
     },
@@ -19099,7 +19040,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: worker monitor key (else 404); raw"
       }
     },
@@ -19407,7 +19347,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: public projection; full rows for leaders.manage"
       }
     },
@@ -19997,7 +19936,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: public projection; full row for leaders.manage; private alerts scoped"
       },
       "patch": {
@@ -20151,7 +20089,6 @@
         "x-required-permissions": [
           "leaders.manage"
         ],
-        "x-required-roles": [],
         "description": "Access: leaders.manage"
       }
     },
@@ -20248,7 +20185,6 @@
         "x-required-permissions": [
           "lists.read"
         ],
-        "x-required-roles": [],
         "description": "Access: lists.read"
       }
     },
@@ -20434,7 +20370,6 @@
         "x-required-permissions": [
           "leaders.import"
         ],
-        "x-required-roles": [],
         "description": "Access: leaders.import"
       }
     },
@@ -20536,7 +20471,6 @@
         "x-required-permissions": [
           "leaders.import"
         ],
-        "x-required-roles": [],
         "description": "Access: leaders.import"
       }
     },
@@ -20709,7 +20643,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: public"
       }
     },
@@ -21032,8 +20965,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/insights/cohorts/{tier}/history": {
@@ -21217,8 +21149,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/me/telegram": {
@@ -21330,7 +21261,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user"
       },
       "delete": {
@@ -21361,7 +21291,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user"
       }
     },
@@ -21484,7 +21413,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user"
       }
     },
@@ -21570,7 +21498,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user"
       }
     },
@@ -21653,7 +21580,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user"
       }
     },
@@ -22377,7 +22303,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: public; 503 busy while a cold address computes"
       }
     },
@@ -22806,7 +22731,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: public; 503 busy while a cold address computes"
       }
     },
@@ -23133,7 +23057,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: public"
       }
     },
@@ -23247,7 +23170,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: public"
       }
     },
@@ -23710,37 +23632,6 @@
                         "isVault": {
                           "type": "boolean"
                         },
-                        "lastTradeAt": {
-                          "anyOf": [
-                            {
-                              "type": "string",
-                              "format": "date-time"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ]
-                        },
-                        "sample": {
-                          "type": "object",
-                          "properties": {
-                            "fills30d": {
-                              "type": "integer"
-                            },
-                            "capped": {
-                              "type": "boolean"
-                            },
-                            "lowSample": {
-                              "type": "boolean"
-                            }
-                          },
-                          "required": [
-                            "fills30d",
-                            "capped",
-                            "lowSample"
-                          ],
-                          "additionalProperties": false
-                        },
                         "favorite": {
                           "type": "boolean"
                         },
@@ -23931,7 +23822,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: public"
       }
     },
@@ -24010,56 +23900,6 @@
                     "data": {
                       "type": "object",
                       "properties": {
-                        "methodology": {
-                          "type": "object",
-                          "properties": {
-                            "version": {
-                              "type": "string",
-                              "const": "flow-neutral-v1"
-                            },
-                            "intervals": {
-                              "type": "integer",
-                              "minimum": 0
-                            },
-                            "excludedIntervals": {
-                              "type": "integer",
-                              "minimum": 0
-                            },
-                            "excludedFraction": {
-                              "anyOf": [
-                                {
-                                  "type": "number",
-                                  "minimum": 0,
-                                  "maximum": 1
-                                },
-                                {
-                                  "type": "null"
-                                }
-                              ]
-                            },
-                            "capitalFloorUsd": {
-                              "type": "number",
-                              "minimum": 0
-                            },
-                            "quality": {
-                              "type": "string",
-                              "enum": [
-                                "observed",
-                                "partial",
-                                "unavailable"
-                              ]
-                            }
-                          },
-                          "required": [
-                            "version",
-                            "intervals",
-                            "excludedIntervals",
-                            "excludedFraction",
-                            "capitalFloorUsd",
-                            "quality"
-                          ],
-                          "additionalProperties": false
-                        },
                         "basis": {
                           "type": "object",
                           "properties": {
@@ -24246,7 +24086,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: public"
       }
     },
@@ -24466,7 +24305,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: public"
       }
     },
@@ -24637,7 +24475,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: public"
       }
     },
@@ -24780,7 +24617,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: public; 503 busy"
       }
     },
@@ -24908,7 +24744,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: public"
       }
     },
@@ -25084,7 +24919,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: public; 503 busy"
       }
     },
@@ -25232,7 +25066,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: public; 503 busy"
       }
     },
@@ -25416,7 +25249,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: public; 503 busy"
       }
     },
@@ -25583,7 +25415,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user"
       },
       "patch": {
@@ -25758,7 +25589,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user"
       },
       "delete": {
@@ -25799,8 +25629,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/me/favorites": {
@@ -26040,7 +25869,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user"
       }
     },
@@ -26288,7 +26116,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user"
       },
       "delete": {
@@ -26329,7 +26156,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user"
       }
     },
@@ -26587,7 +26413,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user"
       }
     },
@@ -27010,8 +26835,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/discover/home": {
@@ -27917,8 +27741,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/discover/coins": {
@@ -28060,8 +27883,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/discover/markets": {
@@ -28156,8 +27978,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/discover/coins/{coin}": {
@@ -28386,8 +28207,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/discover/search": {
@@ -28551,8 +28371,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/discover/cards": {
@@ -28817,8 +28636,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/traders/{address}/copy-score": {
@@ -28993,7 +28811,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: public; 503 busy"
       }
     },
@@ -29123,7 +28940,6 @@
           "admin.access",
           "kols.manage"
         ],
-        "x-required-roles": [],
         "description": "Access: kols.manage"
       },
       "post": {
@@ -29258,7 +29074,6 @@
           "admin.access",
           "kols.manage"
         ],
-        "x-required-roles": [],
         "description": "Access: kols.manage"
       }
     },
@@ -29575,7 +29390,6 @@
           "admin.access",
           "kols.manage"
         ],
-        "x-required-roles": [],
         "description": "Access: kols.manage"
       }
     },
@@ -29695,7 +29509,6 @@
           "admin.access",
           "kols.manage"
         ],
-        "x-required-roles": [],
         "description": "Access: kols.manage"
       }
     },
@@ -29842,7 +29655,6 @@
           "admin.access",
           "kols.manage"
         ],
-        "x-required-roles": [],
         "description": "Access: kols.manage"
       },
       "delete": {
@@ -29886,7 +29698,6 @@
           "admin.access",
           "kols.manage"
         ],
-        "x-required-roles": [],
         "description": "Access: kols.manage"
       }
     },
@@ -29966,8 +29777,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/me/wallet": {
@@ -30121,7 +29931,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user; 503 busy"
       }
     },
@@ -30309,7 +30118,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user; 503 busy"
       }
     },
@@ -30450,7 +30258,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user"
       }
     },
@@ -30594,8 +30401,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/me/wallet/withdrawals/import": {
@@ -30738,8 +30544,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/me/wallet/withdrawals/{id}/broadcast": {
@@ -30895,8 +30700,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/me/wallet/withdrawals/{id}/submit": {
@@ -31049,8 +30853,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/me/wallet/withdrawals/{id}/cancel": {
@@ -31193,8 +30996,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/me/wallet/withdrawals/{id}/reconcile": {
@@ -31337,8 +31139,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/admin/wallet/withdrawals/unresolved": {
@@ -31481,8 +31282,7 @@
         "x-required-permissions": [
           "admin.access",
           "users.read"
-        ],
-        "x-required-roles": []
+        ]
       }
     },
     "/admin/wallet/withdrawals/{id}/resolve": {
@@ -31601,8 +31401,7 @@
           "admin.access",
           "users.manage",
           "users.read"
-        ],
-        "x-required-roles": []
+        ]
       }
     },
     "/me/copy/stream": {
@@ -31705,7 +31504,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user (own events); SSE"
       }
     },
@@ -32199,7 +31997,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user"
       }
     },
@@ -32571,7 +32368,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user; 403 copy_not_open (`general.copyTradingEnabled` off); 409 already_copying / insufficient_balance / copy_paused"
       }
     },
@@ -32954,7 +32750,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user (owner)"
       }
     },
@@ -33337,7 +33132,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user (owner)"
       }
     },
@@ -33720,7 +33514,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user (owner)"
       }
     },
@@ -33946,7 +33739,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user (owner)"
       }
     },
@@ -34124,7 +33916,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user (own copies)"
       }
     },
@@ -34330,7 +34121,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user (own copies)"
       }
     },
@@ -34498,7 +34288,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user"
       }
     },
@@ -34881,7 +34670,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user (owner)"
       }
     },
@@ -35175,7 +34963,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user (owner)"
       }
     },
@@ -35342,7 +35129,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user (owner)"
       }
     },
@@ -35527,7 +35313,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user (owner)"
       }
     },
@@ -35777,7 +35562,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user (owner)"
       }
     },
@@ -35945,8 +35729,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/me/copy/execution-wallets/{id}/reconcile": {
@@ -36102,8 +35885,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/me/copy/execution-wallets/{id}/automatic-return": {
@@ -36260,7 +36042,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "x-error-codes": [
           "setup_unavailable",
           "setup_wallet_conflict"
@@ -36415,8 +36196,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/me/copy/funding": {
@@ -36627,8 +36407,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/me/copy/execution-wallets/{id}/funding": {
@@ -36836,7 +36615,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "x-error-codes": [
           "funding_pending"
         ]
@@ -37049,7 +36827,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user (owner); one permission"
       }
     },
@@ -37258,7 +37035,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "x-error-codes": [
           "insufficient_main_balance"
         ]
@@ -37458,7 +37234,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user (owner); unattempted intent only"
       }
     },
@@ -37656,8 +37431,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/me/copy/agents": {
@@ -37837,7 +37611,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user (owner)"
       }
     },
@@ -38014,8 +37787,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/me/copy/agents/{id}/reconcile": {
@@ -38181,8 +37953,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/me/copy/account-modes": {
@@ -38378,7 +38149,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user (owner)"
       }
     },
@@ -38562,7 +38332,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user (owner); original idempotency key"
       }
     },
@@ -38755,8 +38524,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/me/copy/account-modes/{id}/reconcile": {
@@ -38938,7 +38706,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user (owner); read-only original mode operation"
       }
     },
@@ -39214,8 +38981,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/me/copy/execution-wallets/{id}/activity": {
@@ -39664,8 +39430,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/me/copy/execution-wallets/{id}/snapshot": {
@@ -40391,8 +40156,7 @@
             "bearerAuth": []
           }
         ],
-        "x-required-permissions": [],
-        "x-required-roles": []
+        "x-required-permissions": []
       }
     },
     "/me/copy/live": {
@@ -40836,7 +40600,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user (owner); local testnet mandate state"
       }
     },
@@ -41038,7 +40801,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "description": "Access: user (owner); local new-risk barrier\n\nError codes: live_stop_in_progress",
         "x-error-codes": [
           "live_stop_in_progress"
@@ -41244,7 +41006,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "x-error-codes": [
           "live_stop_in_progress",
           "copy_paused"
@@ -41450,7 +41211,6 @@
           }
         ],
         "x-required-permissions": [],
-        "x-required-roles": [],
         "x-error-codes": [
           "live_stop_in_progress"
         ]
@@ -41822,7 +41582,6 @@
           "admin.access",
           "copy.read"
         ],
-        "x-required-roles": [],
         "description": "Access: copy.read"
       }
     },
@@ -42246,7 +42005,6 @@
           "admin.access",
           "copy.read"
         ],
-        "x-required-roles": [],
         "description": "Access: copy.read"
       }
     },
@@ -42950,7 +42708,6 @@
           "admin.access",
           "copy.read"
         ],
-        "x-required-roles": [],
         "description": "Access: copy.read"
       }
     },
@@ -43264,7 +43021,6 @@
           "admin.access",
           "copy.read"
         ],
-        "x-required-roles": [],
         "description": "Access: copy.read"
       }
     },
@@ -43448,7 +43204,6 @@
           "admin.access",
           "copy.read"
         ],
-        "x-required-roles": [],
         "description": "Access: copy.read"
       }
     },
@@ -43694,7 +43449,6 @@
           "admin.access",
           "copy.read"
         ],
-        "x-required-roles": [],
         "description": "Access: copy.read"
       },
       "put": {
@@ -43949,8 +43703,7 @@
           "admin.access",
           "risk.manage",
           "copy.read"
-        ],
-        "x-required-roles": []
+        ]
       }
     },
     "/admin/copy/controls": {
@@ -44187,8 +43940,7 @@
           "admin.access",
           "copy.read",
           "execution.pause"
-        ],
-        "x-required-roles": []
+        ]
       }
     },
     "/admin/copy/live/accounts": {
@@ -44495,7 +44247,6 @@
           "admin.access",
           "copy.read"
         ],
-        "x-required-roles": [],
         "description": "Access: copy.read"
       }
     },
@@ -44687,7 +44438,6 @@
           "admin.access",
           "copy.read"
         ],
-        "x-required-roles": [],
         "description": "Access: copy.read"
       }
     },
@@ -44919,8 +44669,7 @@
         "x-required-permissions": [
           "admin.access",
           "copy.read"
-        ],
-        "x-required-roles": []
+        ]
       }
     },
     "/admin/copy/live/latency": {
@@ -45127,7 +44876,6 @@
           "admin.access",
           "copy.read"
         ],
-        "x-required-roles": [],
         "description": "Access: copy.read"
       }
     },
@@ -45265,8 +45013,7 @@
           "admin.access",
           "copy.read",
           "execution.pause"
-        ],
-        "x-required-roles": []
+        ]
       }
     },
     "/admin/copy/live/transfers/{id}/resolve": {
@@ -45385,8 +45132,7 @@
           "admin.access",
           "copy.read",
           "users.manage"
-        ],
-        "x-required-roles": []
+        ]
       }
     }
   },

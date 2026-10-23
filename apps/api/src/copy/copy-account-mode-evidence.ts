@@ -1,6 +1,6 @@
 import { Logger, type OnModuleDestroy } from '@nestjs/common';
 import { z } from 'zod';
-import { WALLET_NETWORKS, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
+import { WALLET_NETWORKS, type HyperliquidNetwork, safeNonnegativeIntSchema, unsignedDecimal18Schema } from '@trading-dashboard/shared/contracts';
 import { Dec } from '../common/decimal/dec.js';
 import { readInfoJson } from '../hyperliquid/response-validation.js';
 import { safeErrorText } from '../runtime/safe-error-text.js';
@@ -18,8 +18,8 @@ import { SOURCE_SPACING_MS } from '../config/constants/timings.js';
 import { ACCOUNT_MODE_ABSENCE_WEIGHT } from '../config/constants/weights.js';
 import { liveEvidenceMaxAgeMs } from '../config/live-evidence-window.js';
 
-const integer = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
-const decimal = z.string().max(80).regex(/^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/);
+const integer = safeNonnegativeIntSchema;
+const decimal = unsignedDecimal18Schema;
 const zero = decimal.refine(v => Dec.from(v).eq(0));
 const summary = z.object({ accountValue: decimal, totalRawUsd: decimal, totalNtlPos: zero, totalMarginUsed: zero });
 const stateSchema = z.object({ marginSummary: summary, crossMarginSummary: summary, crossMaintenanceMarginUsed: zero,

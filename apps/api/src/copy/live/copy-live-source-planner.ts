@@ -1,4 +1,4 @@
-import { copyStrategySettingsSchema, HYPERLIQUID_NETWORKS, isHyperliquidNetwork, type CopyRiskLimits, type CopyStrategySettings, type HyperliquidNetwork } from '@trading-dashboard/shared/contracts';
+import { copyStrategySettingsSchema, HYPERLIQUID_NETWORKS, isHyperliquidNetwork, type CopyRiskLimits, type CopyStrategySettings, type HyperliquidNetwork, hash64Schema, lowercaseAddressSchema, safeNonnegativeIntSchema } from '@trading-dashboard/shared/contracts';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { Dec } from '../../common/decimal/dec.js';
@@ -47,7 +47,7 @@ export function mergedMemberIds(sizingBasis:unknown,ownFillId:string):string[]{
   try{members=decodeLiveSourceSizingEnvelope(sizingBasis).basis.merged?.members??[];}catch{return [];}
   return members.map(m=>m.sourceFillId).filter(id=>id!==ownFillId);
 }
-const hash=z.string().regex(/^[a-f0-9]{64}$/),id=z.string().min(1).max(160),integer=z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),version=integer.refine(v=>v>0),addr=z.string().regex(/^0x[0-9a-f]{40}$/);
+const hash=hash64Schema,id=z.string().min(1).max(160),integer=safeNonnegativeIntSchema,version=integer.refine(v=>v>0),addr=lowercaseAddressSchema;
 const decimal=z.string().max(80).regex(/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]{1,18})?$/).refine(v=>Dec.from(v).toString()===v);
 const nonnegative=decimal.refine(v=>Dec.from(v).gte(0)),positive=decimal.refine(v=>Dec.from(v).isPositive);
 const network=z.enum(HYPERLIQUID_NETWORKS);

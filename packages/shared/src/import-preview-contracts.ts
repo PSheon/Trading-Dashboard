@@ -1,6 +1,7 @@
 import { z } from "zod";
+import { isoDatetimeOffsetSchema } from "./primitives.js";
 export const importPreviewSchema = z.object({
-  sampledAt: z.string().datetime({ offset: true }),
+  sampledAt: isoDatetimeOffsetSchema,
   canImport: z.boolean(),
   totalRows: z.number().int(),
   uniqueAddresses: z.number().int(),

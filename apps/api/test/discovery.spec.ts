@@ -159,10 +159,10 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
     const actualSettings = new SettingsService(new SettingsRepository(db), new UnitOfWork(db), undefined, config);
     const saved = await actualSettings.patch({ discovery: { lowSampleThreshold: 5 } }, null);
     const fresh = new DiscoveryPoolService(config, repository, info as never, analytics as never, ingest, actualSettings);
-    await fresh.tick();
+    await fresh.performanceTick(); await fresh.ledgerTick();
     expect(actualSettings.appliedDiscovery()).toEqual([]);
     await db.insert(traderStats).values([stat(addr(1), 900)]);
-    await fresh.tick();
+    await fresh.performanceTick(); await fresh.ledgerTick();
     expect(actualSettings.appliedDiscovery()).toMatchObject([{ consumer: "pool", revision: saved.revisions.discovery, poolWeightPerMinute: 0 }]);
     expect(await db.select().from(discoveryTraders)).toHaveLength(1);
     expect(info.portfolio).not.toHaveBeenCalled();

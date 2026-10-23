@@ -10,6 +10,7 @@
  * field; the minimum order is a platform risk limit here.
  */
 import { z } from "zod";
+import { decimalStringSchema } from "../primitives.js";
 
 import {
   copyControlCommandEnum,
@@ -281,7 +282,7 @@ export const copyOrdersResponseSchema = z.object({ items: z.array(copyOrderSchem
 export type CopyOrdersResponse = z.infer<typeof copyOrdersResponseSchema>;
 
 /** Exact persisted paper accounting; wire decimals stay strings. */
-const copyHistoryDecimal = z.string().regex(/^-?\d+(?:\.\d+)?$/);
+const copyHistoryDecimal = decimalStringSchema;
 export const copyLedgerEntrySchema = z.object({
   id: z.string().regex(/^\d+$/), kind: z.string(), amount: copyHistoryDecimal,
   coin: z.string().nullable(), orderId: z.string().nullable(), createdAt: z.coerce.date(),

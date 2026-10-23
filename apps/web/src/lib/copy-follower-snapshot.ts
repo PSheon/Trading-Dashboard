@@ -2,7 +2,7 @@
 import { API_FIXTURES } from './config';
 import { useLayoutEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { copyFollowerSnapshotReadSchema, isHyperliquidNetwork, type CopyExecutionAccount, type CopyFollowerSnapshotRead } from '@trading-dashboard/shared/contracts';
+import { copyFollowerSnapshotReadSchema, decimalUnits, isHyperliquidNetwork, type CopyExecutionAccount, type CopyFollowerSnapshotRead } from '@trading-dashboard/shared/contracts';
 import type { FollowerStatementDependencies } from './copy-follower-statements';
 import { api, sessionKey } from './api';
 import { useAuth } from './auth';
@@ -10,8 +10,7 @@ import { queryKeys } from './query-keys';
 /** The owner's session: Privy, or the fixture login in a fixture build (the portfolio demo). */
 const ownerMode = (mode: string) => mode === 'privy' || (API_FIXTURES && mode === 'fixture');
 function identity(a: CopyExecutionAccount) { return [a.id, a.strategyId, a.network, a.address?.toLowerCase() ?? null] as const; }
-function units(v: string) { const negative = v.startsWith('-'), [whole, fraction = ''] = (negative ? v.slice(1) : v).split('.'); return BigInt(whole + fraction.padEnd(18, '0')) * (negative ? BigInt(-1) : BigInt(1)); }
-function sum(v: readonly string[]) { return v.reduce((n, value) => n + units(value), BigInt(0)); }
+function sum(v: readonly string[]) { return v.reduce((n, value) => n + decimalUnits(value), BigInt(0)); }
 function sameSet(a: readonly string[], b: readonly string[]) { return new Set(a).size === a.length && new Set(b).size === b.length && a.length === b.length && a.every(v => b.includes(v)); }
 export function parseCopyFollowerSnapshot(value: unknown, account: CopyExecutionAccount): CopyFollowerSnapshotRead {
   const view = copyFollowerSnapshotReadSchema.parse(value);
@@ -22,14 +21,14 @@ export function parseCopyFollowerSnapshot(value: unknown, account: CopyExecution
     view.freshness === 'fresh' && asOf.checkedAt > asOf.freshUntil || !sameSet(view.coverage.listedDexes, view.dexes.map(d => d.dex)) || !sameSet(view.coverage.listedDexes, view.coverage.observedOrderDexes) ||
     Math.min(...view.dexes.map(d => d.providerTime)) !== asOf.earliestProviderTime || new Set(view.dexes.map(d => d.perpDexIndex)).size !== view.dexes.length) throw new Error('follower_snapshot_evidence_invalid');
   for (const [metric, key] of [['perpEquity', 'equity'], ['marginUsed', 'marginUsed'], ['withdrawable', 'withdrawable'], ['exposureUsd', 'exposureUsd']] as const)
-    if (sum(view.dexes.map(d => d[key])) !== units(view.metrics[metric])) throw new Error('follower_snapshot_totals_invalid');
-  if (sum(view.positions.map(p => p.unrealizedPnl)) !== units(view.metrics.unrealizedPnl) || sum(view.restingOrders.map(o => o.notionalUsd)) !== units(view.metrics.grossRestingExposureUsd) ||
-    sum(view.restingOrders.filter(o => !o.reduceOnly).map(o => o.notionalUsd)) !== units(view.metrics.restingExposureUsd)) throw new Error('follower_snapshot_totals_invalid');
+    if (sum(view.dexes.map(d => d[key])) !== decimalUnits(view.metrics[metric])) throw new Error('follower_snapshot_totals_invalid');
+  if (sum(view.positions.map(p => p.unrealizedPnl)) !== decimalUnits(view.metrics.unrealizedPnl) || sum(view.restingOrders.map(o => o.notionalUsd)) !== decimalUnits(view.metrics.grossRestingExposureUsd) ||
+    sum(view.restingOrders.filter(o => !o.reduceOnly).map(o => o.notionalUsd)) !== decimalUnits(view.metrics.restingExposureUsd)) throw new Error('follower_snapshot_totals_invalid');
   for (const d of view.dexes) {
     const positions = view.positions.filter(p => p.dex === d.dex), orders = view.restingOrders.filter(o => o.dex === d.dex);
-    const active = positions.length > 0 || orders.length > 0 || [d.equity, d.rawUsd, d.marginUsed, d.withdrawable, d.exposureUsd, d.crossEquity, d.crossMarginUsed, d.crossExposureUsd, d.crossMaintenanceMarginUsed].some(v => units(v) !== BigInt(0));
+    const active = positions.length > 0 || orders.length > 0 || [d.equity, d.rawUsd, d.marginUsed, d.withdrawable, d.exposureUsd, d.crossEquity, d.crossMarginUsed, d.crossExposureUsd, d.crossMaintenanceMarginUsed].some(v => decimalUnits(v) !== BigInt(0));
     if (d.providerTime > asOf.completedAt || asOf.completedAt - d.providerTime > 5000 || active && (!d.supported || d.collateralCoin !== 'USDC' || d.collateralToken !== view.collateral.tokenIndex) ||
-      sum(positions.map(p => p.positionValue)) !== units(d.exposureUsd) || sum(positions.map(p => p.marginUsed)) !== units(d.marginUsed)) throw new Error('follower_snapshot_evidence_invalid');
+      sum(positions.map(p => p.positionValue)) !== decimalUnits(d.exposureUsd) || sum(positions.map(p => p.marginUsed)) !== decimalUnits(d.marginUsed)) throw new Error('follower_snapshot_evidence_invalid');
   }
   for (const item of [...view.positions, ...view.restingOrders]) {
     const d = view.dexes.find(d => d.dex === item.dex), base = d?.perpDexIndex ? 100000 + d.perpDexIndex * 10000 : 0;

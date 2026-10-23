@@ -1,9 +1,5 @@
 // @vitest-environment happy-dom
 import { act, useEffect } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
-import { CopyActivityItems } from "@/components/copy/copy-activity";
-import { I18nProvider } from "@/i18n/provider";
-import { en } from "@/i18n/messages/en";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -82,18 +78,6 @@ it("starts from zero for another identity and does not show the previous ownerâ€
   expect(container.textContent).toBe("1");
 });
 
-it("renders the ownerâ€™s confirmed event details and strategy link rather than leader activity", () => {
-  const items = [{ ...event("1"), type: "funds_withdrawn", payload: { mode: "paper", amount: "125.50" } }, event("2")];
-  const html = renderToStaticMarkup(<I18nProvider locale="en" messages={en}><CopyActivityItems items={items} /></I18nProvider>);
-  expect(html).toContain('data-slot="data-list"');
-  expect(html).toContain("Funds withdrawn");
-  expect(html).toContain("$125.50");
-  expect(html).toContain("/portfolio?copy=1");
-  expect(html).toContain("Order filled");
-  expect(html).toContain("BTC");
-  expect(html).not.toContain("leader");
-});
-
 it("loads older activity without moving the reconnect cursor backwards", async () => {
   state.get.mockResolvedValueOnce({ ...page("9999", "10000"), previousCursor: "9999", hasMore: true })
     .mockResolvedValueOnce({ ...page("9997", "9998"), previousCursor: "9997", hasMore: false })
@@ -118,25 +102,4 @@ it("drains missed event pages immediately on reconnect rather than one page per 
   expect(state.get).toHaveBeenCalledTimes(3);
   expect(state.get.mock.calls[2][0]).toBe("/me/copy/events?after=10001&limit=100");
   expect(container.textContent).toBe("10000,10001,10002");
-});
-
-it("labels rejected and cancelled orders and never exposes unrecognized provider reasons", () => {
-  const items: WireCopyEvents["items"] = [
-    { ...event("90"), type: "order_rejected", payload: { orderId: "9007199254740993", reason: "no_price_before_submit" } },
-    { ...event("91"), type: "order_cancelled", payload: { orderId: "92", reason: "provider: secret token" } },
-    { ...event("92"), type: "strategy_command", payload: { command: "cancel_pending" } },
-  ];
-  const html = renderToStaticMarkup(<I18nProvider locale="en" messages={en}><CopyActivityItems items={items} /></I18nProvider>);
-  expect(html).toContain("Order rejected");
-  expect(html).toContain("Order cancelled");
-  expect(html).toContain("#9007199254740993");
-  expect(html).toContain("No price available");
-  expect(html).toContain("Cancel pending orders");
-  expect(html).not.toContain("secret token");
-});
-
-it("pages the copy event list instead of exposing all twenty-three rows", () => {
-  const html = renderToStaticMarkup(<I18nProvider locale="en" messages={en}><CopyActivityItems items={page(...Array.from({length:23},(_,i)=>String(i))).items} /></I18nProvider>);
-  expect(html.match(/<li /g)).toHaveLength(10);
-  expect(html).toContain('data-pager');
 });

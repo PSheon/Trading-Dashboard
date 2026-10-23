@@ -1,17 +1,19 @@
 # 獨立 worker
 
-同一份 API image，兩個獨立程序與 Railway service，共用 PostgreSQL。沒有新增 Redis。
+同一份 API image，三個獨立程序與 Railway service（api、worker-copy、worker-read；D12，2026-10-23 部署中），共用 PostgreSQL。沒有新增 Redis。
 
-| 項目 | api | worker |
-|---|---|---|
-| 開關 | `IS_WORKER` 不設 | `IS_WORKER=true` |
-| 啟動 | node dist/main.js | node dist/main.js（同一入口） |
-| Nest | `AppModule.api()`，`NestFactory.create` | `AppModule.worker()`，`createApplicationContext` |
-| HTTP | 現有業務 API | 僅 /health、/health/ready、/health/live、/health/monitor |
-| 排程、迴圈、poller、consumer、outbox drain | 無（沒有 `ScheduleModule`，也不建構任何 worker 類別） | 全部（`WorkerModule`） |
-| WORKER_URL | private worker URL（沒設時 api 的 /health 回 503） | 不需要 |
-| Privy | 保留登入驗證設定 | 不需要設定登入秘密 |
-| Stage 上游預算 | 240 weight/min，burst 100 | 600 weight/min，burst 100 |
+| 項目 | api | worker-copy（Railway 服務名 `worker`） | worker-read |
+|---|---|---|---|
+| 開關 | `IS_WORKER` 不設 | `IS_WORKER=true`、`WORKER_ROLE=copy` | `IS_WORKER=true`、`WORKER_ROLE=read` |
+| 啟動 | node dist/main.js | node dist/main.js（同一入口） | 同 |
+| Nest | `AppModule.api()`，`NestFactory.create` | `AppModule.worker()`，`createApplicationContext` | 同 |
+| HTTP | 現有業務 API | 僅 /health、/health/ready、/health/live、/health/monitor | 同 |
+| 排程、迴圈、poller、consumer、outbox drain | 無（沒有 `ScheduleModule`，也不建構任何 worker 類別） | 跟單引擎、setup、停止、資金、交易來源 feed（`WorkerModule`，依角色） | 快照、補掃、discovery、cohort、封存、retention、outbox、Telegram、模擬跟單 |
+| WORKER_URL / WORKER_READ_URL | 各自的 private URL（沒設 `WORKER_URL` 時 api 的 /health 回 503） | 不需要 | 不需要 |
+| Privy | 保留登入驗證設定 | 不需要設定登入秘密 | 不需要 |
+| Hyperliquid 額度（D12） | 與 worker-copy 共用一個 IP 的 1200/分與同一 meter | 同 api | 自己 IP 的 1200/分：背景 900、保留 300 給網頁即時讀取 |
+
+變數值與部署順序以 `docs/railway-deploy.md` 為準。
 
 2026-10-04 起照 DonutMe 改成單一開關：`APP_ROLE`（api／worker／combined）與 `dist/worker.js` 移除，combined 模式不再存在，本機開發也要另外起一個 worker（`IS_WORKER=true node dist/main.js`，port 用 `WORKER_PORT`）。仍帶 `APP_ROLE` 的程序拒絕啟動，避免舊的 worker 設定被當成 api 跑起來。`main.ts` 依 `IS_WORKER` 選 `AppModule.api()` 或 `AppModule.worker()`；各服務裡的角色判斷已全部刪除，背景工作只存在於 worker 模組（`WorkerModule` 匯入 watcher、scheduler、leaderboard 匯入、discovery pool、cohort、S3 封存、retention、outbox、Telegram bot、預設規則 seed、跟單迴圈、營收快照）。`test/api-role-isolation.spec.ts` 啟動 `AppModule.api()`，檢查沒有 `SchedulerRegistry`、沒有任何帶 `@Cron`／`@Interval`／`@Timeout` 的 provider、也沒有任何背景類別；並啟動 `AppModule.worker()` 檢查排程都在。原本只在 combined 模式執行的首頁 sparkline 預熱一併刪除（分開部署時本來就沒有執行）。
 
@@ -41,8 +43,6 @@ TEST_DATABASE_URL=postgres://postgres@127.0.0.1:55439/orbie_worker_smoke_test no
 ```
 
 腳本使用 3311–3314 ports，會中斷**該本地測試 DB** 上持有 worker 測試鎖的連線，以驗證 fail-stop 與接手；不可與其他使用同一測試 DB 的 worker 同時執行。程序 log 寫入臨時目錄，程序在 finally 清理。
-
-Privy 設定檢查另見 [2026-09-30 audit](privy-configuration-audit-2026-09-30.md)。
 
 ## Stage 部署證據（2026-09-30 13:22 UTC）
 

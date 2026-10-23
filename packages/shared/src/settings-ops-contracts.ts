@@ -1,8 +1,9 @@
 import { z } from "zod";
+import { isoDatetimeOffsetSchema } from "./primitives.js";
 
 export const appliedDiscoverySchema = z.object({
   consumer: z.enum(["pool", "leaderboard"]), revision: z.string().regex(/^[a-f0-9]{64}$/),
-  checkedAt: z.string().datetime({ offset: true }), recovered: z.boolean(),
+  checkedAt: isoDatetimeOffsetSchema, recovered: z.boolean(),
   candidatePoolSize: z.number(), poolWeightPerMinute: z.number(), poolPerformanceWeightPerMinute: z.number().optional(), leaderboardRefreshMinutes: z.number(),
 });
 export type AppliedDiscovery = z.infer<typeof appliedDiscoverySchema>;
@@ -19,7 +20,7 @@ export const deploymentTuningSchema = z.object({
 });
 export type DeploymentTuning = z.infer<typeof deploymentTuningSchema>;
 export const settingsRuntimeSchema = z.object({
-  savedRevision: z.string(), sampledAt: z.string().datetime({ offset: true }),
+  savedRevision: z.string(), sampledAt: isoDatetimeOffsetSchema,
   state: z.enum(["active", "standby", "stopping", "stale", "unavailable", "not_configured"]),
   instanceId: z.string().nullable(), consumers: z.array(appliedDiscoverySchema),
 });
@@ -36,7 +37,7 @@ export type AuditQuery = z.infer<typeof auditQuerySchema>;
 export const auditEntrySchema = z.object({
   id: auditId, actorKind: z.enum(["user", "service", "system"]), actorUserId: z.number().int().nullable(),
   event: z.string(), target: z.string(), before: z.unknown().nullable(), after: z.unknown().nullable(),
-  createdAt: z.string().datetime({ offset: true }),
+  createdAt: isoDatetimeOffsetSchema,
 });
 export const auditResponseSchema = z.object({ items: z.array(auditEntrySchema), nextCursor: auditId.nullable() });
 export type AuditResponse = z.infer<typeof auditResponseSchema>;

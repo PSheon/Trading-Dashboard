@@ -1,6 +1,7 @@
 import { z } from "zod";
+import { isoDatetimeOffsetSchema } from "./primitives.js";
 export const adminSourcesSchema = z.object({
-  sampledAt: z.string().datetime({ offset: true }),
+  sampledAt: isoDatetimeOffsetSchema,
   items: z.array(
     z.object({
       id: z.enum([
@@ -12,7 +13,7 @@ export const adminSourcesSchema = z.object({
         "imports",
       ]),
       count: z.number().int().nonnegative(),
-      latestAt: z.string().datetime({ offset: true }).nullable(),
+      latestAt: isoDatetimeOffsetSchema.nullable(),
     }),
   ),
 });

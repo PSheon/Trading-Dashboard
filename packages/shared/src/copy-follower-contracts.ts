@@ -1,5 +1,6 @@
 import { z } from "zod";
-const decimal = z.string().regex(/^-?\d+(?:\.\d+)?$/);
+import { decimalStringSchema } from "./primitives.js";
+const decimal = decimalStringSchema;
 export const copyFollowerStatementSchema = z.object({
   accountId: z.string(), strategyId: z.number().int().positive(), network: z.enum(["testnet", "mainnet"]), accountAddress: z.string(),
   token: z.literal("USDC"), receiptCount: z.string().regex(/^\d+$/),

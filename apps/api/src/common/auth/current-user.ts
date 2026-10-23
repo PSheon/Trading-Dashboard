@@ -2,7 +2,6 @@ import {
   ForbiddenException,
   UnauthorizedException,
   createParamDecorator,
-  SetMetadata,
   type ExecutionContext,
 } from "@nestjs/common";
 import type { Permission, UserRole } from "@trading-dashboard/shared/contracts";
@@ -22,12 +21,6 @@ export const CurrentUser = createParamDecorator(
   (_data: unknown, context: ExecutionContext): RequestUser | null =>
     context.switchToHttp().getRequest<{ user?: RequestUser }>().user ?? null,
 );
-
-export const ROLES_KEY = "roles";
-
-/** Restricts a route to human users with one of these roles.
- * Service access must use explicit permission metadata instead. */
-export const Roles = (...roles: UserRole[]) => SetMetadata(ROLES_KEY, roles);
 
 /** The signed-in user's id, or null for anonymous and service callers. */
 export function userIdOf(user: RequestUser | null): number | null {

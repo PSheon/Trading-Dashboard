@@ -106,12 +106,6 @@ export class DiscoveryPoolService {
     return this.ledgerRunning;
   }
 
-  /** Both loops in sequence (tests and the legacy entry point). */
-  async tick(now = Date.now()): Promise<void> {
-    await this.performanceTick(now);
-    await this.ledgerTick(now);
-  }
-
   /** Rebuilds the pool when due, then reads performance figures, most
    * urgent row first, within the minute's allowance. */
   async performanceTick(now = Date.now()): Promise<void> {

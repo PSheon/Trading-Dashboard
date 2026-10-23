@@ -1,9 +1,10 @@
 import { z } from 'zod';
+import { hash64Schema, idSchema, isoUtcSchema, nonzeroAddressSchema, revisionSchema } from './primitives.js';
 import { copyIdempotencyKeySchema } from './schema/copy.js';
 
-const id = z.string().min(1).max(128).regex(/^[^\s\p{Cc}\p{Cf}]+$/u);
-const revision = z.number().int().positive().max(2147483647);
-const date = z.string().datetime();
+const id = idSchema;
+const revision = revisionSchema;
+const date = isoUtcSchema;
 export const requestLiveCopyStopSchema = z.object({
   idempotencyKey: copyIdempotencyKeySchema,
   expectedMandateRevision: revision,
@@ -40,10 +41,10 @@ export const liveCopyStopsSchema = z.object({
  * tracked. It authorizes cancellation only: never new risk, closing orders,
  * transfers or a different stop, account, agent, grant or network. */
 const MAX_TIME = 8640000000000000;
-const consentId = z.string().min(1).max(128).regex(/^[^\s\p{Cc}\p{Cf}]+$/u);
-const consentAddress = z.string().regex(/^0x[0-9a-f]{40}$/).refine(value => value !== `0x${'00'.repeat(20)}`, 'Nonzero address required');
+const consentId = idSchema;
+const consentAddress = nonzeroAddressSchema;
 const consentTime = z.number().int().positive().max(MAX_TIME);
-const consentHash = z.string().regex(/^[0-9a-f]{64}$/);
+const consentHash = hash64Schema;
 export const liveStopCancellationIntentSchema = z.object({
   authorizationId: consentId, stopId: consentId, accountId: consentId, strategyId: revision, userId: revision,
   network: z.enum(['testnet', 'mainnet']), purpose: z.literal('cancel_tracked_orders'), schemaVersion: z.literal(1),

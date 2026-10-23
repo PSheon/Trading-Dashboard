@@ -1,8 +1,9 @@
 import { z } from 'zod';
+import { millisSchema } from './primitives.js';
 import { copyIdempotencyKeySchema } from './schema/copy.js';
 
 export const prepareCopyAccountModeSchema = z.object({ idempotencyKey: copyIdempotencyKeySchema }).strict();
-const millis = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
+const millis = millisSchema;
 export const accountModeIntentSchema = z.object({
   operationId: z.string().min(1).max(128), accountId: z.string().min(1).max(128),
   strategyId: z.number().int().positive().max(2147483647), network: z.enum(['testnet', 'mainnet']),

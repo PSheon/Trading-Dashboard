@@ -1,18 +1,19 @@
 # Railway deployment
 
-2026-10-01. How Orbie runs on Railway: the services, their variables, the worker's schedules, storage, and how Stage and production stay apart. It collects what `worker-deployment.md`, `container-delivery.md`, `staging-history-release.md` and `backup-and-restore.md` established and adds the S3 archive ingest (`s3-archive-ingest.md`).
+2026-10-01, revised 2026-10-23 to the decisions in `decisions-2026-10-23.md` (D1–D4, D12, D13). How Orbie runs on Railway: the services, their variables, the worker's schedules, storage, and how Stage and production stay apart. It collects what `worker-deployment.md`, `container-delivery.md` and `backup-and-restore.md` established and adds the S3 archive ingest (`s3-archive-ingest.md`).
 
 Read-only check for this document: `railway status` → workspace "Paul's Projects", project **Orbiefun** (`a04669bd-cefb-40bc-96ef-f9d984da6817`), environment **Stage** (`2ed38f77-b0ad-498f-aba1-6d57f55cf288`), linked service `web`. No Railway command that creates or changes anything was run, variables were not read, and nothing in this document has been applied to Railway.
 
 ## Services
 
-One project, one environment per stage, four services per environment. `api` and `worker` are the same image and the same start command (`node dist/main.js`); `IS_WORKER=true` makes it the worker (2026-10-04, as in DonutMe; `APP_ROLE` and `dist/worker.js` are gone, and a process that still has `APP_ROLE` refuses to start).
+One project, one environment per stage, five services per environment once the read worker is deployed (D12, being deployed): three Node processes from one image (`api`, `worker` = worker-copy, `worker-read`), `web` and `Postgres`. `api` and the workers are the same image and the same start command (`node dist/main.js`); `IS_WORKER=true` makes a process a worker and `WORKER_ROLE` picks what it runs (2026-10-04, as in DonutMe; `APP_ROLE` and `dist/worker.js` are gone, and a process that still has `APP_ROLE` refuses to start).
 
 | Service | Source | Start | Public | Health check |
 | --- | --- | --- | --- | --- |
 | `web` | Railpack; build `shared` then `web` | `pnpm --filter @trading-dashboard/web exec next start --hostname :: --port 3000` | Yes (`stage.orbie.fun`) | as configured in Railway |
 | `api` | `apps/api/Dockerfile` (`apps/api/railway.json`) | `node dist/main.js`, pre-deploy `node scripts/migrate.mjs` | No: reached by `web` over the private network (`/api/hl/*` proxy) | `/health/ready` |
-| `worker` | same image as `api`, `IS_WORKER=true` | `node dist/main.js` (the Dockerfile's default; no custom start command) | No (`worker.railway.internal:3000`) | `/health/live` (liveness); `/health/ready` is 503 while standby |
+| `worker` (worker-copy) | same image as `api`, `IS_WORKER=true`, `WORKER_ROLE=copy` | `node dist/main.js` (the Dockerfile's default; no custom start command) | No (`worker.railway.internal:3000`) | `/health/live` (liveness); `/health/ready` is 503 while standby |
+| `worker-read` | same image, `IS_WORKER=true`, `WORKER_ROLE=read`; its own outbound IP (D12) | `node dist/main.js` | No (`worker-read.railway.internal:3000`) | as `worker` |
 | `Postgres` | Railway PostgreSQL | — | No public URL | — |
 
 Rules that already hold and must keep holding:
@@ -128,11 +129,11 @@ Secrets are set in Railway per service and per environment; nothing here belongs
 | `AUTH_SERVICE_TOKEN`, `AUTH_SERVICE_PERMISSIONS` | unset | unset unless a service caller exists | ≥ 32 chars when set |
 | `API_CORS_ORIGINS` | `https://stage.orbie.fun` | production origin | exact origins |
 | `API_TRUSTED_PROXY_CIDRS` | as set on Stage (`http-security-and-logs.md`) | same rule | explicit addresses or CIDRs only |
-| `HYPERLIQUID_WEIGHT_BUDGET_PER_MIN` / `HYPERLIQUID_WEIGHT_BURST` | `480` / `200` | `480` / `200` | page traffic; api + worker share one IP limit of 1,200/min and one meter whose background lane holds 840: the two rates add up to 840, rates + bursts stay under 1,200 |
-| `HYPERLIQUID_EGRESS_KEY` | as set on Stage | one value per outbound IP | **required** in staging and production (startup fails without it); the same value on the api and the worker: the shared Hyperliquid quota is keyed by it |
-| `HYPERLIQUID_STARTUP_PACE_SECONDS` | `60` (default) | `60` | api and worker: a new process starts with empty buckets at half its rate for this long, so a redeploy that overlaps the old instance does not double the spend on the shared IP limit |
-| `HYPERLIQUID_NETWORK` | `testnet` | `testnet` until mainnet signing is approved | user wallet only |
-| `COPY_TRADING_MODE` | `paper` | `paper` | `testnet`/`live` are refused at startup |
+| `HYPERLIQUID_WEIGHT_BUDGET_PER_MIN` / `HYPERLIQUID_WEIGHT_BURST` | `480` / `200` | `480` / `200` | page traffic; api + worker-copy share one IP limit of 1,200/min and one meter whose background lane holds 840 (D12: the copy side keeps the shared quota and its priority); the two rates add up to 840, rates + bursts stay under 1,200 |
+| `HYPERLIQUID_EGRESS_KEY` | as set on Stage | one value per outbound IP | **required** in staging and production (startup fails without it); the same value on the api and worker-copy: the shared Hyperliquid quota is keyed by it. worker-read gets its own value once it has its own IP (D12) |
+| `HYPERLIQUID_STARTUP_PACE_SECONDS` | `60` (default) | `60` | api and workers: a new process starts with empty buckets at half its rate for this long, so a redeploy that overlaps the old instance does not double the spend on the shared IP limit |
+| `HYPERLIQUID_NETWORK` | `mainnet` | `mainnet` | Stage is Paul's real-money pre-release test (D1); the same on every process of an environment |
+| `COPY_TRADING_MODE` | `live` | `live` | real-money copies by ratio only (D6); `testnet` is for a local or throwaway environment |
 
 ### worker
 
@@ -141,7 +142,7 @@ Secrets are set in Railway per service and per environment; nothing here belongs
 | `IS_WORKER` | `true` | `true` | replaces `APP_ROLE=worker` (delete `APP_ROLE`) |
 | `DATABASE_POOL_MAX` | unset (copy 20, read 10; `all` 30) | unset (same) | the worker's main pool, by `WORKER_ROLE` (its lease takes one more connection); see "Database connections" |
 | `NODE_ENV`, `PORT`, `DATABASE_URL` | as api | as api | `WORKER_PORT` wins over `PORT` when set (one machine). `DATABASE_URL` must be the api's exact value: `/health/monitor` (the admin system page's worker telemetry) answers only the key the api derives from it (`src/runtime/worker-calls.ts`); with another value the page shows the worker as unavailable |
-| `HYPERLIQUID_WEIGHT_BUDGET_PER_MIN` / `HYPERLIQUID_WEIGHT_BURST` | `360` / `100` | `360` / `100` | 480 + 360 = 840 of 1,200. On one machine with one `.env` (local), the worker reads `HYPERLIQUID_WORKER_WEIGHT_BUDGET_PER_MIN` / `HYPERLIQUID_WORKER_WEIGHT_BURST` instead (as `WORKER_PORT`); not needed on Railway. With both at 840 locally the worker alone filled the background lane: 45–136 `hyperliquid_quota_exhausted` every 10 minutes on 2026-10-04 (`shared-egress-budget.spec.ts`: 167 → 0 in a simulated 10 minutes) |
+| `HYPERLIQUID_WEIGHT_BUDGET_PER_MIN` / `HYPERLIQUID_WEIGHT_BURST` | worker-copy `360` / `100`; worker-read `900` / `100` | same | worker-copy: 480 + 360 = 840 of the 1,200 it shares with the api. worker-read (D12, being deployed): its own IP's 1,200/min, background jobs held to 900, 300 reserved for the pages' live reads. On one machine with one `.env` (local), the worker reads `HYPERLIQUID_WORKER_WEIGHT_BUDGET_PER_MIN` / `HYPERLIQUID_WORKER_WEIGHT_BURST` instead (as `WORKER_PORT`); not needed on Railway. With both at 840 locally the worker alone filled the background lane: 45–136 `hyperliquid_quota_exhausted` every 10 minutes on 2026-10-04 (`shared-egress-budget.spec.ts`: 167 → 0 in a simulated 10 minutes) |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `TELEGRAM_SYSTEM_CHAT_ID` | Stage bot | production bot | different bots per environment (one poller per token) |
 | `TELEGRAM_DRY_RUN` | `true` | `false` only when alerts go live | |
 | `TELEGRAM_LINK_BASE_URL` | `https://stage.orbie.fun` | production origin | |
@@ -166,7 +167,7 @@ No Privy secret on the worker (it mounts no user API). No AWS key on api or web.
 | `NEXT_PUBLIC_APP_URL` | `https://stage.orbie.fun` | production origin |
 | `NEXT_PUBLIC_PRIVY_APP_ID` | Stage Privy app id | production Privy app id |
 | `NEXT_PUBLIC_API_FIXTURES` | `0` | `0` |
-| `NEXT_PRIVY_AUTH_ORIGINS` | as configured in `frontend-environment.md` | same |
+| `NEXT_PRIVY_AUTH_ORIGINS` | as configured in `auth-and-config.md` (Privy custom auth domain) | same |
 
 `NEXT_PUBLIC_*` values are compiled in: changing one needs a rebuild, not a restart.
 
@@ -243,9 +244,14 @@ Raise a value only after checking that sum (plus any admin `psql` sessions) stil
 
 ## Stage and production
 
-- Separate Railway environments with separate Postgres services, Privy apps, Telegram bots and AWS IAM users. A variable is never shared by reference across environments.
-- Stage exists (`stage.orbie.fun`, api + worker + web + `Postgres-PbuT`). The production environment currently holds only a Postgres service; api, worker and web have not been created there.
-- Promotion: a release is deployed to Stage, migrated, and checked (`/health/ready`, `/health`, the pages in a browser, and for data changes the reconciliation in `s3-archive-ingest.md`). The same commit is then deployed to production. Stage data is never copied to production.
+Decisions D1–D5 (`decisions-2026-10-23.md`):
+
+- Stage (`stage.orbie.fun`, D3) is Paul's real-money pre-release test environment, mainnet and live copies, opened to Paul alone by the sign-up whitelist (D1). It exists today: api + worker + web + `Postgres-PbuT`, worker-read being added (D12).
+- Production (`orbie.fun`, D3) is deferred until Stage has run every test. When it is built it is the identical stack from the same code, only the environment variables differ; the only path to a Production release is the same commit having passed the Stage gates and Paul's real-money test. Until then only the Stage set exists.
+- Identities and keys are entirely separate per environment (D2): its own Privy app (users, wallets, signing quorum), database, Telegram bot and AWS IAM user. A variable is never shared by reference across environments; Stage data is never copied to Production.
+- Railway usage limit (D4): $80 until Production exists, then $120 for both, adjusted after measuring real usage.
+- Stage keeps the same data retention as Production (D5): 90 days of fill history, not cut shorter to save money.
+- Promotion: a release is deployed to Stage, migrated, and checked (`/health/ready`, `/health`, the pages in a browser, and for data changes the reconciliation in `s3-archive-ingest.md`). The same commit is then deployed to Production.
 - AWS cost is per environment: with both ingesting live hours the transfer is paid twice (≈ US$3–4 a month each). Keep backfill off on Stage.
 
 ## Releasing the archive ingest

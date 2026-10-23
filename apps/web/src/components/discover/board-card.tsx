@@ -52,6 +52,7 @@ export function BoardCard({ trader, pnlLabel, roiLabel, roiHint, now, accessory,
           <span className="flex min-w-0 items-center gap-1.5">
             <Link
               href={traderHref(trader.address)}
+              prefetch={false}
               className="truncate text-[0.9375rem] leading-5 font-extrabold outline-none after:absolute after:inset-0 after:z-0 after:content-['']"
             >
               {boardName(trader)}
@@ -146,6 +147,7 @@ export function HomeCard({ trader }: { trader: BoardTrader }) {
   return (
     <Link
       href={traderHref(trader.address)}
+      prefetch={false}
       className="orbit-card orbit-lift flex w-[164px] shrink-0 snap-start flex-col gap-2 rounded-[24px]! p-3.5 outline-none focus-visible:ring-2 focus-visible:ring-ring md:w-[190px]"
     >
       <div className="flex min-w-0 items-center gap-2">
@@ -213,7 +215,7 @@ export function BoardMobileRow({ trader }: { trader: BoardTrader }) {
   const Arrow = up ? ArrowUpRight : ArrowDownRight;
   return (
     <li>
-      <Link href={traderHref(trader.address)} className="orbit-card orbit-press flex items-center gap-3 rounded-[24px]! px-3.5 py-3 outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      <Link href={traderHref(trader.address)} prefetch={false} className="orbit-card orbit-press flex items-center gap-3 rounded-[24px]! px-3.5 py-3 outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <TraderAvatar trader={trader} size={44} />
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="flex min-w-0 items-center gap-1">

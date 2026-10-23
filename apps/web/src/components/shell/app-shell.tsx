@@ -108,6 +108,7 @@ export function AppShell({
         <div className="flex min-w-0 items-center gap-3">
           <Link
             href="/"
+            prefetch={false}
             aria-label={`${APP_NAME} ${t("nav.home")}`}
             className="flex h-[52px] shrink-0 items-center rounded-full pr-2 pl-1 outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
@@ -137,7 +138,7 @@ export function AppShell({
       {chrome.phoneHeader ? (
         <header data-testid="app-phone-header" data-scrolled={scrolled} className="fixed inset-x-0 top-0 z-40 isolate flex h-[72px] items-center gap-2 px-4 max-[374px]:gap-1 max-[374px]:px-3 md:hidden">
           <div aria-hidden className="bar-scrim" />
-          <Link href="/" aria-label={APP_NAME} className="mr-auto flex h-11 min-w-11 shrink-0 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <Link href="/" prefetch={false} aria-label={APP_NAME} className="mr-auto flex h-11 min-w-11 shrink-0 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring">
             <Lockup className="[&>span]:text-2xl max-[479px]:[&>span]:hidden" />
           </Link>
           <IslandBoundary><AddressSearch compact /></IslandBoundary>
@@ -206,6 +207,7 @@ function NavCapsule({ label, items, pathname, className }: { label: string; item
           <Link
             key={item.href}
             href={item.href}
+            prefetch={false}
             data-active={active}
             aria-current={active ? "page" : undefined}
             aria-label={text}

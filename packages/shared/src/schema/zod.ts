@@ -1679,10 +1679,10 @@ export type GeneralSettings = z.infer<typeof generalSettingsSchema>;
  * market ("xyz:TSLA"). */
 export const boardCoinSchema = z.string().regex(/^(?:[a-z0-9]{1,12}:)?[A-Za-z0-9]{1,20}$/);
 
+/** A stored `discovery` row may still carry `homeMarkets` (the home's
+ * per-market rows, removed 2026-10-23): z.object strips the unknown key on
+ * parse, so the row stays readable and the key is dropped on the next save. */
 export const discoverySettingsSchema = z.object({
-  /** The home page's market rows, in this fixed order (CopyDog's). */
-  homeMarkets: z.array(z.string().min(1).max(24)).max(16)
-    .default(["BTC", "ETH", "SOL", "HYPE", "xyz:SP500", "xyz:GOLD", "xyz:NVDA", "xyz:TSLA"]),
   hideVaults: z.boolean().default(true),
   /** Fewer 30-day fills than this → greyed out with a "low sample" tag. */
   lowSampleThreshold: z.number().int().min(0).max(1000).default(20),
@@ -1764,7 +1764,6 @@ export const publicSettingsSchema = z.object({
   copyTradingEnabled: z.boolean(),
   /** Optional while older APIs roll out; absent means not in maintenance. */
   maintenance: maintenanceSettingsSchema.optional(),
-  homeMarkets: z.array(z.string()),
   /** Coin boards on explore and home (optional while older APIs roll out). */
   cryptoBoards: z.array(z.string()).optional(),
   stockBoards: z.array(z.string()).optional(),

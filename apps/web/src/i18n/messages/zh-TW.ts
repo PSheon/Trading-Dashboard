@@ -2610,8 +2610,6 @@ export const zhTW = {
       },
       discovery: {
         title: "探索",
-        homeMarkets: "首頁市場標籤",
-        homeMarketsHint: "備援：平時首頁依交易所 24 小時量排列。只能選交易所現有市場，下架的會標示灰色。",
         hideVaults: "探索頁預設隱藏 Vault",
         lowSample: "低樣本門檻（30 天成交筆數）",
         defaultActiveWithin: "探索與首頁預設只列出",

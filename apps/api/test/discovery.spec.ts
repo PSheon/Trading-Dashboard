@@ -90,7 +90,7 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
   const db = getTestDb();
   const repository = new DiscoveryRepository(db);
   const kols = new KolService(new KolRepository(db), new UnitOfWork(db));
-  const discoverySettings = { homeMarkets: ["BTC", "xyz:TSLA"], cryptoBoards: ["BTC"], stockBoards: ["xyz:TSLA"] };
+  const discoverySettings = { cryptoBoards: ["BTC"], stockBoards: ["xyz:TSLA"] };
   /** testConfig() with the deploy-time pool size and loop caps of a case. */
   const tuned = (discovery: { candidatePoolSize?: number }, weights: { poolLedger?: number; poolPerformance?: number }) => {
     const base = testConfig().value;

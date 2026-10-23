@@ -246,10 +246,13 @@ and `HYPERLIQUID_BACKFILL_WEIGHT_PER_MIN` (120 each) and
 schema default had been 150 since 2026-10-04). `discovery` keeps
 `cryptoBoards` / `stockBoards` (the explore tabs and home market tiles,
 Hyperliquid coin names such as `BTC` or `xyz:TSLA`; edited as chips with
-drag-to-reorder in 設定 → 探索). `homeMarkets` is kept and public but no
-longer read by the api: the home's per-market rows were removed on
-2026-10-23 (the market tiles lead to each market's explore board). The
-board lists are public in `GET /settings`.
+drag-to-reorder in 設定 → 探索). `homeMarkets` is gone from the schema,
+the admin form, the patch DTO and `GET /settings`: the home's per-market
+rows were removed on 2026-10-23 (the market tiles lead to each market's
+explore board). A stored `discovery` row that still carries the key reads
+as before — `discoverySettingsSchema` is a plain `z.object`, which strips
+an unknown key on parse — and the key is dropped by the next save of the
+section. The board lists are public in `GET /settings`.
 
 The KOL registry (`kol_traders`) is managed under 交易員資料 › KOL (`/admin/traders`) with the
 `kols.manage` permission: list, add or replace by address, edit, remove,

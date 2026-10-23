@@ -46,11 +46,9 @@ export function fixtureSearch(q: string, limit: number) {
 export function fixtureHome() {
   // Ten per row: the home shows seven and fills the slot of a trader an earlier row already shows.
   const board = (market: "crypto" | "stocks", board = "top100", sort: BoardQuery["sort"] = "copyScore") => fixtureBoard({ market, board, sort, window: "all" }).items.slice(0, 10);
-  const settings = publicSettings();
   return {
     // As the api: the stocks row is sorted by PnL.
     featured: board("crypto", "kol"), crypto: board("crypto"), stocks: board("stocks", "top100", "pnl"),
-    markets: (["crypto", "stocks"] as const).flatMap((market) => (market === "crypto" ? (settings.cryptoBoards ?? CRYPTO) : (settings.stockBoards ?? STOCKS)).map((coin) => ({ coin, market, items: board(market, coin, "pnl") }))),
     calculator: board("crypto").slice(0, 6), updatedAt: leaderboardUpdatedAt,
     pool: fixtureBoard({ market: "crypto", board: "top100", sort: "copyScore", window: "all" }).pool,
     rankingScope: "candidate_pool" as const,

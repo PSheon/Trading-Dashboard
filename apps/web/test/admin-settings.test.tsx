@@ -46,8 +46,9 @@ it("lists every pending change in one card, saves the touched sections together 
     expect(container.querySelector("#candidate-pool-size")).toBeNull();
     expect(container.querySelector("#pool-weight")).toBeNull();
     expect(container.querySelector("#retention-snapshotDays")).toBeNull();
-    // The market lists are chip editors.
-    for (const id of ["home-markets", "crypto-boards", "stock-boards"]) expect(container.querySelector(`#${id}-label`)).not.toBeNull();
+    // The market lists are chip editors; the home-markets one is gone (the api no longer reads it, 2026-10-23).
+    expect(container.querySelector("#home-markets-label")).toBeNull();
+    for (const id of ["crypto-boards", "stock-boards"]) expect(container.querySelector(`#${id}-label`)).not.toBeNull();
     expect(container.textContent).toContain("admin.settings.noChanges");
     expect((button("admin.settings.save") as HTMLButtonElement).disabled).toBe(true);
 

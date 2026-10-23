@@ -332,8 +332,6 @@ function DiscoveryCard({ draft, set, disabled }: { draft: Drafts["discovery"]; s
   const value = draft.value;
   return (
     <AdminCard id="discovery" className="scroll-mt-24" title={t("admin.settings.discovery.title")}>
-      <MarketChips id="home-markets" kind="any" label={t("admin.settings.discovery.homeMarkets")} hint={t("admin.settings.discovery.homeMarketsHint")}
-        value={value.homeMarkets} onChange={(homeMarkets) => set({ homeMarkets })} disabled={disabled} />
       <Toggle label={t("admin.settings.discovery.hideVaults")} checked={value.hideVaults} onChange={(hideVaults) => set({ hideVaults })} />
       <div className="grid gap-3 sm:grid-cols-2">
         <Field id="low-sample" label={t("admin.settings.discovery.lowSample")}>

@@ -2606,8 +2606,6 @@ export const en: Messages = {
       },
       discovery: {
         title: "Discovery",
-        homeMarkets: "Home page market chips",
-        homeMarketsHint: "A fallback: the home page normally orders its rows by the exchange's 24h volume. Only markets listed on Hyperliquid; a delisted one is greyed.",
         hideVaults: "Hide vaults in Explore by default",
         lowSample: "Low-sample threshold (fills in 30 days)",
         defaultActiveWithin: "Explore and home list only",

@@ -16129,25 +16129,6 @@
                         "discovery": {
                           "type": "object",
                           "properties": {
-                            "homeMarkets": {
-                              "type": "array",
-                              "items": {
-                                "type": "string",
-                                "minLength": 1,
-                                "maxLength": 24
-                              },
-                              "maxItems": 16,
-                              "default": [
-                                "BTC",
-                                "ETH",
-                                "SOL",
-                                "HYPE",
-                                "xyz:SP500",
-                                "xyz:GOLD",
-                                "xyz:NVDA",
-                                "xyz:TSLA"
-                              ]
-                            },
                             "hideVaults": {
                               "type": "boolean",
                               "default": true
@@ -16542,25 +16523,6 @@
                         "discovery": {
                           "type": "object",
                           "properties": {
-                            "homeMarkets": {
-                              "type": "array",
-                              "items": {
-                                "type": "string",
-                                "minLength": 1,
-                                "maxLength": 24
-                              },
-                              "maxItems": 16,
-                              "default": [
-                                "BTC",
-                                "ETH",
-                                "SOL",
-                                "HYPE",
-                                "xyz:SP500",
-                                "xyz:GOLD",
-                                "xyz:NVDA",
-                                "xyz:TSLA"
-                              ]
-                            },
                             "hideVaults": {
                               "type": "boolean",
                               "default": true
@@ -17630,12 +17592,6 @@
                           ],
                           "additionalProperties": false
                         },
-                        "homeMarkets": {
-                          "type": "array",
-                          "items": {
-                            "type": "string"
-                          }
-                        },
                         "cryptoBoards": {
                           "type": "array",
                           "items": {
@@ -17670,7 +17626,6 @@
                       "required": [
                         "signupsOpen",
                         "copyTradingEnabled",
-                        "homeMarkets",
                         "hideVaults",
                         "lowSampleThreshold",
                         "defaultActiveWithin",
@@ -45604,15 +45559,6 @@
       "DiscoveryPatchDto": {
         "type": "object",
         "properties": {
-          "homeMarkets": {
-            "type": "array",
-            "maxItems": 16,
-            "items": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 24
-            }
-          },
           "hideVaults": {
             "type": "boolean"
           },

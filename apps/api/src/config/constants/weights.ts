@@ -140,6 +140,16 @@ export const COPIED_LEADER_WATCH_WEIGHT = (Math.ceil(MINUTE_MS / CONFIRM_MIN_INT
  */
 export const LIVE_ORDER_BOUNDARY_WEIGHT = infoWeight({ type: 'extraAgents' }) + 1;
 
+/** basis: measured — Stage mainnet 2026-10-18 08:05Z (FARTCOIN, the first real order): its settlement claimed need 266 = the fill scan's 2 × userFillsByTime (2 × 120) + meta and orderStatus (22) + the account observation (4); derived from CopyLiveSettler's claim, with a named dex's market lookup (40) instead of meta (20)
+ * One order's settlement as CopyLiveSettler claims it, less its account
+ * observation (observerRestWeight, which the read cache may hold): 282.
+ * The live standby keeps it free beside the order's own need
+ * (liveStandbyNeed), so the order's evidence spends the standby's room and
+ * its settlement still finds its own: that settlement waited 26.7 s after
+ * the ack for background's, pages' and the source's charges to expire.
+ */
+export const LIVE_SETTLEMENT_WEIGHT = 2 * infoPrepaidWeights([{ type: 'userFillsByTime' }]) + 2 * infoWeight({ type: 'meta' }) + infoWeight({ type: 'orderStatus' });
+
 /** basis: derived — the four mode reads twice (204) and five 20-weight catalog reads
  * The mode reads run before and after the rest; the catalog reads are
  * metaAndAssetCtxs, activeAssetData, userFees, perpDexs and spotMeta.

@@ -11,6 +11,7 @@ import { AppConfig } from '../src/config/app-config.js';
 import { validateEnvironment } from '../src/config/runtime-config.js';
 import { UnitOfWork } from '../src/db/unit-of-work.js';
 import { HyperliquidGlobalTransport } from '../src/hyperliquid/hyperliquid-global-transport.js';
+import { infoPrepaidWeight } from '../src/hyperliquid/info-weights.js';
 import { PostgresHyperliquidQuota } from '../src/hyperliquid/postgres-hyperliquid-quota.js';
 import { RequestBudgeterService } from '../src/hyperliquid/request-budgeter.service.js';
 import { LiveExecutionRuntime, type LiveExecutionRequest } from '../src/copy/live/live-execution-runtime.js';
@@ -295,22 +296,35 @@ describe('unregistered concrete testnet execution runtime', () => {
     await actualClockFixture();
     const connect = vi.spyOn(pool, 'connect'), observe = vi.spyOn(HyperliquidLiveAccountObserver.prototype, 'observe'),
       collect = vi.spyOn(LiveProviderReadEpoch.prototype, 'collect'), hold = vi.spyOn(PostgresLiveReservations.prototype, 'hold');
+    const claimLive = vi.spyOn(global, 'claimLive');
     const result = await runtime(config, { ...options, slippageBps: '0' }).execute(request());
     expect(result).toMatchObject({ state: 'filled', nonce: clock, outcome: { exchangeOrderId: '77', filledSize: '0.1' } });
-    // Routing, the order's live demand on the shared meter (before the locks), the original session.
-    expect(connect).toHaveBeenCalledTimes(3); expect(observe).toHaveBeenCalledOnce(); expect(hold).toHaveBeenCalledOnce();
+    // Routing, the order's live demand on the shared meter (before the locks), the original session, its claim's release (after them).
+    expect(connect).toHaveBeenCalledTimes(4); expect(observe).toHaveBeenCalledOnce(); expect(hold).toHaveBeenCalledOnce();
     expect(new Set(collect.mock.contexts).size).toBe(1); expect(new Set(collect.mock.calls.map(([session]) => session)).size).toBe(1);
     expect(raw.mock.calls.filter(([url]) => String(url).endsWith('/exchange'))).toHaveLength(1);
     expect(raw.mock.calls.filter(([url]) => String(url).endsWith('/rpc'))).toHaveLength(1);
     const [lease] = await db.select().from(schema.hyperliquidWsLeases); expect(lease?.state).toBe('closed');
     const [quota] = await db.select().from(schema.hyperliquidEgressQuota); expect(quota!.egressKey).toBe(config.value.hyperliquid.egressKey);
-    // The order announced its weight before its locks, and every REST charge
-    // of its original session is the live lane's, under that demand.
-    const demand = quota!.events.find(e => e.id.startsWith('live-demand:')), token = demand?.id.split(':')[2];
+    // The order announced its weight before its locks (claimLive), and every
+    // REST charge of its original session is the live lane's, under that
+    // demand's token. Its work over, its claim is released: it keeps nothing
+    // free (Stage mainnet 2026-10-18: its leftover 290 stayed reserved for
+    // 15 s and its own settlement was quoted ~30 s behind it).
+    expect(claimLive).toHaveBeenCalledOnce();
+    expect(quota!.events.filter(e => e.id.startsWith('live-demand:'))).toEqual([]);
+    const rest = quota!.events.filter(e => e.kind === 'rest'), token = /^live:([0-9a-f]{16}):/.exec(rest[0]?.id ?? '')?.[1];
     expect(token).toMatch(/^[0-9a-f]{16}$/);
-    const rest = quota!.events.filter(e => e.kind === 'rest' && e !== demand);
     expect(rest.length).toBeGreaterThan(0);
-    for (const e of rest) expect(e.id.startsWith(`live:${token}:`)).toBe(true);
+    for (const e of rest) expect(e.id.startsWith(`live:${token}:order:`)).toBe(true);
+    // The meter holds what was sent, not what was prepaid: its prepay (the
+    // evidence estimate and the boundary) lives in the local bucket, and each
+    // shared charge is one dispatched info read, wave or exchange POST.
+    const href = (url: Parameters<typeof fetch>[0]) => typeof url === 'string' ? url : url instanceof URL ? url.href : url.url;
+    const sent = raw.mock.calls.reduce((sum, [url, init]) => sum + (href(url).endsWith('/exchange') ? 1
+      : href(url).endsWith('/info') && typeof init?.body === 'string' ? infoPrepaidWeight(JSON.parse(init.body) as { type: string }) : 0), 0);
+    expect(rest.reduce((sum, e) => sum + e.units, 0)).toBe(sent);
+    expect(sent).toBeLessThanOrEqual(claimLive.mock.calls[0]![0]);
     // The exchange's own IOC answer is kept as settlement evidence at once and
     // marks the liability attempted; it alone grants no settlement release.
     const [reservation] = await db.select().from(schema.copyLiveRiskReservations); expect(reservation?.state).toBe('unknown');
@@ -515,7 +529,8 @@ describe('unregistered concrete testnet execution runtime', () => {
     const result = await runtime(config, { ...options, slippageBps: '0' }).execute(request());
     expect(result.state).toBe('filled');
     expect(connectionsWhenWaiting).toBe(1);
-    expect(connect).toHaveBeenCalledTimes(3);
+    // Routing, the live demand, the original session and, once it is over, the claim's release.
+    expect(connect).toHaveBeenCalledTimes(4);
   }, 15_000);
   it('takes exactly the REST weight its reads send, at most 450 for an order', async () => {
     await actualClockFixture();
@@ -619,12 +634,12 @@ describe('unregistered concrete testnet execution runtime', () => {
     // It waits for that room at most SETTLEMENT_CLAIM_WAIT_MS (15 s), not a whole charge lifetime: one starved order never holds up the rest of the pass.
     expect(claimLive.mock.calls[0]![1]).toBe(clock+15_000);
     const ids=during.map(e=>e.id),demands=ids.map(id=>/^live-demand:(\d+):([0-9a-f]{16}):/.exec(id)).filter(m=>m!==null);
-    // The order's own demand came first; the settlement's is the last.
-    const demand=demands.at(-1);expect(demands).toHaveLength(2);
+    // The order's own claim was released once its work was over: the settlement's is the only one.
+    const demand=demands.at(-1);expect(demands).toHaveLength(1);
     expect(Number(demand![1])).toBe(claimLive.mock.calls[0]![0]);
     // The scan's charge is the live lane's and carries the demand's token.
     expect(ids.some(id=>id.startsWith(`live:${demand![2]}:`))).toBe(true);
-    // The pass is over: its demand is gone, the order's stays (its own).
+    // The pass is over: its demand is gone too.
     const [quota]=await db.select().from(schema.hyperliquidEgressQuota);
     expect((quota!.events as {id:string}[]).filter(e=>e.id.startsWith(`live-demand:`)&&e.id.includes(`:${demand![2]}:`))).toEqual([]);
   });

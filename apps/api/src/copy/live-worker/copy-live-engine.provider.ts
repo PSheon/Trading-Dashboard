@@ -117,8 +117,8 @@ export const liveEngineProvider: FactoryProvider<CopyLiveEngine | null> = {
     return new CopyLiveEngine({ network, apiTerminalSettlement: network === 'testnet', setups, stopper: { tick: async () => { await stopper.tick(); await manual.tick(); } },
       // The heaviest order these copies can send now (its evidence and
       // boundary, what the read cache holds left out; at most the startup
-      // bound fit.weight) kept free on the shared meter while copies run:
-      // an order never waits for background (liveStandbyNeed).
+      // bound fit.weight) and its settlement kept free on the shared meter
+      // while copies run: neither waits for background (liveStandbyNeed).
       // With a fast source, the source lane's reserve is kept free of
       // background beside it (standbySource), so a kick's read finds room.
       standby: async mandates => {

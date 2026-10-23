@@ -229,7 +229,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -241,8 +241,23 @@ jobs:
       - uses: ./.github/actions/setup
       - name: Build shared contracts
         run: pnpm --filter @trading-dashboard/shared build
+      # Chromium from the runner cache, keyed by the Playwright version: the
+      # download took 7–9 min twice on 2026-10-23 (runs 39901591546 and
+      # 39946824880) and pushed this job past its timeout.
+      - name: Playwright version
+        id: playwright
+        run: echo "version=$(node -p "require('./apps/web/node_modules/@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: chromium
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ steps.playwright.outputs.version }}
       - name: Install Chromium
+        if: steps.chromium.outputs.cache-hit != 'true'
         run: pnpm --filter @trading-dashboard/web exec playwright install --with-deps chromium
+      - name: Install Chromium's system packages
+        if: steps.chromium.outputs.cache-hit == 'true'
+        run: pnpm --filter @trading-dashboard/web exec playwright install-deps chromium
       # A fixture server that never came up is started once more; a failing
       # test is never retried. Turbopack's next/font/google loader sometimes
       # fails the root layout on a cold start ("next/font/google queries have

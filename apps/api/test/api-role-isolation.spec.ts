@@ -145,7 +145,7 @@ const READ_SCHEDULES = ["SchedulerService.snapshotAll", "SchedulerService.hourly
   "TradersWorker.historyTick", "TradersWorker.ingestTick", "TradersWorker.trackedTick", "DiscoveryWorker.performanceTick", "DiscoveryWorker.ledgerTick",
   "CohortWorker.cohortTick", "BackfillWorker.scheduledTick", "RevenueWorker.hourlySnapshot", "ArchiveIngestWorker.archiveTick", "RetentionWorker.tick", "OutboxService.drain"];
 /** What only real-money work constructs: none may exist on a `read` worker. */
-const COPY_ONLY = ["LIVE_ENGINE", "CopyLiveWorkerService", "CopyLiveSetupService", "CopyLiveSetupAbortService", "CopyFundingMonitor", "CopyLiveApiSettlementService",
+const COPY_ONLY = ["LIVE_ENGINE", "CopyLiveWorkerService", "CopyLiveSetupService", "CopyLiveSetupAbortService", "CopyFundingMonitor",
   "CopyFundingExchangeClient", "AGENT_APPROVAL_CLIENT", "ACCOUNT_MODE_CLIENT", "WORKER_MASTER_SIGNER", "PrivyPolicyMasterSigner", "PrivyAgentApprovalClient", "PrivyAccountModeClient",
   "CopyAccountModeService", "CopyAgentService", "CopyFundingService", "WatcherRuntime", "FeedMonitorService", "CopySetupDueListener"];
 

@@ -38,11 +38,9 @@ export function OperationalSwitchesPanel({ api, worker, archive }: { api?: Opera
     { name: "S3_ARCHIVE_ENABLED", value: (s) => onOff(s.archiveEnabled) },
     { name: "S3_ARCHIVE_MAX_DAILY_USD", value: (s) => format.usd(s.archiveMaxDailyUsd, { digits: 2 }) },
     { name: "MAX_FAVORITES_PER_USER", value: (s) => t("adminOps.system.favoritesDefault", { value: s.maxFavoritesPerUserDefault }) },
-    // A worker's role (all, copy or read), the api's setup drive, and which
-    // process runs the terminal settlement loop (absent from older processes).
+    // A worker's role (all, copy or read) and the api's setup drive (absent from older processes).
     { name: "WORKER_ROLE", value: (s) => s.workerRole ?? "—" },
     { name: "API_SETUP_DRIVE", value: (s) => s.setupDrive ?? "—" },
-    { name: "TERMINAL_SETTLEMENT", value: (s) => s.terminalSettlement === undefined ? "—" : onOff(s.terminalSettlement) },
   ];
   // The ingest runs in the worker.
   const state = archiveState(worker?.archiveEnabled, archive);

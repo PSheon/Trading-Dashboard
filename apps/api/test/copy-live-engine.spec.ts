@@ -9,7 +9,6 @@ import { HyperliquidLiveSourceClient } from '../src/copy/copy-live-source.client
 import { HyperliquidBudgetWait } from '../src/hyperliquid/hyperliquid-budget-wait.js';
 import { liveSourceExecutionCloid } from '../src/copy/live/postgres-live-preparation.js';
 
-import { CopyLiveApiSettlementRepository } from '../src/copy/live-worker/copy-live-api-settlement.repository.js';
 import { LiveBoundaryError } from '../src/copy/live/wallet-authorization.js';
 import { LiveRiskBusyError } from '../src/copy/live/postgres-live-risk-scope.js';
 import { HyperliquidRestCapacityError } from '../src/hyperliquid/hyperliquid-capacity-error.js';
@@ -472,22 +471,6 @@ describe('testnet copy execution engine', () => {
       for (let at = now + 1000; at <= now + 9000; at += 500) { clock = at; await engine().tick(); }
       expect(runtimeCalls.map(c => c.attempt)).toEqual([undefined, 1, 2]);
       expect((await dispatches())[0]).toMatchObject({ state: 'refused', reason: NEVER_PLACED, executionKey: keyAt(fill, MAX_LIVE_LEG_ATTEMPTS - 1) });
-    });
-    it('plans the next attempt after the API\'s testnet settlement released the order as never sent', async () => {
-      await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
-      const fill = await leaderFill(33, now + 100, 'B', '1', '0');
-      runtimeImpl = attempts(new Set([0]));
-      const api = () => engine({ apiTerminalSettlement: true });
-      clock = now + 1000; await api().tick();
-      clock = now + 1500; await api().tick();
-      expect((await dispatches())[0]).toMatchObject({ state: 'submitted', executionKey: keyAt(fill, 0), reason: null });
-      await new CopyLiveApiSettlementRepository(db).finish((await dispatches())[0]!, { kind: 'unplaced', unsent: true });
-      expect((await dispatches())[0]).toMatchObject({ state: 'submitted', reason: 'unsent_released' });
-      clock = now + 2000; await api().tick();
-      clock = now + 2500; await api().tick();
-      expect(settleCalls).toHaveLength(0);
-      expect(runtimeCalls.map(c => c.attempt)).toEqual([undefined, 1]);
-      expect((await dispatches())[0]).toMatchObject({ state: 'submitted', executionKey: keyAt(fill, 1) });
     });
     it('does not plan an open again once its signal is older than the policy allows', async () => {
       await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();

@@ -44,26 +44,12 @@ Keep current contract/architecture documentation and the execution ledger in syn
 
 `apps/api/scripts/migrate.test.mjs` fails CI when a migration after `0060` adds an index on one of these tables without `IF NOT EXISTS`, or uses `CONCURRENTLY` inside a migration. Add a table to its `LARGE_TABLES` list when it grows past a few hundred MB.
 
-### Testnet terminal settlement in the API process
+### Terminal settlement runs on the copy worker only (D13, 2026-10-23)
 
-When actual testnet copying is enabled, the API has one narrow background exception:
-`CopyLiveApiSettlementService` recovers durable submitted dispatches whose journal is
-already terminal. It shares that API process's existing wallet-network budget and the
-existing cross-process egress meter. It has no signing, order execution, source polling,
-funding, or new HTTP route. The testnet worker hands off only terminal settlement;
-pending orders and uncertain order reconciliation remain in the worker. Mainnet keeps
-its existing worker settlement path.
-
-Per-execution PostgreSQL session claims prevent healthy API replicas from duplicating
-paid settlement work. Claim loss fences later provider dispatches, SQL and saves;
-in-flight HTTP/SQL cannot be physically undone. Crash recovery may repeat reads, but
-release still requires the original locked DAL and immutable verified settlement proof.
-Old generations and stopped accounts remain recoverable. Terminal journals alone do
-not release reservations or permit stop refunds. Small/busy pools skip admission;
-queued connections have bounded waits and late connections are returned safely.
-
-Deploy the testnet worker handoff before enabling the new API process version.
-While the API is unavailable, terminal dispatches remain submitted. An older worker
-version does not participate in the new scheduling claim; running it beside the new
-API may duplicate reads, even though the original settlement DAL still prevents an
-unverified or duplicate release.
+The copy worker's live engine (`CopyLiveEngine.work`, `CopyLiveSettler`) settles every
+terminal order itself, on testnet and mainnet alike: one path, no process-level claim.
+The api has no settlement loop, no `API_TERMINAL_SETTLEMENT` switch and no provider that
+settles; it only watches the copy worker's heartbeat (`worker.terminalSettlement`, true
+while that worker's live engine runs) and alerts `terminal_settlement_unowned` when none
+reports it for 2 minutes (`WorkerFleetService`). `test/worker-settlement-guard.spec.ts`
+proves both: the api process constructs no settlement provider, and the alert still fires.

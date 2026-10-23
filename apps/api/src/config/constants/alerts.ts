@@ -43,8 +43,8 @@ export const FEED_DOWN_ALERT_MS = 10 * MINUTE_MS;
  */
 export const SNAPSHOT_STALE_MS = 15 * MINUTE_MS;
 
-/** basis: guessed — the api waits 2 min for a copy worker to report the settlement loop on; verify: none needed
- * Applies while the api's own settlement loop is off.
+/** basis: guessed — the api waits 2 min for a copy worker heartbeat to report its live engine running (worker.terminalSettlement); verify: none needed
+ * Applies on the api of a live copy deployment with WORKER_URL set (the api never settles: D13).
  */
 export const SETTLEMENT_OWNER_WINDOW_MS = 2 * MINUTE_MS;
 

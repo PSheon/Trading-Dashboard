@@ -50,7 +50,7 @@ From the release with `WORKER_ROLE` (feat/worker-roles), the single `worker` can
 
 | Service | `IS_WORKER` | `WORKER_ROLE` | Lease | Runs |
 | --- | --- | --- | --- | --- |
-| `worker` (becomes worker-copy) | `true` | `copy` | (73106,1) | live copy engine, setup driver and aborts, stops, closer, settler, funding monitor, setup-due listener (NOTIFY), terminal settlement loop (testnet copy), trade feed and its check, rules |
+| `worker` (becomes worker-copy) | `true` | `copy` | (73106,1) | live copy engine (it settles every terminal order itself, on both networks: D13), setup driver and aborts, stops, closer, funding monitor, setup-due listener (NOTIFY), trade feed and its check, rules |
 | `worker-read` (new) | `true` | `read` | (73106,2) | scheduler (snapshots, sweep, catch-up, backfill), traders, discovery, cohorts, revenue, archive, retention, outbox, Telegram, paper copy, follower snapshots and receipts |
 | one `worker`, unset | `true` | unset (`all`) | both | everything (today) |
 
@@ -61,11 +61,11 @@ A standby process makes no Hyperliquid call until it holds its lease (`scripts/w
 | Service | Variable | Value | Notes |
 | --- | --- | --- | --- |
 | worker-read | everything the worker has (DB, Telegram, archive, AWS, Hyperliquid budget, `COPY_TRADING_MODE`, `HYPERLIQUID_NETWORK`, `HYPERLIQUID_EGRESS_KEY`, …) | same as `worker` | plus `WORKER_ROLE=read`. `DATABASE_URL` must be the api's exact value (monitor key) |
-| worker | `WORKER_ROLE` | `copy` | `WORKER_TERMINAL_SETTLEMENT` defaults to on for `copy` and off for `all` |
+| worker | `WORKER_ROLE` | `copy` | |
 | api | `WORKER_URL` | `http://worker.railway.internal:3000` | the copy worker (feed, copy health); `/health` is 503 without it |
 | api | `WORKER_READ_URL` | `http://worker-read.railway.internal:3000` | optional; snapshot, sweep, discovery and archive health come from it; `snapshots_stale` alerts after 15 min |
 | api | `API_SETUP_DRIVE` | `local` → `worker` | `worker`: confirm and advance mark the setup due and `NOTIFY copy_setup_due`; the copy worker drives it (and reconciles the deposit) |
-| api | `API_TERMINAL_SETTLEMENT` | `on` → `off` | turn off only after the copy worker logs "Terminal settlement loop on the worker"; with it off, the api alerts `terminal_settlement_unowned` if no copy heartbeat reports the loop on for 2 min |
+| api | (no settlement switch) | | the api never settles (D13, 2026-10-23); on a live copy deployment it alerts `terminal_settlement_unowned` if no copy worker heartbeat reports its live engine running (`worker.terminalSettlement`) for 2 min |
 
 Until the egress split (1b), every service keeps the same `HYPERLIQUID_EGRESS_KEY`: they still share one outbound IP. With 1b (Railway static egress on worker only) worker-copy gets its own key.
 
@@ -74,13 +74,12 @@ Until the egress split (1b), every service keeps the same `HYPERLIQUID_EGRESS_KE
 1. Back up, then deploy the release (api → worker → web) with no new variable. Nothing changes (`all`).
 2. Create `worker-read` from the same source and start command, with the worker's variables plus `WORKER_ROLE=read`, restart policy **Always**. It waits on standby for lease 2 (held by `all`) and makes no Hyperliquid call. Set `WORKER_READ_URL` on the api.
 3. Set `WORKER_ROLE=copy` on `worker`. Its redeploy starts a copy standby; when the old `all` exits both leases free: copy takes lease 1, worker-read takes lease 2 (about 1 s, or about 30 s after an unclean exit).
-4. Check `/health` and the admin system page: the copy heartbeat shows `worker.role=copy`, `leases=[1]`, `terminalSettlement=true` (testnet copy); worker-read shows `role=read`, `leases=[2]`, fresh snapshots.
+4. Check `/health` and the admin system page: the copy heartbeat shows `worker.role=copy`, `leases=[1]`, `terminalSettlement=true` (its live engine runs); worker-read shows `role=read`, `leases=[2]`, fresh snapshots.
 5. Set `API_SETUP_DRIVE=worker` on the api.
-6. After the copy worker's log shows "Terminal settlement loop on the worker", set `API_TERMINAL_SETTLEMENT=off` on the api.
 
 **Rollback (in this order)**
 
-1. On the api: `API_TERMINAL_SETTLEMENT=on`, `API_SETUP_DRIVE=local` (the api must own these again before the worker becomes `all`, because `all` keeps the worker's settlement loop off).
+1. On the api: `API_SETUP_DRIVE=local` (the api must own setups again before the worker becomes `all`).
 2. Scale `worker-read` to 0 (or delete it).
 3. Unset `WORKER_ROLE` on `worker` (back to `all`, both leases).
 4. Unset `WORKER_READ_URL` on the api.
@@ -212,7 +211,7 @@ Each process has one main pool (`DATABASE_POOL_MAX`; defaults in `apps/api/src/c
 | a worker's rolling deploy (the standby builds nothing until it owns the lease) | 42 + 1 = 43 each |
 | all of the above at once | 55 |
 
-What the pools hold (2026-10-22 count, the basis lines of the constants): the api keeps three LISTEN relays (settings, actions, copy feed) and runs the terminal settlement loop (a claim and a risk-scope connection, refused below three free); the copy worker keeps two LISTEN connections (settings, setup wake-ups), and its live engine works one order, stop, close or settlement at a time with two dedicated connections (order lock and risk scope) beside the settlement loop's two, about 13 at its busiest; the read worker keeps one LISTEN connection and runs short statements only. Before 2026-10-22 the defaults were api 20 and worker 30: 82 steady with two workers and about 103 during an api deploy, over the limit.
+What the pools hold (2026-10-22 count, the basis lines of the constants; settlement moved to the worker alone on 2026-10-23, D13): the api keeps three LISTEN relays (settings, actions, copy feed) and otherwise runs request handlers' short queries only (no settlement loop, so no connection is reserved for a claim: 3 + 7 for requests); the copy worker keeps two LISTEN connections (settings, setup wake-ups), and its live engine works one order, stop, close or settlement at a time with two dedicated connections (order lock and risk scope), about 10 at its busiest; the read worker keeps one LISTEN connection and runs short statements only. Before 2026-10-22 the defaults were api 20 and worker 30: 82 steady with two workers and about 103 during an api deploy, over the limit.
 
 Raise a value only after checking that sum (plus any admin `psql` sessions) still fits. To see what a process really uses: `select application_name, state, count(*) from pg_stat_activity group by 1, 2` (`td-api`, `td-worker-copy`, `td-worker-read`).
 

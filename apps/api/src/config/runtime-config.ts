@@ -3,7 +3,7 @@ import { createPrivateKey, createPublicKey } from "node:crypto";
 import { WALLET_NETWORKS } from "@trading-dashboard/shared/contracts";
 
 import { booleanValue, databaseUrl, integerValue, servicePermissions } from "./parse-env.js";
-import { runsCopy, workerRoleValue } from "../runtime/worker-role.js";
+import { workerRoleValue } from "../runtime/worker-role.js";
 import { liveSetupTimings, liveStopTimings, type LiveSetupTimings, type LiveStopTimings } from "./live-timings.js";
 import { HYPERLIQUID_BACKGROUND_REST_CAP, MAINNET_WORKER_WEIGHT } from './constants/hyperliquid.js';
 import { FAST_SOURCE_GRACE_MS, LIVE_EVIDENCE_MAX_AGE_MS, LIVE_TESTNET_EVIDENCE_MAX_AGE_CAP_MS } from './constants/timings.js';
@@ -406,17 +406,10 @@ export function validateEnvironment(source: Environment = process.env) {
   // api's confirm/advance; `worker` only marks it due and wakes the copy
   // worker (NOTIFY copy_setup_due, copy/copy-setup-due.ts).
   const setupDrive = oneOf("API_SETUP_DRIVE", source.API_SETUP_DRIVE, ["local", "worker"], "local");
-  // The terminal testnet settlement loop (CopyLiveApiSettlementService): on
-  // the api unless API_TERMINAL_SETTLEMENT=off; on a worker that runs copy
-  // work when WORKER_TERMINAL_SETTLEMENT=on, which a `copy` worker defaults
-  // to (`all` keeps today's: off). Claims are fenced in the database, so
-  // both may run during a cutover.
-  const terminalSettlement = {
-    api: oneOf("API_TERMINAL_SETTLEMENT", source.API_TERMINAL_SETTLEMENT, ["on", "off"], "on") === "on",
-    worker: isWorker && runsCopy(workerRole)
-      && oneOf("WORKER_TERMINAL_SETTLEMENT", source.WORKER_TERMINAL_SETTLEMENT, ["on", "off"], workerRole === "copy" ? "on" : "off") === "on",
-  };
-  const app = { isWorker, workerUrl, workerReadUrl, nodeEnv, trustedProxyCidrs, workerRole, setupDrive, terminalSettlement,
+  // Terminal settlement runs only on the copy worker (its live engine settles
+  // every terminal order itself, on both networks; decision D13, 2026-10-23):
+  // the api has no settlement loop and no switch for one.
+  const app = { isWorker, workerUrl, workerReadUrl, nodeEnv, trustedProxyCidrs, workerRole, setupDrive,
   // A worker beside an api on one machine needs its own port: WORKER_PORT
   // wins for the worker (Railway sets PORT per service and leaves it unset).
   port: isWorker && source.WORKER_PORT ? integerValue("WORKER_PORT", source.WORKER_PORT, 3000, 1, 65535) : integerValue("PORT", source.PORT, 3000, 1, 65535) };

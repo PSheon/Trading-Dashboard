@@ -518,8 +518,8 @@ export const heartbeatResponseSchema = z.object({
    * before the split, `copy` the real-money worker, `read` the rest) and
    * the advisory leases it holds ((73106, 1) copy, (73106, 2) read).
    * Optional while older workers roll out. `terminalSettlement`: whether
-   * this worker runs the terminal settlement loop (WORKER_TERMINAL_SETTLEMENT
-   * in effect on a testnet copy deployment); optional for the same reason. */
+   * this worker's live engine runs, so it settles terminal copies (a `copy`
+   * or `all` worker with live copy on); optional for the same reason. */
   worker: z.object({ role: z.enum(["all", "copy", "read"]), leases: z.array(z.number().int()), terminalSettlement: z.boolean().optional() }).optional(),
   /** This worker's public egress identity (HL_EGRESS_IDENTITY observe or
    * enforce; absent while off). Additive. */

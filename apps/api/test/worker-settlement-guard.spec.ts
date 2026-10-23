@@ -1,9 +1,13 @@
 import { Logger } from '@nestjs/common';
+import { ModulesContainer } from '@nestjs/core';
+import { Test } from '@nestjs/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { adminSystemSchema } from '@trading-dashboard/shared/contracts';
 import { AdminSystemService } from '../src/admin/admin-system.service.js';
 import { WorkerFleetService } from '../src/api/health/worker-fleet.service.js';
 import { AppConfig } from '../src/config/app-config.js';
+import { validateEnvironment } from '../src/config/runtime-config.js';
+import type { CopyLiveEngine } from '../src/copy/live-worker/copy-live-engine.js';
 import { RequestBudgeterService } from '../src/hyperliquid/request-budgeter.service.js';
 import type { WorkerRole } from '../src/runtime/worker-role.js';
 import { WorkerHeartbeatService } from '../src/worker/worker-heartbeat.service.js';
@@ -11,15 +15,16 @@ import { testConfig } from './config-test-utils.js';
 import { ALERT_EVERY_MS } from '../src/config/constants/alerts.js';
 import { SETTLEMENT_OWNER_WINDOW_MS } from '../src/config/constants/alerts.js';
 
-// Cross-process settlement guard: with the api's terminal settlement loop
-// off (API_TERMINAL_SETTLEMENT=off) on a testnet copy deployment, a copy
-// worker must report its loop on, or the api alerts.
+// D13 (2026-10-23): terminal settlement runs only on the copy worker, inside
+// its live engine. The api has no settlement loop and no switch for one; it
+// watches the copy worker's heartbeat (worker.terminalSettlement) and alerts
+// when no copy worker reports its engine running for SETTLEMENT_OWNER_WINDOW_MS.
 const T0 = 1_792_000_000_000;
 const live = { network: 'testnet', caps: { maxStrategiesPerUser: 1 }, builderFee: true, intervalMs: 3000, testnetSourceIntervalMs: 60000, maxSourceDeviationBps: 500, slippageBps: 30, weightPerMin: 400 };
-function configOf({ isWorker = false, role = 'all' as WorkerRole, api = false, worker = false, testnet = true } = {}) {
+function configOf({ isWorker = false, role = 'all' as WorkerRole, liveCopy = true, noWorker = false } = {}) {
   const base = testConfig().value;
-  return new AppConfig({ ...base, app: { ...base.app, isWorker, workerRole: role, workerUrl: 'http://worker-copy:3000', terminalSettlement: { api, worker } },
-    copy: { ...base.copy, live: testnet ? live : undefined } } as never);
+  return new AppConfig({ ...base, app: { ...base.app, isWorker, workerRole: role, workerUrl: noWorker ? undefined : 'http://worker-copy:3000' },
+    copy: { ...base.copy, live: liveCopy ? live : undefined } } as never);
 }
 /** A worker's monitor sample whose heartbeat reports `worker`. */
 const sample = (at: number, worker?: { role: WorkerRole; leases: number[]; terminalSettlement?: boolean }) => ({
@@ -29,24 +34,47 @@ const sample = (at: number, worker?: { role: WorkerRole; leases: number[]; termi
     lastSnapshotAt: null, lastSweepAt: null, requestsLastMinute: 0, weightLastMinute: 0, queuedRequests: { live: 0, background: 0 }, fillsUnavailable: [], dryRun: true,
     ...(worker ? { worker } : {}), now: new Date(at).toISOString() },
 });
-afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
-describe('the worker heartbeat reports whether it runs the terminal settlement loop', () => {
-  async function beat(config: AppConfig) {
+describe('the worker heartbeat reports whether it settles terminal copies (its live engine runs)', () => {
+  async function beat(config: AppConfig, engine: CopyLiveEngine | null | undefined) {
     const budgeter = new RequestBudgeterService(config);
     const watcher = { getHeartbeat: () => ({ feed: { socketsTotal: 1, socketsOpen: 1, markets: 1, disconnectedSince: null, lastTradeAt: null }, lastFillAt: null, lastSweepAt: null, fillsUnavailable: [] }) };
-    try { return (await new WorkerHeartbeatService(config, watcher as never, null, budgeter).heartbeat()).worker; }
+    try { return (await new WorkerHeartbeatService(config, watcher as never, null, budgeter, undefined, undefined, undefined, undefined, engine).heartbeat()).worker; }
     finally { budgeter.onModuleDestroy(); }
   }
-  it('a copy worker with WORKER_TERMINAL_SETTLEMENT in effect says on; `all` (off by default), a read worker and a mainnet deployment say off', async () => {
-    expect(await beat(configOf({ isWorker: true, role: 'copy', worker: true }))).toEqual({ role: 'copy', leases: [1], terminalSettlement: true });
-    expect(await beat(configOf({ isWorker: true, role: 'all', worker: false }))).toEqual({ role: 'all', leases: [1, 2], terminalSettlement: false });
-    expect(await beat(configOf({ isWorker: true, role: 'read', worker: false }))).toMatchObject({ terminalSettlement: false });
-    expect(await beat(configOf({ isWorker: true, role: 'copy', worker: true, testnet: false }))).toMatchObject({ terminalSettlement: false });
+  it('a copy or `all` worker with a live engine says true; one whose engine is off (paper copy) or absent (a read worker) says false', async () => {
+    const engine = {} as CopyLiveEngine;
+    expect(await beat(configOf({ isWorker: true, role: 'copy' }), engine)).toEqual({ role: 'copy', leases: [1], terminalSettlement: true });
+    expect(await beat(configOf({ isWorker: true, role: 'all' }), engine)).toEqual({ role: 'all', leases: [1, 2], terminalSettlement: true });
+    expect(await beat(configOf({ isWorker: true, role: 'copy', liveCopy: false }), null)).toMatchObject({ terminalSettlement: false });
+    expect(await beat(configOf({ isWorker: true, role: 'read' }), undefined)).toEqual({ role: 'read', leases: [2], terminalSettlement: false });
   });
 });
 
-describe('the api alerts when no process settles terminal copies (WorkerFleetService)', () => {
+describe('the api process runs no terminal settlement', () => {
+  it('its module graph has no settlement provider, and its environment has no switch for one', async () => {
+    vi.stubEnv('DATABASE_URL', process.env.TEST_DATABASE_URL!);
+    const config = new AppConfig(validateEnvironment({ NODE_ENV: 'test', DATABASE_URL: process.env.TEST_DATABASE_URL!, WORKER_URL: 'http://worker.internal:3000', API_TERMINAL_SETTLEMENT: 'off' }));
+    expect(config.value.app.isWorker).toBe(false);
+    expect(config.value.app).not.toHaveProperty('terminalSettlement');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ feedConnected: true }) }));
+    const { AppModule } = await import('../src/app.module.js');
+    const ref = await Test.createTestingModule({ imports: [AppModule.api()] }).overrideProvider(AppConfig).useValue(config).compile();
+    const app = ref.createNestApplication({ logger: false });
+    try {
+      await app.init();
+      const names = new Set<string>();
+      for (const module of app.get(ModulesContainer).values()) for (const wrapper of module.providers.values()) if (typeof wrapper.name === 'string') names.add(wrapper.name);
+      // No provider settles, claims settlement work or runs a settlement loop in the api (the engine and its settler are the copy worker's).
+      expect([...names].filter(name => /Settl|LiveEngine|LIVE_ENGINE/i.test(name))).toEqual([]);
+      // The api's switches no longer carry one.
+      expect(app.get(WorkerFleetService).settlementGuardApplies()).toBe(false);
+    } finally { await app.close(); }
+  });
+});
+
+describe('the api alerts when no copy worker settles terminal copies (WorkerFleetService)', () => {
   function fleet(config = configOf(), monitor: () => unknown = () => sample(clock.now)) {
     vi.stubGlobal('fetch', vi.fn(async () => {
       const body = monitor();
@@ -58,11 +86,11 @@ describe('the api alerts when no process settles terminal copies (WorkerFleetSer
   const later = (ms: number) => { clock.now += ms; };
   const alerts = (logged: { mock: { calls: unknown[][] } }) => logged.mock.calls.map(c => String(c[0])).filter(line => line.startsWith('ALERT'));
 
-  it('API_TERMINAL_SETTLEMENT=off and no copy worker reports its loop on for 2 minutes: an ALERT, rate-limited, and the admin overview shows it', async () => {
+  it('no copy worker reports its engine running for 2 minutes: an ALERT, rate-limited, and the admin overview shows it', async () => {
     clock.now = T0;
     const error = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
     const log = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
-    // The worker reads as an `all` worker with its loop off (today's default).
+    // The worker reads as an `all` worker whose engine is off (paper copy).
     let worker: { role: WorkerRole; leases: number[]; terminalSettlement?: boolean } = { role: 'all', leases: [1, 2], terminalSettlement: false };
     const service = fleet(configOf(), () => sample(clock.now, worker));
     expect(service.settlementGuardApplies()).toBe(true);
@@ -73,7 +101,8 @@ describe('the api alerts when no process settles terminal copies (WorkerFleetSer
     later(1000);
     expect(await service.check()).toEqual([{ code: 'terminal_settlement_unowned', lastOkAt: new Date(T0).toISOString() }]);
     expect(alerts(error)).toHaveLength(1);
-    expect(alerts(error)[0]).toMatch(/^ALERT terminal_settlement_unowned .*API_TERMINAL_SETTLEMENT=off/);
+    expect(alerts(error)[0]).toMatch(/^ALERT terminal_settlement_unowned .*no copy worker heartbeat/);
+    expect(alerts(error)[0]).not.toContain('API_TERMINAL_SETTLEMENT');
     // Rate-limited: once per ALERT_EVERY_MS while it lasts.
     later(60_000); await service.check();
     expect(alerts(error)).toHaveLength(1);
@@ -84,7 +113,7 @@ describe('the api alerts when no process settles terminal copies (WorkerFleetSer
     const budget = { requestsLastMinute: 1, weightLastMinute: 20, effectiveBudgetPerMin: 240, configuredBudgetPerMin: 240, burstCapacity: 100, tokensAvailable: 80, lastRateLimitedAt: null };
     const overview = () => new AdminSystemService(repository as never, configOf(), { introspect: () => budget, queued: () => ({ live: 0, background: 0 }) } as never, service).overview();
     expect(adminSystemSchema.parse(await overview()).alerts).toEqual([{ code: 'terminal_settlement_unowned', lastOkAt: new Date(T0).toISOString() }]);
-    // A copy worker with its loop on (as WORKER_ROLE=copy defaults to) clears it at its next heartbeat.
+    // A copy worker whose engine runs clears it at its next heartbeat.
     worker = { role: 'copy', leases: [1], terminalSettlement: true };
     later(1000);
     expect(await service.check()).toEqual([]);
@@ -98,7 +127,7 @@ describe('the api alerts when no process settles terminal copies (WorkerFleetSer
     expect(await service.check()).toEqual([{ code: 'terminal_settlement_unowned', lastOkAt: new Date(seen).toISOString() }]);
   });
 
-  it('an unreachable worker, a stale sample, or a read worker never count as the loop running', async () => {
+  it('an unreachable worker, a stale sample, a read worker, or a heartbeat without the field never count as settling', async () => {
     clock.now = T0;
     vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
     let body: unknown;
@@ -115,10 +144,10 @@ describe('the api alerts when no process settles terminal copies (WorkerFleetSer
     expect(service.alerts()).toEqual([]);
   });
 
-  it('applies only to the api of a testnet copy deployment whose own loop is off', async () => {
+  it('applies to the api of a live copy deployment with a copy worker to watch: not to a worker, paper copy, or an api without WORKER_URL', async () => {
     clock.now = T0;
     const quiet = () => undefined;
-    for (const [config, applies] of [[configOf(), true], [configOf({ api: true }), false], [configOf({ testnet: false }), false], [configOf({ isWorker: true }), false]] as const) {
+    for (const [config, applies] of [[configOf(), true], [configOf({ liveCopy: false }), false], [configOf({ isWorker: true }), false], [configOf({ noWorker: true }), false]] as const) {
       const service = fleet(config, quiet);
       expect(service.settlementGuardApplies()).toBe(applies);
       later(SETTLEMENT_OWNER_WINDOW_MS + 1);

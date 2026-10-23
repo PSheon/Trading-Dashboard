@@ -10,7 +10,7 @@ import { describeUnexpected, errorCode } from '../../runtime/safe-error-text.js'
 import { TERMINAL_STATES, type LiveQuarantineOutcome, type LiveSettleOutcome, type LiveSettleRequest } from './copy-live-settler.js';
 import { SETTLEMENT_NEEDS_OWNER, SettlementRetries, type SettlementVerdict } from './settlement-retries.js';
 import { SettlementPendingLog } from './settlement-pending-log.js';
-import { UNSENT_RELEASED, UNSENT_RETRY, type CopyLiveWorkerRepository, type DispatchRow, type LiveMandateWork, type LiveStreamWork } from './copy-live-worker.repository.js';
+import { UNSENT_RETRY, type CopyLiveWorkerRepository, type DispatchRow, type LiveMandateWork, type LiveStreamWork } from './copy-live-worker.repository.js';
 import { openNotionalCeiling, planAdjustments, type PendingLeg } from './copy-live-adjustments.js';
 import { MAX_ACCUMULATE_MS } from '../live/copy-live-source-planner.js';
 import type { WatchedMainnetSource } from './watched-mainnet-source.js';
@@ -42,7 +42,6 @@ export interface LiveEngineDependencies {
   /** Testnet leaders only (a testnet copy of a testnet address). */
   readonly testnetSource: HyperliquidLiveSourceClient;
   readonly runtime: (hooks: Pick<LiveExecutionHooks, 'onExchange'>) => LiveExecutor;
-  readonly apiTerminalSettlement?: boolean;
   readonly settler: { settle(request: LiveSettleRequest): Promise<LiveSettleOutcome>;
     /** Its retries are over (SETTLEMENT_RETRY_POLICY): the order goes to its owner (CopyLiveSettler.quarantine). */
     quarantine?(request: LiveSettleRequest, reason: string): Promise<LiveQuarantineOutcome> };
@@ -457,12 +456,6 @@ export class CopyLiveEngine {
     const attempt = this.attemptOf(row, mandate, row.executionKey!);
     // Reconcile the row's own attempt; a key matching no attempt falls back to attempt 0.
     if (!TERMINAL_STATES.has(state)) { await this.execute(row, mandate, undefined, attempt ?? 0); return; }
-    // Testnet terminal settlement belongs to CopyLiveApiSettlementService
-    // (terminalSettlementRuns); only a never-sent release comes back here for its next attempt.
-    if (this.deps.network === 'testnet' && this.deps.apiTerminalSettlement) {
-      if (row.reason === UNSENT_RELEASED) await this.afterUnsent(row, mandate, signalAgeMs);
-      return;
-    }
     const key = row.executionKey!, request: LiveSettleRequest = { userId: row.userId, accountId: row.accountId, accountAddress: mandate.accountAddress,
       sourceNetwork: mandate.sourceNetwork, leaderAddress: mandate.leaderAddress, key };
     // A failed settlement pass is not tried again before its retry is due; once its retries are over its order goes to its owner.

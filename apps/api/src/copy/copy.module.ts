@@ -1,4 +1,3 @@
-import { apiSettlementProvider } from './live-worker/copy-live-api-settlement.provider.js';
 import { Module } from "@nestjs/common";
 
 import { AuthModule } from "../common/auth/auth.module.js";
@@ -98,7 +97,7 @@ const setupReserve = (config: AppConfig, { network, dedicated }: Pick<WalletNetw
   // NotifyModule: the operator's system message when an order keeps failing.
   imports: [AuthModule, HyperliquidModule, NotifyModule, LeaderActivityModule, CopyReadModule],
   controllers: [CopyController, CopyFundsController, CopyWalletController, CopyFundingController, CopyAgentController, CopyFollowerController, CopyAccountModeController, CopyFollowerSnapshotController, CopyLiveMandateController, CopyLiveStopController, CopyLiveReturnController, CopyLivePortfolioController, CopyLiveCloseController, CopyLiveSetupController],
-  providers: [apiSettlementProvider, CopyAdminLiveRepository, CopyAdminLiveService,
+  providers: [CopyAdminLiveRepository, CopyAdminLiveService,
     // Paper copy and follower reporting: CopyReadModule's (also the `read` worker's).
     CopyControlService, CopyStrategyService, CopyAdminReadService, CopyAdoptionRepairService, CopyStreamService, CopyFundsService, CopyFundsRepository,
     PostgresLiveExecutionJournal, PostgresWalletAuthorizationSource,

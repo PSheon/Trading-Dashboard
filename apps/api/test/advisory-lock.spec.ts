@@ -54,7 +54,7 @@ const samples: Record<AdvisoryLockName, [] | [number] | [string]> = {
   ACTIONS: ["0xabc"], COPY_LEADER: ["0xabc"], RISK: [], COPY_USER: [42], BOOTSTRAP: [], PLATFORM: [], REFERRAL: [],
   SETTINGS: [], MIGRATE: [], RULES: ["hl|0xabc|BTC"], WORKER: [], WORKER_READ: [], ANALYTICS: ["0xabc"], NOTIFY: [],
   COPY_EVENTS: ["42"], COPY_OPERATION: ["42:paper:virtual:k"], LIVE_ORDER: ["k"], LIVE_NONCE: ["mainnet:0xabc"],
-  LIVE_PREPARE: ["k"], RISK_SCOPE_ACCOUNT: ["mainnet:0xabc"], RISK_SCOPE_SOURCE: ["mainnet:0xdef"], SETTLEMENT: ["k"],
+  LIVE_PREPARE: ["k"], RISK_SCOPE_ACCOUNT: ["mainnet:0xabc"], RISK_SCOPE_SOURCE: ["mainnet:0xdef"],
   FOLLOWER_SCAN_BUDGET: ["mainnet"], WATCH_CAPACITY: [],
 };
 const key = (name: AdvisoryLockName) => (advisoryLockKey as (n: AdvisoryLockName, ...v: unknown[]) => SQL)(name, ...samples[name]);
@@ -110,9 +110,10 @@ describe("advisory-lock registry", () => {
     expect(Object.fromEntries(found)).toEqual(Object.fromEntries(registeredSites()));
     // Review §E3 #7 counted 37 acquiring calls in src; the worker roles add the
     // read lease's own literal (73106, 2) and a literal per role lease (2 more).
-    // The migration runner adds one; unlocks add ten.
-    expect(srcAcquires).toBe(39);
-    expect([...found.values()].reduce((a, b) => a + b, 0)).toBe(50);
+    // The migration runner adds one; unlocks add nine. D13 (2026-10-23) removed the api
+    // settlement claim's lock and unlock (copy-live-settlement-claim.ts).
+    expect(srcAcquires).toBe(38);
+    expect([...found.values()].reduce((a, b) => a + b, 0)).toBe(48);
   });
 
   it.each(Object.keys(ADVISORY_LOCKS) as AdvisoryLockName[])("%s: registered derivation renders as its call sites", (name) => {
@@ -153,7 +154,7 @@ describe("advisory-lock registry", () => {
     for (const [name, legacy] of pairs) expect(render(key(name)), name).toEqual(render(legacy));
     // Raw pg-client sites bind the full string as $1.
     const raw: [AdvisoryLockName, string][] = [
-      ["LIVE_ORDER", `live-order:${k}`], ["RISK_SCOPE_ACCOUNT", `live-risk-account:${network}:${signerAddress}`], ["SETTLEMENT", `copy-live-settlement:${k}`],
+      ["LIVE_ORDER", `live-order:${k}`], ["RISK_SCOPE_ACCOUNT", `live-risk-account:${network}:${signerAddress}`],
     ];
     for (const [name, value] of raw) expect(render(key(name)).params, name).toEqual([value]);
   });

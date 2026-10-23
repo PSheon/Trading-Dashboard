@@ -88,9 +88,11 @@ let measureContext: CanvasRenderingContext2D | null = null;
  * CopyDog's copy widget for a Hyperliquid trader, in paper mode:
  * 順向 / 反向, the amount in USDC with 最大, 可交易餘額 with its slider, 更多設定
  * (跟單目前持倉, on by default: CopyDog's only extra setting there) and the CTA,
- * whose label follows CopyDog's order: 請輸入金額 → 最低 $100 才能跟單 → 餘額不足
- * → 開始跟單 $X → 已啟動！. Submitting with a bad amount or a failed start
- * raises CopyDog's toast (the panel itself shows no error text). The
+ * which reads 跟單 and is disabled until the amount is valid (→ 已啟動！ once
+ * started); what is wrong with the amount (最低 $100 才能跟單, 上限 $X, 餘額不足)
+ * is a pill under the field, never a sentence. A visitor's CTA signs in; an
+ * empty main wallet's deposits. A failed start raises CopyDog's toast (the
+ * panel itself shows no error text). The
  * balance is the user's paper account (模擬), never the wallet. CopyDog's other copy fields (sizing mode, amount per
  * trade, max allocation) live in the portfolio's 編輯設定, as on CopyDog.
  *
@@ -243,12 +245,17 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName, li
     closed ? t("trader.copy.errors.disabled") :
     !signedIn ? t("common.signIn") :
     fundFirst ? t("portfolio.deposit") :
+    t("trader.copyTrade");
+  // The amount's validation state, as a pill under the field; null while
+  // there is nothing to say (no amount yet, or a valid one).
+  const amountState =
     empty ? t("trader.copy.notEnoughBalance") :
-    !amount || !(value > 0) ? t("trader.copy.enterAmount") :
+    !(value > 0) ? null :
     value < min ? t("trader.copy.minToCopy", { min: format.num(min) }) :
     max !== null && value > max ? t("trader.copy.maxToCopy", { max: format.num(max) }) :
     balanceKnown && value > balance ? t("trader.copy.notEnoughBalance") :
-    t("trader.copy.startCopying", { amount: format.num(value, value % 1 ? 2 : 0) });
+    null;
+  const amountInvalid = amountState !== null || !(value > 0);
 
   /** A share of the balance, never above the deployment's cap. */
   const presetOf = (p: number) => balance > 0 ? String(Math.floor(Math.min((balance * p) / 100, max ?? Number.POSITIVE_INFINITY))) : "";
@@ -524,7 +531,7 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName, li
   return (
     <Shell sheet={sheet} form>
      {/* A real form: Enter in the amount field starts the copy. */}
-     <form className="contents" noValidate onSubmit={(event) => { event.preventDefault(); if (!(start.isPending || preparing || started || closed || blocked || (empty && !fundFirst))) void submit(); }}>
+     <form className="contents" noValidate onSubmit={(event) => { event.preventDefault(); if (!(start.isPending || preparing || started || closed || blocked || (empty && !fundFirst) || (signedIn && !fundFirst && amountInvalid))) void submit(); }}>
       {/* Direction stays above the scrolling amount controls. */}
       {sheet ? <div className="sticky top-0 z-10 -mx-5 bg-card px-5 pt-1 pb-2 in-data-[scrolled=true]:shadow-[0_6px_8px_-6px_var(--border)]" data-testid="copy-sheet-direction">{directionPill}</div> : directionPill}
       {hedgeNotice}
@@ -594,6 +601,7 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName, li
           </button>
         </div>
       )}
+      {amountState ? <span data-testid="copy-amount-state" className="chip-sm w-fit bg-tag-warning text-tag-warning-foreground">{amountState}</span> : null}
 
       {sheet ? (
         <>
@@ -736,7 +744,8 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName, li
           type="submit"
           size="cta"
           loading={start.isPending || preparing}
-          disabled={!(start.isPending || preparing) && (started || closed || blocked || !trading.available || (empty && !fundFirst))}
+          disabled={!(start.isPending || preparing) && (started || closed || blocked || !trading.available || (empty && !fundFirst) || (signedIn && !fundFirst && amountInvalid))}
+          data-testid="copy-submit"
           className="min-h-14 w-full focus-visible:ring-offset-card disabled:cursor-not-allowed"
         >
           {started ? (

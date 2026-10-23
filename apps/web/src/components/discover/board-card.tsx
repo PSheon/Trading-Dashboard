@@ -10,10 +10,10 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { TIME_ZONE } from "@/i18n/config";
 import { TraderName } from "@/components/traders/trader-name";
 import { useI18n } from "@/i18n/provider";
-import { boardPnl, boardRoi, roiPillShort, roiPillWhole } from "@/lib/board-format";
+import { boardRoi, roiPillShort, roiPillWhole } from "@/lib/board-format";
 import type { BoardTrader } from "@/lib/contracts";
 import { BoardSparkline, boardName, CoinStack, ScoreRing, signTone, TraderAvatar, VerifiedTick } from "./board-bits";
-import { timeAgo } from "@/lib/format";
+import { cardUsd, timeAgo } from "@/lib/format";
 import { useNow } from "@/lib/use-now";
 
 const traderHref = (address: string) => `/trader/${address}`;
@@ -23,15 +23,25 @@ function lastTradeStamp(at: string): string {
   return new Date(at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: TIME_ZONE });
 }
 
+/** The card's big figure: the metric the board is sorted by when the card
+ * shows it (ROI → ROI big, PnL in the pill; PnL, 複製評分 or anything else →
+ * PnL big, ROI in the pill, as always). */
+export type CardPrimary = "pnl" | "roi";
+export function cardPrimary(sort: string): CardPrimary {
+  return sort === "roi" ? "roi" : "pnl";
+}
+
 /** Explore grid card (CopyDog's hl-card): identity and coins, last trade,
  * PnL and ROI beside the sparkline, copy score and 跟單. */
-export function BoardCard({ trader, pnlLabel, roiLabel, roiHint, now, accessory, tags }: {
+export function BoardCard({ trader, pnlLabel, roiLabel, roiHint, now, accessory, tags, primary = "pnl" }: {
   trader: BoardTrader;
   pnlLabel: string;
   roiLabel: string;
   /** Coin boards explain their ROI (PnL ÷ notional traded). */
   roiHint?: string;
   now: number;
+  /** Which metric is the big figure (the sorted one); the other is the pill. */
+  primary?: CardPrimary;
   /** Top-right, after the last-trade time (favorites: the star). */
   accessory?: React.ReactNode;
   /** Under the coins (favorites: group tags). */
@@ -40,6 +50,14 @@ export function BoardCard({ trader, pnlLabel, roiLabel, roiHint, now, accessory,
   const { t, locale } = useI18n();
   const router = useRouter();
   const ago = timeAgo(trader.lastTradeAt, now, locale);
+  const roiBig = primary === "roi";
+  const roiName = roiHint ? (
+    <Tooltip content={roiHint}>
+      <span tabIndex={0} className="cursor-help underline decoration-dotted underline-offset-2 outline-none">{roiLabel}</span>
+    </Tooltip>
+  ) : (
+    <span>{roiLabel}</span>
+  );
   // The card is not a link: its name is, stretched over the card by its
   // `::after` (so a click anywhere opens the trader and the link's name is
   // the trader's). Everything that reacts on its own (跟單, the stale tip,
@@ -69,20 +87,16 @@ export function BoardCard({ trader, pnlLabel, roiLabel, roiHint, now, accessory,
       <BoardSparkline values={trader.sparkline} height={72} plain />
       <div className="flex min-w-0 items-end justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-xs font-bold text-muted-foreground">{pnlLabel}</div>
-          <div className={cn("num truncate font-display text-[1.625rem] leading-[1.1]", signTone(trader.pnl))}>{boardPnl(trader.pnl)}</div>
+          <div className="relative z-10 w-fit text-xs font-bold text-muted-foreground" data-testid="card-primary-label">{roiBig ? roiName : pnlLabel}</div>
+          <div className={cn("num truncate font-display text-[1.625rem] leading-[1.1]", signTone(roiBig ? trader.roi : trader.pnl))} data-testid="card-primary">
+            {roiBig ? boardRoi(trader.roi) : cardUsd(trader.pnl, { sign: true })}
+          </div>
         </div>
       </div>
       <div className="flex min-w-0 items-center justify-between gap-2">
-        <span className={cn("num chip-md relative z-10 min-w-0 gap-1 truncate", (trader.roi ?? 0) >= 0 ? "bg-tag-profit text-tag-profit-foreground" : "bg-tag-loss text-tag-loss-foreground")}>
-          {roiHint ? (
-            <Tooltip content={roiHint}>
-              <span tabIndex={0} className="cursor-help underline decoration-dotted underline-offset-2 outline-none">{roiLabel}</span>
-            </Tooltip>
-          ) : (
-            <span>{roiLabel}</span>
-          )}
-          {boardRoi(trader.roi)}
+        <span data-testid="card-secondary" className={cn("num chip-md relative z-10 min-w-0 gap-1 truncate", ((roiBig ? trader.pnl : trader.roi) ?? 0) >= 0 ? "bg-tag-profit text-tag-profit-foreground" : "bg-tag-loss text-tag-loss-foreground")}>
+          {roiBig ? <span>{pnlLabel}</span> : roiName}
+          {roiBig ? cardUsd(trader.pnl, { sign: true }) : boardRoi(trader.roi)}
         </span>
         {ago ? (
           <Tooltip variant="chip" side="top" content={`${t("discover.lastTrade")} · ${trader.lastTradeAt ? lastTradeStamp(trader.lastTradeAt) : ""}`}>
@@ -133,43 +147,45 @@ export function BoardCardSkeleton() {
 }
 
 /** Home carousel card (CopyDog's hl-fcard): avatar, name, sparkline, PnL
- * and ROI pill; compact on phones (ROI pill on top). */
+ * and ROI pill; compact on phones (ROI pill on top). As the explore card,
+ * the card is not a link: one link named after the trader (its name read,
+ * not shown) stretches over the card; the two visible names (one per
+ * viewport) are plain text, and the stale tip and the pill sit above. */
 export function HomeCard({ trader }: { trader: BoardTrader }) {
-  const { t, format } = useI18n();
+  const { t } = useI18n();
   const up = (trader.roi ?? 0) >= 0;
   const Arrow = up ? ArrowUpRight : ArrowDownRight;
   const pill = (
-    <span title={t("home.cardRoi")} aria-label={`${t("home.cardRoi")}: ${roiPillShort(trader.roi)}`} className={cn("num chip-sm w-fit shrink-0 gap-0.5", up ? "bg-tag-profit text-tag-profit-foreground" : "bg-tag-loss text-tag-loss-foreground")}>
+    <span title={t("home.cardRoi")} aria-label={`${t("home.cardRoi")}: ${roiPillShort(trader.roi)}`} className={cn("num chip-sm relative z-10 w-fit shrink-0 gap-0.5", up ? "bg-tag-profit text-tag-profit-foreground" : "bg-tag-loss text-tag-loss-foreground")}>
       <Arrow className="size-[11px]" strokeWidth={2.8} aria-hidden />
       {roiPillShort(trader.roi)}
     </span>
   );
   return (
-    <Link
-      href={traderHref(trader.address)}
-      prefetch={false}
-      className="orbit-card orbit-lift flex w-[164px] shrink-0 snap-start flex-col gap-2 rounded-[24px]! p-3.5 outline-none focus-visible:ring-2 focus-visible:ring-ring md:w-[190px]"
-    >
+    <article className="orbit-card orbit-lift relative flex w-[164px] shrink-0 snap-start flex-col gap-2 rounded-[24px]! p-3.5 has-[a:focus-visible]:ring-2 has-[a:focus-visible]:ring-ring md:w-[190px]">
+      <Link href={traderHref(trader.address)} prefetch={false} className="absolute inset-0 z-0 rounded-[inherit] outline-none">
+        <span className="sr-only">{boardName(trader)}</span>
+      </Link>
       <div className="flex min-w-0 items-center gap-2">
         <TraderAvatar trader={trader} size={32} />
-        <span className="hidden min-w-0 items-center gap-1 md:flex">
+        <span className="hidden min-w-0 items-center gap-1 md:flex" aria-hidden="true">
           <span className="truncate text-sm font-extrabold">{boardName(trader)}</span>
           {trader.verified ? <VerifiedTick className="size-[14px]" /> : null}
         </span>
         {/* A phone card is narrow: TraderName cuts an address once, in the
             middle, and always shows its end ("0x9871…0…" never). */}
-        <span className="flex min-w-0 items-center gap-1 md:hidden">
+        <span className="flex min-w-0 items-center gap-1 md:hidden" aria-hidden="true">
           <TraderName trader={trader} className="text-sm font-extrabold" />
           {trader.verified ? <VerifiedTick className="size-[13px]" /> : null}
         </span>
-        <MetricsStamp at={trader.metricsUpdatedAt} className="ml-auto" />
+        <MetricsStamp at={trader.metricsUpdatedAt} className="relative z-10 ml-auto" />
       </div>
       <BoardSparkline values={trader.sparkline} height={52} plain />
-      <span className={cn("num block truncate font-display text-xl leading-7", signTone(trader.pnl))} title={t("home.cardPnl")}>
-        {format.usd(trader.pnl, { compact: true, sign: true })}
+      <span className={cn("num relative z-10 block truncate font-display text-xl leading-7", signTone(trader.pnl))} title={t("home.cardPnl")}>
+        {cardUsd(trader.pnl, { sign: true })}
       </span>
       {pill}
-    </Link>
+    </article>
   );
 }
 
@@ -208,32 +224,36 @@ export function BoardMobileRowSkeleton() {
 }
 
 /** Mobile list row (CopyDog's dense list): avatar, name, coins and score;
- * PnL and ROI pill on the right. */
-export function BoardMobileRow({ trader }: { trader: BoardTrader }) {
-  const { format } = useI18n();
-  const up = (trader.roi ?? 0) >= 0;
+ * PnL and ROI pill on the right. One link, named after the trader and
+ * stretched over the row; the stale tip sits above it. */
+export function BoardMobileRow({ trader, primary = "pnl" }: { trader: BoardTrader; primary?: CardPrimary }) {
+  const roiBig = primary === "roi";
+  const up = ((roiBig ? trader.pnl : trader.roi) ?? 0) >= 0;
   const Arrow = up ? ArrowUpRight : ArrowDownRight;
   return (
-    <li>
-      <Link href={traderHref(trader.address)} prefetch={false} className="orbit-card orbit-press flex items-center gap-3 rounded-[24px]! px-3.5 py-3 outline-none focus-visible:ring-2 focus-visible:ring-ring">
-        <TraderAvatar trader={trader} size={44} />
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <span className="flex min-w-0 items-center gap-1">
-            <span className="truncate text-[0.9375rem] font-extrabold">{boardName(trader)}</span>
-            {trader.verified ? <VerifiedTick className="size-3.5" /> : null}
-            <MetricsStamp at={trader.metricsUpdatedAt} />
-          </span>
-          <CoinStack coins={trader.topCoins.slice(0, 3)} size={14} />
-        </div>
-        <div className="flex shrink-0 flex-col items-end gap-1">
-          <span className={cn("num font-display text-[1.0625rem] leading-5", signTone(trader.pnl))}>{format.usd(trader.pnl, { compact: true, sign: true })}</span>
-          <span className={cn("num inline-flex h-5 items-center gap-0.5 text-xs font-extrabold", up ? "text-positive" : "text-negative")}>
-            <Arrow className="size-3" strokeWidth={2.8} aria-hidden />
-            {roiPillWhole(trader.roi)}
-          </span>
-        </div>
-        <ScoreRing score={trader.copyScore} size={40} />
+    <li className="orbit-card orbit-press relative flex items-center gap-3 rounded-[24px]! px-3.5 py-3 has-[a:focus-visible]:ring-2 has-[a:focus-visible]:ring-ring">
+      <Link href={traderHref(trader.address)} prefetch={false} className="absolute inset-0 z-0 rounded-[inherit] outline-none">
+        <span className="sr-only">{boardName(trader)}</span>
       </Link>
+      <TraderAvatar trader={trader} size={44} />
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <span className="flex min-w-0 items-center gap-1">
+          <span className="truncate text-[0.9375rem] font-extrabold" aria-hidden="true">{boardName(trader)}</span>
+          {trader.verified ? <VerifiedTick className="size-3.5" /> : null}
+          <MetricsStamp at={trader.metricsUpdatedAt} className="relative z-10" />
+        </span>
+        <CoinStack coins={trader.topCoins.slice(0, 3)} size={14} className="relative z-10 w-fit" />
+      </div>
+      <div className="flex shrink-0 flex-col items-end gap-1">
+        <span className={cn("num font-display text-[1.0625rem] leading-5", signTone(roiBig ? trader.roi : trader.pnl))} data-testid="row-primary">
+          {roiBig ? boardRoi(trader.roi) : cardUsd(trader.pnl, { sign: true })}
+        </span>
+        <span className={cn("num inline-flex h-5 items-center gap-0.5 text-xs font-extrabold", up ? "text-positive" : "text-negative")} data-testid="row-secondary">
+          <Arrow className="size-3" strokeWidth={2.8} aria-hidden />
+          {roiBig ? cardUsd(Math.abs(trader.pnl ?? 0)) : roiPillWhole(trader.roi)}
+        </span>
+      </div>
+      <ScoreRing score={trader.copyScore} size={40} />
     </li>
   );
 }

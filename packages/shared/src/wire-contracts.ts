@@ -207,7 +207,8 @@ export const wireBoardSchema = s.boardResponseSchema.extend({ freshness: wireBoa
 export const wireHomeBoardsSchema = s.homeBoardsResponseSchema.extend({
   freshness: wireBoardFreshnessSchema.optional(),
   featured: z.array(wireBoardTraderSchema), crypto: z.array(wireBoardTraderSchema), stocks: z.array(wireBoardTraderSchema),
-  markets: z.array(z.object({ coin: z.string(), market: s.boardMarketSchema, items: z.array(wireBoardTraderSchema) })),
+  /** The per-market rows; the home no longer shows them (2026-10-23), so an api that leaves them out is read as none. */
+  markets: z.array(z.object({ coin: z.string(), market: s.boardMarketSchema, items: z.array(wireBoardTraderSchema) })).default([]),
   calculator: z.array(wireBoardTraderSchema), updatedAt: iso.nullable(),
 });
 export const wireKolSchema = s.kolSchema.extend({ createdAt: iso, updatedAt: iso });

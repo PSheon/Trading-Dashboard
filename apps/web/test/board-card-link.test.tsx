@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-import { BoardCard } from "../src/components/discover/board-card";
+import { BoardCard, BoardMobileRow, HomeCard } from "../src/components/discover/board-card";
 import { boardName } from "../src/components/discover/board-bits";
 import { fixtureHome } from "../src/fixtures/discovery";
 import { I18nProvider } from "../src/i18n/provider";
@@ -57,4 +57,36 @@ it("the card's link is named after the trader only, and 跟單 is not inside it"
   expect(copy.className.split(" ")).toEqual(expect.arrayContaining(["relative", "z-10"]));
   await act(async () => { copy.click(); });
   expect(pushed).toEqual([`/en/trader/${trader.address}#copy-amount`]);
+});
+
+/**
+ * The home card and the phone row were whole-card `<a>` elements too, the
+ * stale-metrics tip (a button) inside. Each now has exactly one link, named
+ * after the trader by a visually hidden name node, stretched over the card
+ * (`absolute inset-0`); the visible names are plain spans and every control
+ * sits above the link, outside it.
+ */
+const siblings: Array<[string, () => React.ReactNode]> = [
+  ["HomeCard", () => <HomeCard trader={trader} />],
+  ["BoardMobileRow", () => <ul><BoardMobileRow trader={trader} /></ul>],
+];
+for (const [what, node] of siblings) it(`${what}: one trader link, named after the trader, no control inside it`, async () => {
+  await act(async () => root.render(<I18nProvider locale="en" messages={en}>{node()}</I18nProvider>));
+  const links = [...container.querySelectorAll("a[href]")];
+  expect(links.map((a) => a.getAttribute("href"))).toEqual([`/en/trader/${trader.address}`]);
+  const link = links[0]!;
+  expect(link.textContent).toBe(boardName(trader));
+  // The name the link is named by is read, not shown: the visible names are plain text beside it.
+  expect(link.querySelector(".sr-only")?.textContent).toBe(boardName(trader));
+  expect(link.className.split(" ")).toEqual(expect.arrayContaining(["absolute", "inset-0"]));
+  const card = link.parentElement!;
+  expect(card.tagName).not.toBe("A");
+  expect(card.className.split(" ")).toContain("relative");
+  // The stale-metrics tip is a control above the link, never inside it.
+  const stale = [...container.querySelectorAll("button")];
+  expect(stale.length).toBeGreaterThan(0);
+  for (const control of container.querySelectorAll("button, [tabindex]")) {
+    expect(control.closest("a")).toBeNull();
+    expect(card.contains(control)).toBe(true);
+  }
 });

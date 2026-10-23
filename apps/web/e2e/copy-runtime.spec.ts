@@ -37,7 +37,7 @@ async function startIdleCopy(page: Page, width: number) {
   await expect(adopt).toBeChecked();
   await adopt.click();
   await expect(adopt).not.toBeChecked();
-  await action(page, "Start copying $500").click();
+  await page.getByTestId("copy-submit").filter({ visible: true }).click();
   await page.getByRole("link", { name: "Copying · Manage" }).filter({ visible: true }).click();
   await expect(action(page, "Withdraw paper funds")).toBeEnabled();
   await expect(visible(page, "No open positions")).toBeVisible();

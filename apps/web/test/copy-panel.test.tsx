@@ -38,8 +38,9 @@ it("with copy trading switched off the call to action is disabled and says copyi
   for (const sheet of [false, true]) {
     copy.enabled = true;
     const open = render(sheet);
-    expect(cta(open)).toContain("請輸入金額");
-    expect(cta(open)).not.toContain("disabled=\"\"");
+    // The CTA reads 跟單, disabled until an amount is valid.
+    expect(cta(open)).toContain(">跟單<");
+    expect(cta(open)).toContain("disabled=\"\"");
 
     copy.enabled = false;
     const closed = render(sheet);
@@ -86,8 +87,10 @@ it("with a zero balance the amount is locked and the call to action is disabled,
   copy.balance = 0;
   for (const sheet of [false, true]) {
     const html = render(sheet);
-    expect(cta(html)).toContain(zhTW.trader.copy.notEnoughBalance);
+    expect(cta(html)).toContain(">跟單<");
     expect(cta(html)).toContain("disabled=\"\"");
+    // The state is the pill under the field.
+    expect(html).toMatch(new RegExp(`data-testid="copy-amount-state"[^>]*>${zhTW.trader.copy.notEnoughBalance}<`));
   }
   expect(render(false)).toMatch(/<input[^>]*id="copy-amount"[^>]*disabled=""/);
   copy.balance = 1000;

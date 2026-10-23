@@ -1,0 +1,603 @@
+{
+  "_doc": [
+    "Which environment variable belongs on which Railway service. Names and rules only: no value, no id, no hostname (this repository is public).",
+    "Derived from apps/api/src/config/runtime-config.ts (+ parse-env.ts, live-timings.ts, runtime/worker-role.ts) and apps/web's process.env reads; where docs/railway-deploy.md disagreed, the code won.",
+    "services: the four deployable services. api = the HTTP api (IS_WORKER unset); worker-copy = IS_WORKER=true WORKER_ROLE=copy; worker-read = IS_WORKER=true WORKER_ROLE=read; web = the Next.js server.",
+    "variables.<NAME>.services: the services that use the variable, each `required` (the service refuses to start or is unusable without it) or `optional` (a default applies). A service missing from `services` does not use the variable: setting it there is reported as forbidden (unused) by scripts/ops/services-manifest.mjs.",
+    "variables.<NAME>.forbidden: services where the variable must NOT be set, with the reason: `refused` (startup throws), `secret` (a credential the service never uses) or `unused`.",
+    "variables.<NAME>.sameAs: services whose value must be identical. variables.<NAME>.rule: a constraint the statuses cannot express (value-dependent requirements, ordering).",
+    "retired: names no code reads any more; present anywhere = forbidden. platform: names Railway, Node or the image set, never flagged (scripts/ops/services-manifest.test.mjs allow-lists them for the code-vs-manifest check).",
+    "Checked by scripts/ops/services-manifest.test.mjs (every name here is read in code, every runtime-config.ts read is here) and applied by scripts/ops/services-manifest.mjs (read-only, names only)."
+  ],
+  "services": {
+    "api": { "description": "HTTP api: IS_WORKER unset, no WORKER_ROLE; one image with the workers (apps/api/Dockerfile)." },
+    "worker-copy": { "description": "Copy worker: IS_WORKER=true, WORKER_ROLE=copy; live engine, setups, stops, trade feed, fast source." },
+    "worker-read": { "description": "Read worker: IS_WORKER=true, WORKER_ROLE=read; scheduler, discovery, cohorts, archive, retention, outbox, Telegram bot, paper copy." },
+    "web": { "description": "Next.js server (Railpack build); reads NEXT_* at build time (NEXT_PUBLIC_*) and run time." }
+  },
+  "platform": {
+    "PORT": "set by Railway per service; the api listens on it (WORKER_PORT wins on a worker beside an api on one machine)",
+    "RAILWAY_*": "Railway's own metadata (service, environment, deployment ids); read by no application code",
+    "CI": "set by GitHub Actions; only apps/web/playwright.config.ts reads it",
+    "PLAYWRIGHT_*": "apps/web/playwright.config.ts: the browser test runner's port, bundler and heap; never set on Railway",
+    "TEST_DATABASE_URL": "the api test suite's disposable database (scripts/test-database.mjs); never on Railway",
+    "NEXT_PORT": "apps/web/scripts/dev.mjs: the local dev server's port; `next start --port` is the Railway start command's"
+  },
+  "retired": {
+    "COPY_LIVE_TEST_MIN_FLOOR_MAX_USD": "the test floor was retired (decision D6, 2026-10-23); no code reads it, a leftover value is ignored",
+    "APP_ROLE": "replaced by IS_WORKER (2026-10-04); a set APP_ROLE that disagrees with IS_WORKER refuses startup, one that agrees is tolerated only so a deploy can switch image and variables in either order: delete it"
+  },
+  "variables": {
+    "NODE_ENV": {
+      "purpose": "development | test | staging | production; staging and production enable the production-grade checks (strong secrets, HYPERLIQUID_EGRESS_KEY required)",
+      "services": { "api": "required", "worker-copy": "required", "worker-read": "required", "web": "optional" },
+      "sameAs": ["api", "worker-copy", "worker-read"]
+    },
+    "IS_WORKER": {
+      "purpose": "true makes the process a worker (background jobs, health port only); unset is the HTTP api",
+      "services": { "worker-copy": "required", "worker-read": "required" },
+      "forbidden": { "api": "unused: the api is the process without it (a literal `false` is tolerated; unset is the documented state)" }
+    },
+    "WORKER_ROLE": {
+      "purpose": "copy | read (unset = all, the single worker): what a worker runs and which lease it holds",
+      "services": { "worker-copy": "required", "worker-read": "required" },
+      "forbidden": { "api": "refused: `WORKER_ROLE applies to the worker only (IS_WORKER=true)`" },
+      "rule": "worker-copy sets `copy`, worker-read sets `read`; both unset would make two `all` workers fight over one lease"
+    },
+    "WORKER_PORT": {
+      "purpose": "a worker's listen port when it runs beside an api on one machine (local); Railway sets PORT per service instead",
+      "services": { "worker-copy": "optional", "worker-read": "optional" }
+    },
+    "WORKER_URL": {
+      "purpose": "the copy worker's internal base URL: the api reads its heartbeat (feed, copy health); GET /health is 503 without it",
+      "services": { "api": "required" }
+    },
+    "WORKER_READ_URL": {
+      "purpose": "the read worker's internal base URL: the api merges its heartbeat (snapshots, sweeps, discovery, archive, meter, egress identity)",
+      "services": { "api": "optional" },
+      "rule": "set once worker-read exists (rollout step 2); without it snapshots_stale alerts after 15 min"
+    },
+    "API_SETUP_DRIVE": {
+      "purpose": "local (default): the api drives a copy setup inside confirm/advance; worker: it marks the setup due and wakes the copy worker (NOTIFY copy_setup_due)",
+      "services": { "api": "optional" },
+      "rule": "switch to `worker` only after worker-copy runs with WORKER_ROLE=copy (rollout step 5); switch back to `local` before a worker becomes `all` again"
+    },
+    "DATABASE_URL": {
+      "purpose": "PostgreSQL connection string (postgres:// or postgresql://, with a database name)",
+      "services": { "api": "required", "worker-copy": "required", "worker-read": "required" },
+      "forbidden": { "web": "secret: the web reaches the api over HTTP only" },
+      "sameAs": ["api", "worker-copy", "worker-read"],
+      "rule": "the workers' value must be the api's exact string: /health/monitor answers only the key the api derives from it (runtime/worker-calls.ts)"
+    },
+    "DATABASE_POOL_MAX": {
+      "purpose": "main pool size (2..200); default per process: api 10, copy 20, read 10, all 30 (config/constants/database.ts)",
+      "services": { "api": "optional", "worker-copy": "optional", "worker-read": "optional" },
+      "rule": "the sum plus a rolling deploy must stay under Postgres max_connections (docs/railway-deploy.md, Database connections)"
+    },
+    "AUTH_SERVICE_TOKEN": {
+      "purpose": "server-to-server bearer token for the api's service callers; 32+ non-placeholder characters in staging/production",
+      "services": { "api": "optional" },
+      "forbidden": { "worker-copy": "secret: no user API on a worker", "worker-read": "secret: no user API on a worker", "web": "secret: never given to the web" }
+    },
+    "AUTH_SERVICE_PERMISSIONS": {
+      "purpose": "comma-separated permissions of AUTH_SERVICE_TOKEN (never users.manage or settings.write)",
+      "services": { "api": "optional" },
+      "rule": "requires AUTH_SERVICE_TOKEN"
+    },
+    "AUTH_ADMIN_EMAILS": {
+      "purpose": "comma-separated emails that become admin on first sign-in",
+      "services": { "api": "optional" }
+    },
+    "PRIVY_APP_ID": {
+      "purpose": "the environment's Privy app (sign-in, wallets, agent signing); set together with PRIVY_APP_SECRET",
+      "services": { "api": "required", "worker-copy": "required", "worker-read": "optional" },
+      "sameAs": ["api", "worker-copy", "worker-read"],
+      "rule": "required by code on every process whose COPY_TRADING_MODE is testnet or live (agent signing requires Privy credentials); the web's NEXT_PUBLIC_PRIVY_APP_ID is the same app id"
+    },
+    "PRIVY_APP_SECRET": {
+      "purpose": "the Privy app secret; set together with PRIVY_APP_ID",
+      "services": { "api": "required", "worker-copy": "required", "worker-read": "optional" },
+      "forbidden": { "web": "secret: the web uses the public app id only" },
+      "sameAs": ["api", "worker-copy", "worker-read"],
+      "rule": "as PRIVY_APP_ID: required wherever COPY_TRADING_MODE is testnet or live"
+    },
+    "PRIVY_VERIFICATION_KEY": {
+      "purpose": "ES256 public key that verifies users' Privy tokens on the api; requires PRIVY_APP_ID",
+      "services": { "api": "optional" }
+    },
+    "PRIVY_AGENT_AUTHORIZATION_KEY": {
+      "purpose": "base64 P256 PKCS8 private key that signs copy execution through Privy; set together with PRIVY_AGENT_WORKER_QUORUM_ID",
+      "services": { "api": "required", "worker-copy": "required", "worker-read": "optional" },
+      "forbidden": { "web": "secret: signing never happens in the web" },
+      "sameAs": ["api", "worker-copy", "worker-read"],
+      "rule": "a process with COPY_TRADING_MODE=testnet|live refuses to start without it (the api signs setups under API_SETUP_DRIVE=local); worker-read never signs, so it needs the key only if it also carries COPY_TRADING_MODE=live"
+    },
+    "PRIVY_AGENT_WORKER_QUORUM_ID": {
+      "purpose": "the Privy key quorum of PRIVY_AGENT_AUTHORIZATION_KEY",
+      "services": { "api": "required", "worker-copy": "required", "worker-read": "optional" },
+      "sameAs": ["api", "worker-copy", "worker-read"],
+      "rule": "as PRIVY_AGENT_AUTHORIZATION_KEY"
+    },
+    "ACCOUNT_DELETION_MARKER_KEY": {
+      "purpose": "HMAC key of the deleted-identity hashes (users/deletion-markers.ts); unset derives one from PRIVY_APP_SECRET; 32+ characters in staging/production",
+      "services": { "api": "optional" },
+      "forbidden": { "worker-copy": "secret: deletion markers are written by the api", "worker-read": "secret: deletion markers are written by the api", "web": "secret" }
+    },
+    "ACCOUNT_DELETION_MARKER_PREVIOUS_KEYS": {
+      "purpose": "comma-separated retired marker keys kept for the retention window after a rotation",
+      "services": { "api": "optional" },
+      "rule": "requires ACCOUNT_DELETION_MARKER_KEY"
+    },
+    "TELEGRAM_BOT_TOKEN": {
+      "purpose": "the environment's alerts/linking bot; alerts are sent from every process, the link flow (GET /me/telegram) needs it on the api",
+      "services": { "api": "optional", "worker-copy": "optional", "worker-read": "optional" },
+      "forbidden": { "web": "secret" },
+      "sameAs": ["api", "worker-copy", "worker-read"],
+      "rule": "one bot per environment (D2); requires TELEGRAM_BOT_USERNAME"
+    },
+    "TELEGRAM_BOT_USERNAME": {
+      "purpose": "the bot's username (5..32 word characters, no @); required whenever TELEGRAM_BOT_TOKEN is set",
+      "services": { "api": "optional", "worker-copy": "optional", "worker-read": "optional" },
+      "sameAs": ["api", "worker-copy", "worker-read"]
+    },
+    "TELEGRAM_BOT_POLLING": {
+      "purpose": "whether this process polls the bot for updates (default true)",
+      "services": { "api": "optional", "worker-copy": "optional", "worker-read": "optional" },
+      "rule": "only one process may poll a token (Telegram answers 409 to a second poller): worker-read polls, so set `false` on the api and worker-copy when they carry the token"
+    },
+    "TELEGRAM_DRY_RUN": {
+      "purpose": "true (default) logs messages instead of sending; false requires TELEGRAM_BOT_TOKEN",
+      "services": { "api": "optional", "worker-copy": "optional", "worker-read": "optional" }
+    },
+    "TELEGRAM_SYSTEM_CHAT_ID": {
+      "purpose": "chat that receives system notices; unset = log only",
+      "services": { "api": "optional", "worker-copy": "optional", "worker-read": "optional" }
+    },
+    "TELEGRAM_LINK_BASE_URL": {
+      "purpose": "site origin used in bot links (http/https URL)",
+      "services": { "api": "optional", "worker-copy": "optional", "worker-read": "optional" }
+    },
+    "ALERT_MAX_ACTION_AGE_SECONDS": {
+      "purpose": "actions older than this are not alerted on (1..86400)",
+      "services": { "worker-copy": "optional", "worker-read": "optional" }
+    },
+    "HYPERLIQUID_EGRESS_KEY": {
+      "purpose": "the shared Hyperliquid REST meter's key (one value per outbound IP; letters, digits, : . _ -); required in staging and production",
+      "services": { "api": "required", "worker-copy": "required", "worker-read": "required" },
+      "sameAs": ["api", "worker-copy", "worker-read"],
+      "rule": "must not contain a `read` segment: `<key>:read` is the read worker's own derived meter (HYPERLIQUID_READ_METER=own)"
+    },
+    "HYPERLIQUID_READ_METER": {
+      "purpose": "own (default): worker-read charges its own meter `<HYPERLIQUID_EGRESS_KEY>:read` (cap 900, reserve 300); shared: back on the copy side's meter (the D12 rollback)",
+      "services": { "worker-read": "optional" },
+      "forbidden": { "api": "refused: `HYPERLIQUID_READ_METER applies to the read worker only`", "worker-copy": "refused: `HYPERLIQUID_READ_METER applies to the read worker only`" }
+    },
+    "HYPERLIQUID_BACKGROUND_REST_CAP": {
+      "purpose": "what background work may hold of the shared per-IP REST window (0..1200, default 840); lowered on a mainnet copy canary",
+      "services": { "api": "optional", "worker-copy": "optional" },
+      "forbidden": { "worker-read": "refused under HYPERLIQUID_READ_METER=own: the read meter's cap is the constant READ_WORKER_BACKGROUND_REST_CAP (delete it, or set HYPERLIQUID_READ_METER=shared)" },
+      "sameAs": ["api", "worker-copy"]
+    },
+    "HYPERLIQUID_WEIGHT_BUDGET_PER_MIN": {
+      "purpose": "this process's REST weight rate per minute (1..1199; api default 840)",
+      "services": { "api": "optional", "worker-copy": "optional", "worker-read": "optional" },
+      "rule": "worker-copy on HYPERLIQUID_NETWORK=mainnet ignores it: a mainnet worker reads HYPERLIQUID_WORKER_WEIGHT_BUDGET_PER_MIN (default MAINNET_WORKER_WEIGHT 360). worker-read under its own meter may lower the 900 default, never raise it. api + worker-copy rates must add up to HYPERLIQUID_BACKGROUND_REST_CAP"
+    },
+    "HYPERLIQUID_WEIGHT_BURST": {
+      "purpose": "this process's REST weight burst (1..1200; api default 200)",
+      "services": { "api": "optional", "worker-copy": "optional", "worker-read": "optional" },
+      "rule": "as HYPERLIQUID_WEIGHT_BUDGET_PER_MIN: a mainnet worker-copy reads HYPERLIQUID_WORKER_WEIGHT_BURST (default 840) instead; worker-read may only lower its 900"
+    },
+    "HYPERLIQUID_WORKER_WEIGHT_BUDGET_PER_MIN": {
+      "purpose": "a worker's REST rate when it shares the api's .env (local) and always on a mainnet worker (default MAINNET_WORKER_WEIGHT.perMin 360)",
+      "services": { "worker-copy": "optional", "worker-read": "optional" }
+    },
+    "HYPERLIQUID_WORKER_WEIGHT_BURST": {
+      "purpose": "a worker's REST burst when it shares the api's .env (local) and always on a mainnet worker (default MAINNET_WORKER_WEIGHT.burst 840)",
+      "services": { "worker-copy": "optional", "worker-read": "optional" }
+    },
+    "HYPERLIQUID_PAGE_RESERVE_SHARE": {
+      "purpose": "share of the rate the page reserve keeps refilling at while page work is over its share (0.05..0.9, default 0.25)",
+      "services": { "api": "optional", "worker-copy": "optional", "worker-read": "optional" }
+    },
+    "HYPERLIQUID_STARTUP_PACE_SECONDS": {
+      "purpose": "a new process sends at a reduced rate from empty buckets for this long, so a redeploy overlapping the old instance does not double the spend (0..600, default 60)",
+      "services": { "api": "optional", "worker-copy": "optional", "worker-read": "optional" }
+    },
+    "HYPERLIQUID_API_URL": {
+      "purpose": "Hyperliquid info REST endpoint for discovery reads (default mainnet)",
+      "services": { "api": "optional", "worker-copy": "optional", "worker-read": "optional" }
+    },
+    "HYPERLIQUID_WS_URL": {
+      "purpose": "Hyperliquid WebSocket endpoint (ws/wss; default mainnet)",
+      "services": { "api": "optional", "worker-copy": "optional", "worker-read": "optional" }
+    },
+    "HYPERLIQUID_NETWORK": {
+      "purpose": "mainnet | testnet (default testnet): where users' wallets live and where every actual copy executes",
+      "services": { "api": "required", "worker-copy": "required", "worker-read": "required" },
+      "sameAs": ["api", "worker-copy", "worker-read"],
+      "rule": "COPY_TRADING_MODE=live requires mainnet, =testnet requires testnet; every Railway environment is mainnet (D1)"
+    },
+    "HYPERLIQUID_ARBITRUM_RPC_URL": {
+      "purpose": "Arbitrum RPC for wallet balances and bridge reads (http/https); default the network's public endpoint",
+      "services": { "api": "optional", "worker-copy": "optional" }
+    },
+    "HYPERLIQUID_POOL_LEDGER_WEIGHT_PER_MIN": {
+      "purpose": "tuning: the pool's trade-ledger builds (0..600, default 100; 0 pauses)",
+      "services": { "api": "optional", "worker-read": "optional" },
+      "rule": "the read worker runs the job; the api reads the tuning names only to show them"
+    },
+    "HYPERLIQUID_POOL_PERFORMANCE_WEIGHT_PER_MIN": {
+      "purpose": "tuning: the pool's portfolio reads (0..600, default 240)",
+      "services": { "api": "optional", "worker-read": "optional" }
+    },
+    "HYPERLIQUID_HISTORY_WEIGHT_PER_MIN": {
+      "purpose": "tuning: durable fill-history pages (0..600, default 120)",
+      "services": { "api": "optional", "worker-read": "optional" }
+    },
+    "HYPERLIQUID_BACKFILL_WEIGHT_PER_MIN": {
+      "purpose": "tuning: backward fill backfill (0..600, default 120)",
+      "services": { "api": "optional", "worker-read": "optional" }
+    },
+    "HYPERLIQUID_COHORT_WEIGHT_PER_MIN": {
+      "purpose": "tuning: cohort member positions (0..600, default 150)",
+      "services": { "api": "optional", "worker-read": "optional" }
+    },
+    "DISCOVERY_LEADERBOARD_REFRESH_MINUTES": {
+      "purpose": "tuning: official leaderboard import interval (5..240, default 15)",
+      "services": { "api": "optional", "worker-read": "optional" }
+    },
+    "DISCOVERY_CANDIDATE_POOL_SIZE": {
+      "purpose": "tuning: pool size, plus every KOL (50..5000, default 1000)",
+      "services": { "api": "optional", "worker-read": "optional" }
+    },
+    "DISCOVERY_COHORT_MEMBERS_PER_TIER": {
+      "purpose": "tuning: members per cohort tier (0..2000, default 500)",
+      "services": { "api": "optional", "worker-read": "optional" }
+    },
+    "DISCOVERY_COHORT_REFRESH_MINUTES": {
+      "purpose": "tuning: cohort member refresh interval (5..240, default 40)",
+      "services": { "api": "optional", "worker-read": "optional" }
+    },
+    "RETENTION_ENABLED": {
+      "purpose": "tuning: the daily retention job (default true)",
+      "services": { "api": "optional", "worker-read": "optional" }
+    },
+    "RETENTION_SNAPSHOT_DAYS": {
+      "purpose": "tuning: snapshots kept (30..3650, default 90)",
+      "services": { "api": "optional", "worker-read": "optional" }
+    },
+    "RETENTION_AUDIT_DAYS": {
+      "purpose": "tuning: admin audit rows kept (30..3650, default 365)",
+      "services": { "api": "optional", "worker-read": "optional" }
+    },
+    "RETENTION_ACCOUNT_DELETION_DAYS": {
+      "purpose": "tuning: account-deletion records kept (30..3650, default 365)",
+      "services": { "api": "optional", "worker-read": "optional" }
+    },
+    "RETENTION_QUEUE_DAYS": {
+      "purpose": "tuning: finished outbox rows kept (7..3650, default 30)",
+      "services": { "api": "optional", "worker-read": "optional" }
+    },
+    "RETENTION_ALERT_DAYS": {
+      "purpose": "tuning: alert delivery records kept (7..3650, default 30)",
+      "services": { "api": "optional", "worker-read": "optional" }
+    },
+    "RETENTION_COPY_EQUITY_FULL_DAYS": {
+      "purpose": "tuning: paper copy valuations at full resolution (31..3650, default 31)",
+      "services": { "api": "optional", "worker-read": "optional" }
+    },
+    "RETENTION_COHORT_MEMBER_LIST_DAYS": {
+      "purpose": "tuning: cohort history member lists kept (7..3650, default 30)",
+      "services": { "api": "optional", "worker-read": "optional" }
+    },
+    "RETENTION_FOLLOWER_OBSERVATION_DAYS": {
+      "purpose": "tuning: superseded follower observations kept (1..3650, default 7)",
+      "services": { "api": "optional", "worker-read": "optional" }
+    },
+    "RETENTION_HISTORY_FILL_DAYS": {
+      "purpose": "tuning: traders' stored fill history (30..3650, default 90); the archive backfill never goes further back",
+      "services": { "api": "optional", "worker-read": "optional" }
+    },
+    "COPY_TRADING_MODE": {
+      "purpose": "paper (default) | disabled | testnet | live: the deployment's copy capability; testnet/live also execute real orders on HYPERLIQUID_NETWORK",
+      "services": { "api": "required", "worker-copy": "required", "worker-read": "optional" },
+      "sameAs": ["api", "worker-copy"],
+      "rule": "live requires HYPERLIQUID_NETWORK=mainnet, PRIVY_AGENT_AUTHORIZATION_KEY + PRIVY_AGENT_WORKER_QUORUM_ID, HYPERLIQUID_EGRESS_KEY and COPY_LIVE_ALLOWED_PRIVY_USER_IDS on that process; the api and worker-copy must agree. worker-read runs paper copy only, but if it carries `live` the same requirements apply to it"
+    },
+    "COPY_LIVE_ALLOWED_PRIVY_USER_IDS": {
+      "purpose": "comma-separated did:privy: ids who may copy with real funds; required with COPY_TRADING_MODE=live",
+      "services": { "api": "required", "worker-copy": "required", "worker-read": "optional" },
+      "sameAs": ["api", "worker-copy"]
+    },
+    "COPY_LIVE_MAX_STRATEGIES_PER_USER": {
+      "purpose": "actual copies one owner may hold (1..50, default 2)",
+      "services": { "api": "optional", "worker-copy": "optional" },
+      "sameAs": ["api", "worker-copy"]
+    },
+    "COPY_LIVE_MAX_ALLOCATION_USD": {
+      "purpose": "largest budget of one copy, top-ups included (1..10000000; unset: the risk policy's alone)",
+      "services": { "api": "optional", "worker-copy": "optional" },
+      "sameAs": ["api", "worker-copy"]
+    },
+    "COPY_LIVE_MAX_LEVERAGE": {
+      "purpose": "highest leverage a copy may use (1..50; live default 3)",
+      "services": { "api": "optional", "worker-copy": "optional" },
+      "sameAs": ["api", "worker-copy"]
+    },
+    "COPY_LIVE_FIXED_PER_TRADE_MIN_USD": {
+      "purpose": "testnet only: fixed sizing's per-trade lower bound (11..1000000); set together with _MAX_USD",
+      "services": { "api": "optional", "worker-copy": "optional" },
+      "rule": "ignored under COPY_TRADING_MODE=live (ratio sizing only, D6): a leftover from the fixed-amount trial can be deleted"
+    },
+    "COPY_LIVE_FIXED_PER_TRADE_MAX_USD": {
+      "purpose": "testnet only: fixed sizing's per-trade upper bound (11..1000000); set together with _MIN_USD",
+      "services": { "api": "optional", "worker-copy": "optional" },
+      "rule": "as COPY_LIVE_FIXED_PER_TRADE_MIN_USD"
+    },
+    "COPY_LIVE_TESTNET_SOURCE_INTERVAL_MS": {
+      "purpose": "how often a testnet leader's fills are polled over REST (1000..600000, default 60000)",
+      "services": { "worker-copy": "optional" }
+    },
+    "COPY_TESTNET_MAX_PRICE_DEVIATION_BPS": {
+      "purpose": "largest mid difference between the leader's network and the execution network at which an open is still mirrored (0..10000, default 500)",
+      "services": { "worker-copy": "optional" }
+    },
+    "COPY_LIVE_TESTNET_EVIDENCE_MAX_AGE_MS": {
+      "purpose": "testnet only: the live path's evidence window (5000..10000)",
+      "services": {},
+      "forbidden": {
+        "api": "refused when HYPERLIQUID_NETWORK=mainnet (every Railway environment is): `is testnet only`",
+        "worker-copy": "refused when HYPERLIQUID_NETWORK=mainnet: `is testnet only`",
+        "worker-read": "refused when HYPERLIQUID_NETWORK=mainnet: `is testnet only`"
+      }
+    },
+    "COPY_LIVE_SLIPPAGE_BPS": {
+      "purpose": "IOC limit distance from the execution network's mid (0..500, default 30)",
+      "services": { "worker-copy": "optional" }
+    },
+    "COPY_LIVE_INTERVAL_MS": {
+      "purpose": "one live worker pass every this many ms (1000..60000, default 3000)",
+      "services": { "worker-copy": "optional" }
+    },
+    "COPY_LIVE_WEIGHT_PER_MIN": {
+      "purpose": "testnet REST weight per minute for execution reads (100..485, default 300); the api and the worker refuse to start above 485",
+      "services": { "api": "optional", "worker-copy": "optional" }
+    },
+    "COPY_LIVE_REVOKE_DEADLINE_MINUTES": {
+      "purpose": "how long a grant whose revocation an admin requested stays usable for its copy's stop (1..1440, default 30)",
+      "services": { "api": "optional", "worker-copy": "optional" }
+    },
+    "COPY_LIVE_FAST_SOURCE": {
+      "purpose": "mainnet leaders whose copy signal comes from the realtime fast source: `all` or comma-separated 0x addresses; unset = watcher-verified source",
+      "services": { "worker-copy": "optional" }
+    },
+    "COPY_LIVE_FAST_SOURCE_GRACE_MS": {
+      "purpose": "how far before a read was sent it certifies fills (0..60000); read only with COPY_LIVE_FAST_SOURCE",
+      "services": { "worker-copy": "optional" }
+    },
+    "COPY_LIVE_SETUP_LEASE_MS": {
+      "purpose": "the setup driver's lease (10000..600000)",
+      "services": { "api": "optional", "worker-copy": "optional" },
+      "rule": "the step budgets must fit the lease; the api drives setups under API_SETUP_DRIVE=local, worker-copy under `worker`"
+    },
+    "COPY_LIVE_SETUP_RESERVE_WAIT_MS": {
+      "purpose": "a setup step's reserve wait budget (1000..300000)",
+      "services": { "api": "optional", "worker-copy": "optional" }
+    },
+    "COPY_LIVE_SETUP_SIGN_MS": {
+      "purpose": "a setup step's signing budget (1000..300000)",
+      "services": { "api": "optional", "worker-copy": "optional" }
+    },
+    "COPY_LIVE_SETUP_POST_MS": {
+      "purpose": "a setup step's post budget (1000..300000)",
+      "services": { "api": "optional", "worker-copy": "optional" }
+    },
+    "COPY_LIVE_SETUP_BACKOFF_BASE_MS": {
+      "purpose": "a setup retry's base backoff (100..600000); must not exceed _BACKOFF_MAX_MS",
+      "services": { "api": "optional", "worker-copy": "optional" }
+    },
+    "COPY_LIVE_SETUP_BACKOFF_MAX_MS": {
+      "purpose": "a setup retry's largest backoff (100..3600000)",
+      "services": { "api": "optional", "worker-copy": "optional" }
+    },
+    "COPY_LIVE_SETUP_TRANSIENT_ATTEMPTS": {
+      "purpose": "transient-error attempts of a setup step (1..100)",
+      "services": { "api": "optional", "worker-copy": "optional" }
+    },
+    "COPY_LIVE_STOP_SYSTEM_CHECK_MS": {
+      "purpose": "the stop worker's system check interval (1000..3600000)",
+      "services": { "worker-copy": "optional" }
+    },
+    "COPY_WORKER_INTERVAL_MS": {
+      "purpose": "the paper copy worker's pass interval (250..60000, default 2000)",
+      "services": { "worker-read": "optional" }
+    },
+    "HL_EGRESS_IDENTITY": {
+      "purpose": "off (default) | observe | enforce: the egress identity guard (runtime/egress-identity.ts)",
+      "services": { "api": "optional", "worker-copy": "optional", "worker-read": "optional" },
+      "rule": "`enforce` is refused on the api and meaningful on worker-copy only; it needs HL_EGRESS_PEERS"
+    },
+    "HL_EGRESS_IDENTITY_INTERVAL_MINUTES": {
+      "purpose": "how often the public IP is re-learned (1..1440, default 5)",
+      "services": { "api": "optional", "worker-copy": "optional", "worker-read": "optional" }
+    },
+    "HL_EGRESS_ECHO_TIMEOUT_MS": {
+      "purpose": "one IP echo call's bound (500..10000, default 3000)",
+      "services": { "api": "optional", "worker-copy": "optional", "worker-read": "optional" }
+    },
+    "HL_EGRESS_ECHO_URLS": {
+      "purpose": "comma-separated https IP echoes tried in order; default three independent echoes",
+      "services": { "api": "optional", "worker-copy": "optional", "worker-read": "optional" }
+    },
+    "HL_EGRESS_PEERS": {
+      "purpose": "the api's and worker-read's internal base URLs whose GET /health/egress reports their IPs; required under HL_EGRESS_IDENTITY=enforce",
+      "services": { "worker-copy": "optional" }
+    },
+    "HL_EGRESS_EXPECTED_IPS": {
+      "purpose": "comma-separated IPv4 addresses of the static egress gateway; an IP outside them refuses the lease under enforce",
+      "services": { "worker-copy": "optional" }
+    },
+    "S3_ARCHIVE_ENABLED": {
+      "purpose": "true runs the S3 archive ingest (requires AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY, or S3_ARCHIVE_LOCAL_DIR)",
+      "services": { "worker-read": "optional" }
+    },
+    "S3_ARCHIVE_BUCKET": {
+      "purpose": "the archive bucket (default hl-mainnet-node-data)",
+      "services": { "worker-read": "optional" }
+    },
+    "S3_ARCHIVE_REGION": {
+      "purpose": "the archive bucket's region (default ap-northeast-1)",
+      "services": { "worker-read": "optional" }
+    },
+    "S3_ARCHIVE_LOCAL_DIR": {
+      "purpose": "read archive objects from a local folder instead of S3 (tests and local runs)",
+      "services": { "worker-read": "optional" }
+    },
+    "S3_ARCHIVE_START": {
+      "purpose": "earliest UTC day the archive has, YYYY-MM-DD (default 2025-05-25)",
+      "services": { "worker-read": "optional" }
+    },
+    "S3_ARCHIVE_MAX_DAILY_USD": {
+      "purpose": "cap on one UTC day's downloads (0..1000, default 2)",
+      "services": { "worker-read": "optional" }
+    },
+    "S3_ARCHIVE_USD_PER_GB": {
+      "purpose": "the transfer price the daily cap counts with (0..10, default 0.114)",
+      "services": { "worker-read": "optional" }
+    },
+    "S3_ARCHIVE_MAX_BYTES_PER_MINUTE": {
+      "purpose": "download pacing (1..10737418240, default 268435456)",
+      "services": { "worker-read": "optional" }
+    },
+    "S3_ARCHIVE_TRUST": {
+      "purpose": "regular (default) | all | none: which REST history streams may skip ranges the archive certifies",
+      "services": { "worker-read": "optional" }
+    },
+    "S3_ARCHIVE_BACKFILL_ENABLED": {
+      "purpose": "false runs only the forward cursor (default true)",
+      "services": { "worker-read": "optional" }
+    },
+    "S3_ARCHIVE_BACKFILL_DAYS": {
+      "purpose": "how far back a backfill pass goes (1..3650, default 90)",
+      "services": { "worker-read": "optional" }
+    },
+    "S3_ARCHIVE_PASS_INTERVAL_HOURS": {
+      "purpose": "least time between two backfill passes (0..8760, default 168)",
+      "services": { "worker-read": "optional" }
+    },
+    "S3_ARCHIVE_SETTLE_MINUTES": {
+      "purpose": "minutes after an hour ends before its object is read (0..1440, default 20)",
+      "services": { "worker-read": "optional" }
+    },
+    "S3_ARCHIVE_MAX_FILLS_PER_ADDRESS_HOUR": {
+      "purpose": "more fills than this in one hourly object excludes the address (0 = never, default 0)",
+      "services": { "worker-read": "optional" }
+    },
+    "AWS_ACCESS_KEY_ID": {
+      "purpose": "the requester-pays IAM user billed for archive downloads; set together with AWS_SECRET_ACCESS_KEY",
+      "services": { "worker-read": "optional" },
+      "forbidden": { "api": "secret: the archive ingest runs on worker-read only", "worker-copy": "secret: the archive ingest runs on worker-read only", "web": "secret" },
+      "rule": "a separate IAM user per environment (D2)"
+    },
+    "AWS_SECRET_ACCESS_KEY": {
+      "purpose": "the IAM user's secret",
+      "services": { "worker-read": "optional" },
+      "forbidden": { "api": "secret: the archive ingest runs on worker-read only", "worker-copy": "secret: the archive ingest runs on worker-read only", "web": "secret" }
+    },
+    "AWS_SESSION_TOKEN": {
+      "purpose": "session token of temporary AWS credentials",
+      "services": { "worker-read": "optional" },
+      "forbidden": { "api": "secret", "worker-copy": "secret", "web": "secret" }
+    },
+    "API_TRUSTED_PROXY_CIDRS": {
+      "purpose": "comma-separated explicit addresses or CIDRs allowed to set the client address",
+      "services": { "api": "optional" }
+    },
+    "API_CORS_ORIGINS": {
+      "purpose": "comma-separated exact HTTP(S) origins allowed to call the api from a browser; empty = none",
+      "services": { "api": "optional" }
+    },
+    "API_INGRESS_PER_MINUTE": {
+      "purpose": "rate limit: requests per minute per client (default 3000)",
+      "services": { "api": "optional" }
+    },
+    "API_READ_PER_MINUTE": {
+      "purpose": "rate limit: reads per minute (default 300)",
+      "services": { "api": "optional" }
+    },
+    "API_WRITE_PER_MINUTE": {
+      "purpose": "rate limit: writes per minute (default 60)",
+      "services": { "api": "optional" }
+    },
+    "API_EXPENSIVE_PER_MINUTE": {
+      "purpose": "rate limit: expensive calls per minute (default 10)",
+      "services": { "api": "optional" }
+    },
+    "MAX_FAVORITES_PER_USER": {
+      "purpose": "default favorites cap when the admin setting is unset (1..10000, default 100)",
+      "services": { "api": "optional" }
+    },
+    "STREAM_MAX_PER_IP": {
+      "purpose": "live feed connections per IP (1..1000, default 8); must not exceed STREAM_MAX_TOTAL",
+      "services": { "api": "optional" }
+    },
+    "STREAM_MAX_TOTAL": {
+      "purpose": "live feed connections in total (1..100000, default 500)",
+      "services": { "api": "optional" }
+    },
+    "STREAM_TRUSTED_PROXY_HOPS": {
+      "purpose": "proxy hops in front of the api (0..10; Railway 1)",
+      "services": { "api": "optional" }
+    },
+    "NEXT_API_URL": {
+      "purpose": "the api's internal base URL the web server forwards /api/hl/* to and prefetches from (server side only)",
+      "services": { "web": "required" }
+    },
+    "NEXT_PUBLIC_APP_URL": {
+      "purpose": "canonical origin for metadataBase and Open Graph URLs (compiled in at build time)",
+      "services": { "web": "required" }
+    },
+    "NEXT_PUBLIC_PRIVY_APP_ID": {
+      "purpose": "the Privy app id the browser signs in with (compiled in); unset disables the login button",
+      "services": { "web": "required" },
+      "rule": "the same app as the api's PRIVY_APP_ID"
+    },
+    "NEXT_PUBLIC_APP_NAME": {
+      "purpose": "product name in titles and the wordmark (compiled in; default Orbie)",
+      "services": { "web": "optional" }
+    },
+    "NEXT_PUBLIC_API_FIXTURES": {
+      "purpose": "1 answers api calls from bundled fixtures instead of the api (compiled in; dev and tests)",
+      "services": { "web": "optional" },
+      "rule": "never `1` on Railway: a deployed build would serve demo data"
+    },
+    "NEXT_PUBLIC_CJK_FONT_BUILD": {
+      "purpose": "the CJK web font generation id both bundles inline (cookie invalidation); default local-test",
+      "services": { "web": "optional" }
+    },
+    "NEXT_PRIVY_AUTH_ORIGINS": {
+      "purpose": "comma-separated extra Privy origins allowed by the CSP (read at run time)",
+      "services": { "web": "optional" }
+    },
+    "CLIENT_IP_HEADER": {
+      "purpose": "the request header holding the visitor's address as the edge sets it (default x-forwarded-for)",
+      "services": { "web": "optional" }
+    },
+    "NEXT_TEST_MODE": {
+      "purpose": "1 starts the browser-test server (fixtures, Privy stub, no root .env)",
+      "services": {},
+      "forbidden": { "web": "unused: test server only; a deployed web must never run in test mode" }
+    },
+    "NEXT_DEV_LAB": {
+      "purpose": "1 opens the /dev lab on a production build",
+      "services": {},
+      "forbidden": { "web": "unused: the dev lab is a developer tool, never open on a deployed web" }
+    },
+    "NEXT_PUBLIC_CJK_WARMUP": {
+      "purpose": "1 runs the CJK font warm-up under fixtures (tests)",
+      "services": {},
+      "forbidden": { "web": "unused: only read under NEXT_PUBLIC_API_FIXTURES=1" }
+    }
+  }
+}

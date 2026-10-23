@@ -17,7 +17,7 @@ import { usePendingToast } from "@/lib/use-action-toast";
 import { UsdcIcon } from "@/components/wallet/bits";
 import { useI18n } from "@/i18n/provider";
 import { liveCopiesMessages } from "@/i18n/live-copies";
-import { apiErrorCode } from "@/lib/api";
+import { ApiError, apiErrorCode } from "@/lib/api";
 import { copyErrorText } from "@/lib/copy-error-text";
 import { useAuth } from "@/lib/auth";
 import { useCopyOf, useCopyOverview, useStartCopy } from "@/lib/copy";
@@ -70,6 +70,8 @@ export function usePanelSetup(identity: string | null, leader: string, mode: Sit
 
 /** CopyDog's Hyperliquid floor (`Minimum ${min} to copy`); the api's policy wins once loaded. */
 const DEFAULT_MIN = 100;
+/** The floor a refusal names (`details.min`), when it does. */
+const apiErrorMin = (err: unknown): number | null => err instanceof ApiError && typeof err.details.min === "number" ? err.details.min : null;
 const KEYPAD = [["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"], ["00", "0", "del"]] as const;
 /** CopyDog's amount type: 64px, shrinking to 28px as the amount grows. */
 const AMOUNT_MAX_PX = 64;
@@ -342,6 +344,8 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName, li
     if (code === "leader_too_active") void copyActivity.refetch();
     toast.error(
       code === "leader_too_active" && tooActive ? tooActiveText(tooActive) :
+      // D8: the exchange floor (the api's `min`, 12) shares the one sentence the policy floor already has.
+      code === "budget_below_exchange_minimum" ? t("trader.copy.errors.minAllocation", { min: format.num(apiErrorMin(err) ?? min) }) :
       code === "below_min_allocation" ? t("trader.copy.errors.minAllocation", { min: format.num(min) }) :
       code === "above_max_allocation" ? t("trader.copy.errors.maxAllocation", { max: format.num(max ?? limit?.maxAllocationUsd ?? 0) }) :
       code === "copy_paused" ? t("trader.copy.errors.paused") :
@@ -744,11 +748,13 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName, li
 /**
  * The amount a new copy may take: 模擬 within the paper limits (CopyDog's
  * $100 floor until they load); 正式 / 測試網 within the deployment's caps
- * (its per-trade minimum, else 1, and its largest budget, none when unset).
+ * (its per-trade minimum, else its smallest budget — the exchange minimum
+ * plus a fee buffer, decision D8 — else 1, and its largest budget, none when
+ * unset).
  */
 export function copyAmountBounds(live: boolean, paper: { minAllocationUsd: number; maxAllocationUsd: number } | undefined,
-  caps: { fixedPerTradeUsd: { min: number } | null; maxAllocationUsd: number | null } | null | undefined): { min: number; max: number | null } {
-  if (live) return { min: caps?.fixedPerTradeUsd?.min ?? 1, max: caps?.maxAllocationUsd ?? null };
+  caps: { fixedPerTradeUsd: { min: number } | null; maxAllocationUsd: number | null; minBudgetUsd?: number } | null | undefined): { min: number; max: number | null } {
+  if (live) return { min: caps?.fixedPerTradeUsd?.min ?? caps?.minBudgetUsd ?? 1, max: caps?.maxAllocationUsd ?? null };
   return { min: paper?.minAllocationUsd ?? DEFAULT_MIN, max: paper?.maxAllocationUsd ?? null };
 }
 

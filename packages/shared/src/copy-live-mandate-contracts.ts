@@ -63,7 +63,11 @@ export const liveCopyOverviewSchema = z.object({
     /** The deployment's caps on a new actual copy: fixed sizing within these
      * per-trade bounds (null: any sizing), the largest budget and leverage. */
     caps: z.object({ fixedPerTradeUsd: z.object({ min: z.number(), max: z.number() }).strict().nullable(), maxAllocationUsd: z.number().nullable(),
-      maxLeverage: z.number().nullable(), maxStrategiesPerUser: z.number().int().positive() }).strict().optional() }).strict(),
+      maxLeverage: z.number().nullable(), maxStrategiesPerUser: z.number().int().positive(),
+      /** The smallest budget a copy may start with (decision D8: the exchange
+       * minimum order plus a fee buffer); below it `budget_below_exchange_minimum`.
+       * Optional while older api builds roll out. */
+      minBudgetUsd: z.number().positive().optional() }).strict().optional() }).strict(),
   strategies: z.array(liveCopyStrategySchema), mandates: z.array(liveCopyMandateSchema),
 }).strict();
 

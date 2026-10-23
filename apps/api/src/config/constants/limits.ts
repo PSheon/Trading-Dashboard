@@ -4,6 +4,12 @@
  */
 import { DAY_MS, MINUTE_MS } from './time.js';
 
+/** basis: measured — Hyperliquid's documented minimum order value, 10 USD ("the only exception is exactly closing a position with a reduce-only order")
+ * The exchange refuses an order worth less at its limit price; a policy's `minOrderNotionalUsd` can only raise it
+ * (copy/min-order-notional.ts), and D7/D8 derive the suggested and the smallest budgets from it.
+ */
+export const EXCHANGE_MIN_ORDER_NOTIONAL_USD = 10;
+
 /** basis: guessed — three orders per leader leg (the cloid suffix holds one digit); gate 9 records p50/p99 of attempts used
  * A later attempt exists only after the previous one was released as never
  * sent (isDefinitelyUnsent / releaseUnsent); it is a new order with its own
@@ -87,3 +93,15 @@ export const SUGGESTED_BUDGET_MIN_ADDS = 5;
  * The suggestion then falls back to the leaderboard's or the pool's account value, else null.
  */
 export const SUGGESTED_BUDGET_EQUITY_MAX_AGE_MS = DAY_MS;
+
+/** basis: guessed — Paul 2026-10-23 (decision D8): "交易所最低額＋手續費緩衝（約 12 USD）", so 2 USD over the 10 USD order minimum; verify: Stage records budget_below_exchange_minimum refusals and the smallest budget that completed an open and its close
+ * The buffer covers taker fees and the IOC slippage of one minimum-sized order and its close.
+ */
+export const LIVE_BUDGET_FEE_BUFFER_USD = 2;
+
+/** basis: derived — EXCHANGE_MIN_ORDER_NOTIONAL_USD + LIVE_BUDGET_FEE_BUFFER_USD
+ * The smallest budget an actual copy may start with (decision D8): below it a copy could never place one order,
+ * so the start is refused `budget_below_exchange_minimum`. A budget under the leader's suggested minimum (D7) is
+ * allowed, with a warning pill only.
+ */
+export const LIVE_BUDGET_MIN_USD = EXCHANGE_MIN_ORDER_NOTIONAL_USD + LIVE_BUDGET_FEE_BUFFER_USD;

@@ -1,6 +1,8 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { adminSettingsSchema, DEFAULT_COPY_RISK_LIMITS } from '@trading-dashboard/shared/contracts';
-import { appSettings, copyControls, copyRiskPolicies } from '@trading-dashboard/shared/database';
+import { appSettings, copyControls, copyRiskPolicies, traderSuggestedBudgets } from '@trading-dashboard/shared/database';
+import { LIVE_BUDGET_MIN_USD } from '../src/config/constants/limits.js';
+import { CopyLiveMandateService } from '../src/copy/copy-live-mandate.service.js';
 import type { AppConfig } from '../src/config/app-config.js';
 import type { LiveCopyConfig } from '../src/config/runtime-config.js';
 import { CopyLiveMandateRepository } from '../src/copy/copy-live-mandate.repository.js';
@@ -63,6 +65,21 @@ describe('deployment caps on actual copies', () => {
     const config = deployment(live());
     await expect(create(config, 1, { budgetUsd: '60' })).rejects.toMatchObject(refusal('above_max_allocation'));
     await expect(create(config, 1, { budgetUsd: '50' })).resolves.toMatchObject({ budgetUsd: '50', network: 'mainnet' });
+  });
+
+  it('decision D8 (2026-10-23): a budget under the exchange minimum plus the fee buffer (12 USD) is refused with its own code; 12 may start, under the suggested minimum or not', async () => {
+    expect(LIVE_BUDGET_MIN_USD).toBe(12);
+    const config = deployment(live());
+    // A policy whose own floor is under the exchange floor: what refuses 11.999999 is the exchange floor alone.
+    await db.insert(copyRiskPolicies).values({ version: 2, limits: { ...DEFAULT_COPY_RISK_LIMITS, maxStrategiesPerUser: 10, maxAllocationUsd: 100_000, minAllocationUsd: 10, maxLeverage: 10 }, reason: 'stage v2', createdByUserId: uid });
+    await expect(create(config, 1, { budgetUsd: '11.999999' })).rejects.toMatchObject(refusal('budget_below_exchange_minimum'));
+    await expect(create(config, 1, { budgetUsd: '11.999999' })).rejects.toMatchObject({ response: expect.objectContaining({ min: 12 }) });
+    // A leader whose suggested minimum (D7) is far above: still allowed (the UI warns), the exchange floor alone refuses.
+    await db.insert(traderSuggestedBudgets).values({ address: leader(1), suggestedMinBudgetUsd: 500, adds: 9, windowFrom: new Date(), computedAt: new Date() });
+    await expect(create(config, 1, { budgetUsd: '12' })).resolves.toMatchObject({ budgetUsd: '12', network: 'mainnet' });
+    // The overview tells the client the floor, so its amount field says 最低 $12 before any request.
+    const overview = await new CopyLiveMandateService(config, new CopyLiveMandateRepository(db, config), new UnitOfWork(db), () => Date.now()).overview(uid);
+    expect(overview.capabilities.caps).toMatchObject({ minBudgetUsd: 12 });
   });
 
   it('real-money copies size by ratio only (Paul 2026-10-11), with leverage at most 3', async () => {

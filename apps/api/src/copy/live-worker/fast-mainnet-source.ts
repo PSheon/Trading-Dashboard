@@ -3,7 +3,7 @@ import { isOutOfScopeSpotFill } from '../../watcher/action-classifier.js';
 import type { LiveSourceReadResult } from '../copy-live-source.client.js';
 import { liveSourceDigest, parseLiveSourceFill, presumedTwapSlice, type LiveSourceFillEvidence } from '../live/copy-live-source-evidence.js';
 import { address, LiveBoundaryError } from '../live/wallet-authorization.js';
-import { FOLLOW_UP_MAX_MS, FOLLOW_UP_MIN_MS, WITNESS_EXPIRY_MS } from '../../config/constants/timings.js';
+import { FOLLOW_UP_MAX_MS, FOLLOW_UP_MIN_MS, GAP_FOLLOW_UP_EXPIRY_MS, WITNESS_EXPIRY_MS } from '../../config/constants/timings.js';
 import { liveEvidenceMaxAgeMs } from '../../config/live-evidence-window.js';
 
 /** Fast-source provider reads (the shared meter's `source` lane of the
@@ -37,6 +37,8 @@ interface LeaderState {
   misses: number;
   /** Consecutive reads that left the stream in gap (readOutcome): the next read is due G after the last, backed off. */
   gaps: number;
+  /** When the current run of gap reads began (the follow-up ends GAP_FOLLOW_UP_EXPIRY_MS later), or null. */
+  gapSince: number | null;
 }
 
 /**
@@ -72,7 +74,7 @@ export class FastMainnetSource {
 
   private state(leader: string): LeaderState {
     let state = this.leaders.get(leader);
-    if (!state) { state = { witnessed: new Map(), beyond: null, lastReadAt: 0, misses: 0, gaps: 0 }; this.leaders.set(leader, state); }
+    if (!state) { state = { witnessed: new Map(), beyond: null, lastReadAt: 0, misses: 0, gaps: 0, gapSince: null }; this.leaders.set(leader, state); }
     return state;
   }
 
@@ -104,10 +106,15 @@ export class FastMainnetSource {
    * (followUp), backed off while reads keep falling short, instead of at the
    * leader's next trade or the watched source's verification (Stage mainnet
    * 2026-10-22 18:02Z: ~60 s in gap, a close waiting on it). Weight: the same
-   * one read per G at most (nextReadAt), counted as every read is. */
+   * one read per G at most (nextReadAt), counted as every read is.
+   * `gap` is also a fast read that threw or certified nothing (the engine
+   * counts it so the back-off grows); `false` is any other outcome the
+   * engine sees for the leader (a complete read, the watched source's
+   * recovery, a quarantined stream, no copy left), which ends the follow-up. */
   readOutcome(leader: string, gap: boolean): void {
     const state = this.state(address(leader));
-    state.gaps = gap ? state.gaps + 1 : 0;
+    if (gap) { state.gaps += 1; state.gapSince ??= this.now(); }
+    else { state.gaps = 0; state.gapSince = null; }
   }
 
   /** When another read of this leader would certify something new, or null. */
@@ -116,8 +123,10 @@ export class FastMainnetSource {
     if (!state) return null;
     // Never within G of the last read (nextReadAt); a second apart, doubling, while a witnessed trade stays missing.
     const backoff = (count: number) => Math.max(this.graceMs, Math.min(FOLLOW_UP_MAX_MS, FOLLOW_UP_MIN_MS * 2 ** count));
-    // The last read left the stream in gap: read again (from the same coverage) G after it, doubling per consecutive gap.
-    const recover = state.gaps > 0 ? state.lastReadAt + backoff(state.gaps - 1) : null;
+    // The last read left the stream in gap: read again (from the same coverage) G after it, doubling per consecutive
+    // gap, for GAP_FOLLOW_UP_EXPIRY_MS at most (then the pass's reads are the way back; a follow-up with no read
+    // behind it would otherwise fire a 0 ms timer for ever).
+    const recover = state.gaps > 0 && state.gapSince !== null && this.now() - state.gapSince <= GAP_FOLLOW_UP_EXPIRY_MS ? state.lastReadAt + backoff(state.gaps - 1) : null;
     const witnessed = [...state.witnessed.values()], earliest = Math.min(...witnessed, state.beyond ?? Infinity);
     if (!Number.isFinite(earliest)) return recover;
     const pending = Math.max(earliest + this.graceMs + 100, state.lastReadAt + backoff(state.misses));

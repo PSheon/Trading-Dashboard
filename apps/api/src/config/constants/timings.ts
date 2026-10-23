@@ -206,6 +206,13 @@ export const WITNESS_EXPIRY_MS = 60_000;
  */
 export const FAST_SOURCE_GRACE_MS = 2000;
 
+/** basis: derived — WITNESS_EXPIRY_MS: a fast read that left its stream in gap is followed up for as long as a feed trade REST hasn't returned is
+ * After it the pass's reads (the watched source, the feed-down poll) are the stream's way back; a follow-up that
+ * kept firing on a stream nobody reads again (quarantined, its last copy gone) span a 0 ms timer until restart
+ * (review of c888f6c5, 2026-10-23).
+ */
+export const GAP_FOLLOW_UP_EXPIRY_MS = WITNESS_EXPIRY_MS;
+
 /** basis: guessed — follow-up reads of one leader start a second apart (never closer than G: FAST_SOURCE_GRACE_MS); verify: fast-source follow-up histogram
  * Doubles while a witnessed trade stays missing.
  */

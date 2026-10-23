@@ -115,6 +115,7 @@ const FOLLOWER_ALREADY_FLAT = new Set(['no_follower_position', 'position_closed_
 const HOLD_HEADROOM = '1.1';
 export { describeUnexpected, safeErrorText } from '../../runtime/safe-error-text.js';
 import { LIVE_STANDBY_RENEW_MS, SHARED_CAPACITY_RETRY_MS } from '../../config/constants/hyperliquid.js';
+import { SOURCE_STUCK_ALERT_MS } from '../../config/constants/alerts.js';
 import { ABSTRACTION_ATTEMPT_LIMIT, CLOSE_ATTEMPT_LIMIT, MAX_LIVE_LEG_ATTEMPTS } from '../../config/constants/limits.js';
 import { HOLD_MARGIN_MS, PLANNING_MARGIN_MS, TESTNET_SOURCE_RETRY_MS } from '../../config/constants/timings.js';
 import { liveSourceStreamAdmits } from '../live/postgres-live-risk-authority.js';
@@ -184,6 +185,7 @@ export class CopyLiveEngine {
         started - (this.lastFastRead.get(stream.leaderAddress) ?? 0) >= (this.options.fastPollMs ?? 7_500);
       try { await budgetConsumer('copy.source', () => this.ingest(stream, mandates, poll)); }
       catch (error) { this.deps.log?.(`source ${stream.network}:${stream.leaderAddress} not read: ${sourceReason(error)}`); }
+      try { await this.watchStuck(stream); } catch (error) { this.deps.log?.(`source ${stream.network}:${stream.leaderAddress} not watched: ${reasonOf(error)}`); }
     }
     const limit = await this.deps.repository.signalAgeLimitMs();
     const held = await this.prepareWork(mandates.filter(mirrorsLeader));
@@ -270,7 +272,8 @@ export class CopyLiveEngine {
     const started = this.now();
     const mandates = (await this.deps.repository.mandates(started)).filter(m => m.sourceNetwork === 'mainnet' && m.leaderAddress === leader);
     const streams = this.deps.repository.streams(mandates).filter(stream => this.fastLeader(stream));
-    if (!streams.length) return null;
+    // No copy of this leader left: nothing reads its stream again, so no gap follow-up either.
+    if (!streams.length) { this.noteFastOutcome({ network: 'mainnet', leaderAddress: leader }, false); return null; }
     let outcome: IngestOutcome | null = null;
     for (const stream of streams) {
       try { outcome = await this.ingest(stream, mandates, true); }
@@ -316,7 +319,8 @@ export class CopyLiveEngine {
     if (network === 'testnet' && now < (this.testnetSourceRetryAt.get(key)
       ?? (this.lastTestnetRead.get(key) ?? 0) + this.options.testnetSourceIntervalMs)) return null;
     let current = await this.deps.uow.run(tx => this.deps.sources.ensure(tx, leaderAddress, network));
-    if (current.state === 'quarantined') return null;
+    // Quarantined: no read brings it back, so no gap follow-up either.
+    if (current.state === 'quarantined') { this.noteFastOutcome(stream, false); return null; }
     const earliest = mandates.filter(m => m.sourceNetwork === network && m.leaderAddress === leaderAddress).reduce((min, m) => Math.min(min, m.cursor.getTime()), Infinity);
     // Coverage ending before every cursor restarts at the earliest cursor instead of reading the gap.
     if (current.coverageThrough && current.coverageThrough.getTime() < earliest - 1) {
@@ -336,6 +340,8 @@ export class CopyLiveEngine {
       this.lastFastRead.set(leaderAddress, now);
       try { result = await this.deps.fast!.source.read(leaderAddress, from); viaFast = result !== null; }
       catch (error) { this.deps.log?.(`fast source ${leaderAddress} not read: ${sourceReason(error)}`); }
+      // A fast read that threw or certified nothing counts as a gap read: its follow-up backs off (and ends).
+      if (!viaFast) this.noteFastOutcome(stream, true);
     }
     if (!result) {
       if (network === 'mainnet') result = await this.deps.watched.read(leaderAddress, from, to);
@@ -364,9 +370,36 @@ export class CopyLiveEngine {
       this.deps.log?.(`source ${key} in gap (${applied.stream.lastIssue}): read [${new Date(read.from).toISOString()}, ${new Date(read.to).toISOString()}] ${viaFast ? 'fast' : 'watched'}, ` +
         `fresh ${read.fresh}, complete ${read.complete}, ${read.completedAt - read.observedAt} ms`);
     // A fast read that left the stream in gap is followed up G after it (the
-    // kick's follow-up), not at the leader's next trade.
-    if (viaFast) this.deps.fast!.source.readOutcome?.(leaderAddress, applied.stream.state === 'gap');
+    // kick's follow-up), not at the leader's next trade; any read (the watched
+    // source's too) that leaves it out of gap ends the follow-up.
+    if (viaFast || applied.stream.state !== 'gap') this.noteFastOutcome(stream, applied.stream.state === 'gap');
     return { fast: viaFast, fills: read.fills.length, kind: applied.kind, state: applied.stream.state, through: applied.stream.coverageThrough?.getTime() ?? null };
+  }
+
+  /** Tells the fast source what the leader's stream did (FastMainnetSource.readOutcome), for fast-source leaders. */
+  private noteFastOutcome(stream: Pick<LiveStreamWork, 'network' | 'leaderAddress'>, gap: boolean): void {
+    if (this.fastLeader(stream)) this.deps.fast!.source.readOutcome?.(stream.leaderAddress, gap);
+  }
+
+  /** Since when a leader's stream has not been `ready` (watchStuck), by `<network>:<leader>`. */
+  private readonly notReadySince = new Map<string, number>();
+  /** Streams alerted as stuck in their current episode. */
+  private readonly stuckAlerted = new Set<string>();
+  /**
+   * A stream not `ready` (gap, unproven, quarantined) holds its copies' opens,
+   * and closes whose fill lies beyond the proven coverage, with no bound of
+   * their own (live_risk_source_not_ready waits spend no attempt): after
+   * SOURCE_STUCK_ALERT_MS of it, `ALERT copy source stuck`, once per episode.
+   */
+  private async watchStuck(stream: LiveStreamWork): Promise<void> {
+    const key = `${stream.network}:${stream.leaderAddress}`, row = await this.deps.repository.stream(stream.network, stream.leaderAddress);
+    if (!row || row.state === 'ready') { this.notReadySince.delete(key); this.stuckAlerted.delete(key); return; }
+    const now = this.now(), since = this.notReadySince.get(key) ?? now;
+    this.notReadySince.set(key, since);
+    if (now - since < SOURCE_STUCK_ALERT_MS || this.stuckAlerted.has(key)) return;
+    this.stuckAlerted.add(key);
+    this.deps.alert?.(`ALERT copy source stuck ${JSON.stringify({ source: key, state: row.state, lastIssue: row.lastIssue, notReadyMs: now - since,
+      coverageThrough: row.coverageThrough?.toISOString() ?? null, updatedAt: row.updatedAt.toISOString() })}`);
   }
 
   /** After a failed testnet read (thrown, refused, or gap): retry after
@@ -613,7 +646,9 @@ export class CopyLiveEngine {
    */
   private async sourceReady(row: DispatchRow, m: LiveMandateWork): Promise<boolean> {
     const stream = await this.deps.repository.stream(m.sourceNetwork, m.leaderAddress);
-    if (stream && liveSourceStreamAdmits(stream, row.leg) && stream.coverageFrom.getTime() <= m.cursor.getTime()) return true;
+    // The leg's fill must lie inside the proven coverage too (what the preparation requires; a gap read stores
+    // its fills beyond it), else the leg would pass here and fail there every second.
+    if (stream && liveSourceStreamAdmits(stream, row.leg) && stream.coverageFrom.getTime() <= m.cursor.getTime() && stream.coverageThrough.getTime() >= row.leaderTime.getTime()) return true;
     const reason = 'live_risk_source_not_ready';
     if (row.reason !== reason) {
       this.deps.log?.(`leg ${row.id} waits: ${reason} (source ${m.sourceNetwork}:${m.leaderAddress} ${stream?.state ?? 'missing'}${stream?.lastIssue ? ` (${stream.lastIssue})` : ''}); no attempt spent`);
@@ -642,6 +677,13 @@ export class CopyLiveEngine {
         `first attempt +${first.getTime() - row.leaderTime.getTime()}, sent ${times.sentAt ? `+${times.sentAt.getTime() - row.leaderTime.getTime()}` : '-'} ms after the leader`);
     } catch (error) {
       const reason = reasonOf(error);
+      // A `budget`-class wait (live/error-class.ts) that sent nothing is not an
+      // attempt and never exhausts a close's limit (gate 2026-10-13).
+      const waiting = classify(error).class === 'budget' && timing.sentAt === undefined;
+      // The same wait as the row already shows (a stream still not ready, a lock
+      // still busy): nothing new to log or write; only its next look is set.
+      const repeated = waiting && row.state === 'pending' && row.reason === reason;
+      if (repeated) { this.legRetryAt.set(row.id, this.now() + retryDelayMs(error)); return; }
       // The row keeps only the latest reason, so log each attempt (safe code only,
       // never the error or provider body).
       this.deps.log?.(`leg ${row.id} attempt ${row.attempts + 1} failed: ${reason}; ` +
@@ -668,9 +710,6 @@ export class CopyLiveEngine {
         this.now() - row.leaderTime.getTime() < Math.max(0, signalAgeMs - HOLD_MARGIN_MS)) {
         await this.deps.repository.dissolve(row, row.attempts + 1); return;
       }
-      // A `budget`-class wait (live/error-class.ts) that sent nothing is not an
-      // attempt and never exhausts a close's limit (gate 2026-10-13).
-      const waiting = classify(error).class === 'budget' && timing.sentAt === undefined;
       const attempts = waiting ? row.attempts : row.attempts + 1;
       // Right after a setup the exchange may still report the old mode (testnet 2026-10-12): final only at the limit.
       const transient = reason === 'live_account_unsupported_abstraction' && attempts < ABSTRACTION_ATTEMPT_LIMIT;

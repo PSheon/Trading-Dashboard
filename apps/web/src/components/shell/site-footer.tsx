@@ -15,16 +15,11 @@ import { LanguageMenu } from "./language-menu";
  * whose chrome has one (./chrome.ts): wordmark and tagline;
  * 資源 (關於我們, 即時動態, 常見問題), 社群 and 法律 columns; a dotted rule,
  * the copyright and the language switch. X (@orbie_fun) and the Telegram
- * bot open in a new tab; a channel Orbie doesn't have yet (email) says
- * "coming soon" rather than linking nowhere.
+ * bot open in a new tab; a channel Orbie doesn't have yet (email) is not
+ * listed until it exists (no "coming soon" placeholder, 2026-10-23).
  */
 export function SiteFooter({ className }: { className?: string }) {
   const { t, locale } = useI18n();
-  const soon = (label: string) => (
-    <span className="flex min-h-11 cursor-default items-center font-extrabold text-muted-foreground">
-      {label} · {t("home.footer.soon")}
-    </span>
-  );
   const link = "flex min-h-11 items-center font-extrabold text-foreground transition-colors hover:text-primary-text";
   const heading = "text-xs font-extrabold text-muted-foreground";
   return (
@@ -48,7 +43,6 @@ export function SiteFooter({ className }: { className?: string }) {
           <a href={TELEGRAM_BOT_URL} target="_blank" rel="noopener noreferrer" className={link}>
             {t("home.footer.telegram")}
           </a>
-          {soon(t("home.footer.email"))}
         </nav>
         <nav aria-label={t("home.footer.legal")} className="flex min-w-[120px] flex-col">
           <span className={heading}>{t("home.footer.legal")}</span>

@@ -1,7 +1,7 @@
 import type { HlUserFill } from '../../hyperliquid/types.js';
 import { isOutOfScopeSpotFill } from '../../watcher/action-classifier.js';
 import type { LiveSourceReadResult } from '../copy-live-source.client.js';
-import { liveSourceDigest, parseLiveSourceFill, presumedTwapSlice, type LiveSourceFillEvidence } from '../live/copy-live-source-evidence.js';
+import { liveSourceDigest, parseLiveSourceFill, presumedTwapSlice, SOURCE_PAGE_ROWS, SOURCE_SATURATION_ROWS, type LiveSourceFillEvidence } from '../live/copy-live-source-evidence.js';
 import { address, LiveBoundaryError } from '../live/wallet-authorization.js';
 import { FOLLOW_UP_MAX_MS, FOLLOW_UP_MIN_MS, GAP_FOLLOW_UP_EXPIRY_MS, WITNESS_EXPIRY_MS } from '../../config/constants/timings.js';
 import { liveEvidenceMaxAgeMs } from '../../config/live-evidence-window.js';
@@ -18,9 +18,9 @@ export interface FastSourceReader {
 }
 
 /** A window with this many rows is saturated (source contract); the read stops short of it. */
-const FAST_SOURCE_WINDOW_ROWS = 500;
+const FAST_SOURCE_WINDOW_ROWS = SOURCE_SATURATION_ROWS;
 /** Hyperliquid's per-call row cap: a full page may have more after it. */
-const PAGE_ROWS = 2000;
+const PAGE_ROWS = SOURCE_PAGE_ROWS;
 /** Normalised as the `fills.raw` jsonb column holds it (JSON round trip). */
 const stored = (fill: HlUserFill): HlUserFill => JSON.parse(JSON.stringify(fill)) as HlUserFill;
 /** Weight Hyperliquid counts for one list answer: base 20, plus 1 per 20 items. */

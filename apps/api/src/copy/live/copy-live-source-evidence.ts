@@ -9,6 +9,18 @@ import type { copyLiveSourceFills } from '@trading-dashboard/shared/database';
  * network), which may differ from the network the copy executes on. */
 export type LiveSourceNetwork = 'testnet' | 'mainnet';
 
+/** Hyperliquid's per-call row cap on every list endpoint (`userFillsByTime`,
+ * `userTwapSliceFillsByTime`: at most 2,000 rows): a page this full may have
+ * more after it, so a read stops one millisecond before its last row. */
+export const SOURCE_PAGE_ROWS = 2000;
+/** The source evidence contract's saturation threshold (copy-live-source.repository.ts
+ * validates it): a window of this many rows or more is `saturated` (treated as possibly
+ * cut short, never certifying absence) unless it is one millisecond read whole under
+ * SOURCE_PAGE_ROWS (`sealed`). It is a margin under the cap, not a page size: the readers
+ * size their windows below it (the fast source at exactly it, the watched source at 400),
+ * so a complete window is never mistaken for a full page. */
+export const SOURCE_SATURATION_ROWS = 500;
+
 const ZERO_HASH = /^0x0{64}$/;
 /**
  * A `userFills` row that is presumed a TWAP slice whose tagged copy comes from

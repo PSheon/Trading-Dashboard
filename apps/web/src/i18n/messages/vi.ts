@@ -945,6 +945,8 @@ export const vi: Messages = {
       copyPositionsDesc: "Sao chép luôn những vị thế trader đang nắm giữ tại thời điểm bạn bắt đầu. Tắt để chỉ sao chép các vị thế mở mới.",
       amount: "Số tiền sao chép (USDC)",
       enterAmount: "Nhập số tiền",
+      suggestedMin: "Đề xuất ≥ ${amount}",
+      suggestedMinTip: "10 × vốn của trader ÷ giá trị danh nghĩa trung vị của các lệnh gia tăng vị thế trong 30 ngày gần nhất, cập nhật mỗi giờ.",
       minToCopy: "Tối thiểu ${min} để sao chép",
       tooActive: {
         rate: "Trader này giao dịch quá thường xuyên nên việc sao chép không theo kịp ({orders} lệnh trong 24 giờ qua, tối đa {peak} lệnh mỗi phút), vì vậy chưa thể sao chép. Giới hạn là {perDay} lệnh mỗi ngày và {perMinute} lệnh mỗi phút.",
@@ -954,8 +956,6 @@ export const vi: Messages = {
         title: "Ước tính mức phù hợp khi sao chép",
         belowMin: "Khi quy đổi theo tỷ lệ, khoảng {below} trong {opens} lệnh mở gần nhất ({pct}%) sẽ dưới mức lệnh tối thiểu ${min} và không được thực hiện.",
         allFit: "Khi quy đổi theo tỷ lệ, cả {opens} lệnh mở gần nhất đều đạt mức lệnh tối thiểu ${min}.",
-        raised: "Chế độ thử nghiệm: theo tỷ lệ, khoảng {below} trong {opens} lệnh mở gần nhất ({pct}%) dưới mức tối thiểu ${min} và được nâng lên mức tối thiểu (tối đa ${max} mỗi lệnh).",
-        suggested: "Để khoảng {pct}% lệnh được thực hiện, hãy sao chép với ít nhất ${amount}.",
         hip3: "Ngoài ra {count} lệnh thuộc thị trường HIP-3, có thể không được sao chép theo chính sách rủi ro của nền tảng.",
         sample: "Mẫu: giao dịch {from} – {to} (UTC). Chưa tính PnL sau đó, hạn mức và thời hiệu tín hiệu; kết quả thực tế theo lịch sử lệnh.",
         unknownEquity: "Không đọc được giá trị tài khoản của trader nên không thể ước tính quy mô lệnh theo tỷ lệ.",

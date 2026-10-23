@@ -282,7 +282,7 @@ export interface HttpStreamContract { contentType: "text/event-stream"; events: 
  * routes (plan steps 5–7).
  */
 export const copyErrorCodes = [
-  "already_copying", "strategy_limit", "below_min_allocation", "above_max_allocation", "leverage_above_limit",
+  "already_copying", "strategy_limit", "below_min_allocation", "above_max_allocation", "budget_below_exchange_minimum", "leverage_above_limit",
   "copy_not_open", "copy_paused", "watch_capacity", "insufficient_main_balance", "funding_pending",
   "builder_fee_approval_required", "live_stop_in_progress",
   "consent_expired", "invalid_consent", "setup_unavailable", "setup_wallet_conflict", "setup_funding_rejected",
@@ -293,7 +293,7 @@ export const copyErrorCodes = [
 ] as const;
 export const copyErrorCodeSchema = z.enum(copyErrorCodes);
 export type CopyErrorCode = z.infer<typeof copyErrorCodeSchema>;
-const liveStrategyErrors: readonly CopyErrorCode[] = ["copy_not_open", "copy_paused", "strategy_limit", "already_copying", "below_min_allocation", "above_max_allocation", "leverage_above_limit", "watch_capacity",
+const liveStrategyErrors: readonly CopyErrorCode[] = ["copy_not_open", "copy_paused", "strategy_limit", "already_copying", "below_min_allocation", "above_max_allocation", "budget_below_exchange_minimum", "leverage_above_limit", "watch_capacity",
   "live_not_allowed", "live_fixed_sizing_required", "live_ratio_sizing_required", "live_per_trade_out_of_range", "live_source_network_unsupported"];
 
 export interface HttpRouteContract {
@@ -428,7 +428,7 @@ export const httpRouteContracts: HttpRouteContract[] = [
   { method: "POST", path: "/me/copy/live/setups/:id/confirm", status: 200, auth: "user (owner); the worker signer the browser added, the setup consent, the deposit signature and a fresh session; one deposit attempt", response: liveCopySetupSchema, errors: ["consent_expired", "invalid_consent", "worker_signer_missing", "setup_unavailable", "setup_wallet_conflict", "setup_builder_rejected", "insufficient_main_balance"] },
   { method: "POST", path: "/me/copy/live/setups/:id/advance", status: 200, auth: "user (owner); drives the setup now, signed by the worker; no body; attempted steps are only reconciled", response: liveCopySetupSchema },
   { method: "POST", path: "/me/copy/live/setups/:id/cancel", status: 200, auth: "user (owner); before the consent, once the setup failed or expired, or while its confirmed deposit awaits its credit (cancel and refund)", response: liveCopySetupSchema, errors: ["funding_pending", "setup_past_funding", "setup_changed", "setup_abort_unavailable"] },
-  { method: "PATCH", path: "/me/copy/live/strategies/:id", status: 200, auth: "user (owner); a new generation under one setup consent", response: liveCopySetupSchema, errors: ["setup_unavailable", "live_stop_in_progress", "below_min_allocation", "above_max_allocation", "leverage_above_limit", "copy_not_open"] },
+  { method: "PATCH", path: "/me/copy/live/strategies/:id", status: 200, auth: "user (owner); a new generation under one setup consent", response: liveCopySetupSchema, errors: ["setup_unavailable", "live_stop_in_progress", "below_min_allocation", "above_max_allocation", "budget_below_exchange_minimum", "leverage_above_limit", "copy_not_open"] },
   { method: "POST", path: "/me/copy/live/strategies/:id/renew", status: 200, auth: "user (owner); refused for now (renewal_unavailable)", response: liveCopySetupSchema, errors: ["renewal_unavailable"] },
   { method: 'GET', path: '/me/copy/live/portfolio', status: 200, auth: 'user (owner); testnet copies with their funding and stop stage; read only', response: liveCopyPortfolioSchema },
   { method: 'GET', path: '/me/copy/live/stops', status: 200, auth: 'user (owner); bounded durable stop history; read only', response: liveCopyStopsSchema },

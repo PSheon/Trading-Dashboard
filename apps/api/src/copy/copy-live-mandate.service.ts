@@ -1,4 +1,5 @@
 import { BadRequestException, Inject, Injectable, Optional, ServiceUnavailableException } from '@nestjs/common';
+import { LIVE_BUDGET_MIN_USD } from '../config/constants/limits.js';
 import { liveSourceNetworks, liveCopyOverviewSchema } from '@trading-dashboard/shared/contracts';
 import { z } from 'zod';
 import { AppConfig } from '../config/app-config.js';
@@ -32,7 +33,7 @@ export class CopyLiveMandateService {
       automaticExecution: liveExecutionEnabled(this.config), sourceNetworks: [...liveSourceNetworks(network)], actualAllowed, setupAbort: this.setupAborts?.available === true,
       ...(live ? { caps: { fixedPerTradeUsd: live.caps.fixedPerTradeUsd ?? null, maxAllocationUsd: capped?.maxAllocationUsd ?? live.caps.maxAllocationUsd ?? null,
         maxLeverage: capped?.maxLeverage ?? live.caps.maxLeverage ?? null, maxStrategiesPerUser: capped?.maxStrategiesPerUser ?? live.caps.maxStrategiesPerUser,
-        testMinFloorMaxUsd: live.caps.testMinFloorMaxUsd ?? null } } : {}) }, ...data });
+        minBudgetUsd: LIVE_BUDGET_MIN_USD } } : {}) }, ...data });
   }
   async pause(userId: number, id: string, value: unknown = {}) {
     input(z.object({}).strict(), value);

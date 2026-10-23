@@ -945,6 +945,8 @@ export const id: Messages = {
       copyPositionsDesc: "Menyalin posisi yang sudah dipegang trader saat kamu mulai. Matikan untuk hanya menyalin posisi yang baru dibuka.",
       amount: "Jumlah untuk disalin (USDC)",
       enterAmount: "Masukkan jumlah",
+      suggestedMin: "Disarankan ≥ ${amount}",
+      suggestedMinTip: "10 × ekuitas trader ÷ nilai nosional median penambahan posisinya dalam 30 hari terakhir, diperbarui setiap jam.",
       minToCopy: "Minimum ${min} untuk menyalin",
       tooActive: {
         rate: "Trader ini terlalu sering bertransaksi sehingga penyalinan tidak bisa mengikuti ({orders} order dalam 24 jam terakhir, hingga {peak} per menit), jadi belum bisa disalin. Batasnya {perDay} per hari dan {perMinute} per menit.",
@@ -954,8 +956,6 @@ export const id: Messages = {
         title: "Perkiraan kecocokan salin",
         belowMin: "Jika diskalakan sesuai rasio, sekitar {below} dari {opens} pembukaan terakhir ({pct}%) berada di bawah order minimum ${min} dan tidak dieksekusi.",
         allFit: "Jika diskalakan sesuai rasio, semua {opens} pembukaan terakhir mencapai order minimum ${min}.",
-        raised: "Mode uji: diskalakan rasio, sekitar {below} dari {opens} pembukaan terakhir ({pct}%) di bawah minimum ${min} dan dinaikkan ke minimum (maks. ${max} per order).",
-        suggested: "Agar sekitar {pct}% dieksekusi, salin dengan minimal ${amount}.",
         hip3: "{count} lainnya adalah pasar HIP-3 yang mungkin tidak disalin menurut kebijakan risiko platform.",
         sample: "Sampel: transaksi {from} – {to} (UTC). Belum termasuk PnL selanjutnya, batas, dan masa berlaku sinyal; yang berlaku adalah riwayat order.",
         unknownEquity: "Nilai akun trader tidak dapat dibaca, jadi ukuran order rasio tidak dapat diperkirakan.",

@@ -945,6 +945,8 @@ export const ja: Messages = {
       copyPositionsDesc: "開始時点でトレーダーが保有しているポジションもミラーします。オフにすると、新規に開かれたポジションのみをコピーします。",
       amount: "コピーする金額（USDC）",
       enterAmount: "金額を入力",
+      suggestedMin: "推奨 ≥ ${amount}",
+      suggestedMinTip: "10 × トレーダーの資産 ÷ 直近 30 日の追加建玉の名目額の中央値。毎時更新。",
       minToCopy: "コピーは最低 ${min} から",
       tooActive: {
         rate: "このトレーダーは取引頻度が高すぎるため（直近 24 時間で {orders} 件、ピーク時 1 分あたり {peak} 件）、コピーが追いつけません。現在コピーできません。上限は 1 日 {perDay} 件、1 分あたり {perMinute} 件です。",
@@ -954,8 +956,6 @@ export const ja: Messages = {
         title: "コピー適合度の見積もり",
         belowMin: "比率で換算すると、直近 {opens} 件の新規建てのうち約 {below} 件（{pct}%）が最小注文額 ${min} を下回り、執行されません。",
         allFit: "比率で換算しても、直近 {opens} 件の新規建てはすべて最小注文額 ${min} 以上です。",
-        raised: "テストモード：比率で縮小すると、直近 {opens} 件の新規のうち約 {below} 件（{pct}%）が最小注文額 ${min} 未満となり、最小額に引き上げて発注します（1 件最大 ${max}）。",
-        suggested: "約 {pct}% を執行するには、${amount} 以上でのコピーをおすすめします。",
         hip3: "ほかに {count} 件は HIP-3 マーケットで、プラットフォームのリスク設定によりコピーされない場合があります。",
         sample: "サンプル：{from} – {to}（UTC）の約定。その後の損益・上限・シグナル有効時間は含まず、実際は注文履歴が基準です。",
         unknownEquity: "トレーダーの口座価値を取得できないため、比率コピーの注文額を見積もれません。",

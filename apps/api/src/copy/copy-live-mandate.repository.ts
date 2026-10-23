@@ -1,4 +1,5 @@
 import { WatchCapacityError, watchLeader } from '../watcher/leader-watch.js';
+import { LIVE_BUDGET_MIN_USD } from '../config/constants/limits.js';
 import { randomUUID } from 'node:crypto';
 import { ConflictException, Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { and, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
@@ -81,7 +82,10 @@ export class CopyLiveMandateRepository {
     if (!parsed.success) throw new ServiceUnavailableException('Invalid builder settings');
     return { builderAddress: parsed.data.builderAddress?.toLowerCase() ?? null, builderMaxFeeTenthsOfBps: parsed.data.builderFeeTenthsBps };
   }
+  /** Decision D8 (2026-10-23): a budget under the exchange minimum plus the fee buffer could never place one order,
+   * so it is refused; one under the leader's suggested minimum (D7) is allowed and only warned about in the UI. */
   checkBudget(budget: string, limits: typeof DEFAULT_COPY_RISK_LIMITS) {
+    if (Dec.from(budget).lt(LIVE_BUDGET_MIN_USD)) refuse('budget_below_exchange_minimum', 'Budget below the exchange minimum order plus the fee buffer', { min: LIVE_BUDGET_MIN_USD });
     if (Dec.from(budget).lt(limits.minAllocationUsd)) refuse('below_min_allocation', 'Budget below the minimum allocation', { min: limits.minAllocationUsd });
     if (Dec.from(budget).gt(limits.maxAllocationUsd)) refuse('above_max_allocation', 'Budget above the maximum allocation', { max: limits.maxAllocationUsd });
   }

@@ -945,6 +945,8 @@ export const tr: Messages = {
       copyPositionsDesc: "Başlarken trader'ın halihazırda taşıdığı pozisyonları da yansıtır. Kapatırsanız yalnızca yeni açılan pozisyonlar kopyalanır.",
       amount: "Kopyalanacak tutar (USDC)",
       enterAmount: "Bir tutar girin",
+      suggestedMin: "Önerilen ≥ ${amount}",
+      suggestedMinTip: "10 × traderın öz sermayesi ÷ son 30 gündeki ekleme emirlerinin medyan nominal değeri; saatlik güncellenir.",
       minToCopy: "Kopyalamak için en az ${min}",
       tooActive: {
         rate: "Bu trader kopyalamanın yetişemeyeceği kadar sık işlem yapıyor (son 24 saatte {orders} emir, dakikada en fazla {peak}), bu yüzden kopyalanamaz. Sınır günde {perDay}, dakikada {perMinute} emirdir.",
@@ -954,8 +956,6 @@ export const tr: Messages = {
         title: "Kopyalama uygunluk tahmini",
         belowMin: "Oranla ölçeklendiğinde son {opens} açılışın yaklaşık {below} tanesi (%{pct}) ${min} minimum emrin altında kalır ve uygulanmaz.",
         allFit: "Oranla ölçeklendiğinde son {opens} açılışın tamamı ${min} minimum emre ulaşır.",
-        raised: "Test modu: orana göre ölçeklenince son {opens} açılışın yaklaşık {below} tanesi ({pct}%) ${min} minimum emrin altında kalır ve minimuma yükseltilir (her biri en fazla ${max}).",
-        suggested: "Yaklaşık %{pct} kadarını uygulamak için en az ${amount} ile kopyalayın.",
         hip3: "Ayrıca {count} tanesi platformun risk politikasının kopyalamayabileceği HIP-3 piyasaları.",
         sample: "Örnek: {from} – {to} (UTC) işlemleri. Sonraki PnL, limitler ve sinyal süresi dahil değildir; esas olan emir geçmişidir.",
         unknownEquity: "Trader'ın hesap değeri okunamadığı için oransal emir tutarları tahmin edilemiyor.",

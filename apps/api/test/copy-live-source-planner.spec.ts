@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { followerReceiptDigestV1 } from '../src/copy/live/actual-fill-accounting.js';
 import { canonicalLiveSourceLegs, parseLiveSourceFill, liveSourceDigest, liveSourceLegId, type LiveSourceFillEvidence } from '../src/copy/live/copy-live-source-evidence.js';
-import { combinedCloseFraction, planLiveSourceOrder, type LiveSourcePlanInput } from '../src/copy/live/copy-live-source-planner.js';
+import { combinedCloseFraction, decodeLiveSourceSizingEnvelope, planLiveSourceOrder, type LiveSourcePlanInput } from '../src/copy/live/copy-live-source-planner.js';
 import type { LiveSourceSizingEnvelopeV1 } from '../src/copy/live/copy-live-sizing-evidence.js';
 import { Dec } from '../src/common/decimal/dec.js';
 import { digest } from '../src/copy/copy-live-mandate-evidence.js';
@@ -127,16 +127,31 @@ describe('actual source sizing from retained original observations',()=>{
       expect(()=>planLiveSourceOrder(bind(example()))).toThrow('below_min_notional');
       expect(()=>planLiveSourceOrder(bind(example(),{fixedMaxUsd:'10.01'}))).toThrow('below_min_notional');
     });
-    it('TEST ONLY: with COPY_LIVE_TEST_MIN_FLOOR_MAX_USD a ratio open under the minimum is raised to it within the ceiling, else refused (Paul 2026-10-11)',()=>{
+    it('refuses a ratio open under the minimum as below_min_notional and never raises it (a basis binding ratioMinimum, minted since D6, 2026-10-23)',()=>{
+      const ratio=(e:LiveSourcePlanInput)=>bind(e,{ratioMinimum:true});
       // Leader 40,000, opens 100 USD; the follower's 100 scales it to 0.25 USD: 0.0025 BTC floors to nothing.
       const large=()=>sourceSizingExample('ratio','same','40000');
-      expect(()=>planLiveSourceOrder(bind(large()))).toThrow('live_source_sizing_unproven');
-      // Raised to the smallest lot at 10 USD at the 100.5 buy limit: 0.1 (10.05 USD).
+      expect(()=>planLiveSourceOrder(ratio(large()))).toThrow('below_min_notional');
+      // Leader 2,000: 100 USD scales to 5 USD, 0.05 BTC at 100.5 (5.03 USD): a positive size still under the minimum is refused, not rounded up to 0.1.
+      expect(()=>planLiveSourceOrder(ratio(sourceSizingExample('ratio','same','2000')))).toThrow('below_min_notional');
+      // A leader small enough to reach the minimum keeps its ratio size.
+      expect(planLiveSourceOrder(ratio(sourceSizingExample('ratio','same','500'))).order.size).toBe('0.2');
+      // ratioMinimum binds nothing on a fixed basis.
+      expect(planLiveSourceOrder(bind(example(),{ratioMinimum:true,fixedMaxUsd:'15'})).order.size).toBe('0.1');
+    });
+    it('a basis planned before D6 replays exactly as it was planned: exchangeMinimum alone keeps a small ratio size, and the legacy test floor (ratioFloorMaxUsd) still raises it',()=>{
+      // exchangeMinimum without ratioMinimum (every ratio basis before 2026-10-23): the small size stands; the risk gate refused it then.
+      expect(planLiveSourceOrder(bind(sourceSizingExample('ratio','same','2000'))).order.size).toBe('0.05');
+      // No minimum rule at all (older still): the same.
+      expect(planLiveSourceOrder(sourceSizingExample('ratio','same','2000')).order.size).toBe('0.05');
+      // Stage's retired floor at 15 (COPY_LIVE_TEST_MIN_FLOOR_MAX_USD): the stored basis decodes, and replays to the raised 0.1 (10.05 USD) that was sent.
+      const large=()=>sourceSizingExample('ratio','same','40000');
+      expect(decodeLiveSourceSizingEnvelope(bind(large(),{ratioFloorMaxUsd:'15'}).sizingBasis).basis).toMatchObject({ratioFloorMaxUsd:'15',exchangeMinimum:true});
       expect(planLiveSourceOrder(bind(large(),{ratioFloorMaxUsd:'15'})).order).toMatchObject({size:'0.1',limitPrice:'100.5',reduceOnly:false});
-      // A ceiling under that order refuses it for good.
       expect(()=>planLiveSourceOrder(bind(large(),{ratioFloorMaxUsd:'10.01'}))).toThrow('below_min_notional');
-      // A leader small enough to reach the minimum is not raised: the ratio size stands.
       expect(planLiveSourceOrder(bind(sourceSizingExample('ratio','same','500'),{ratioFloorMaxUsd:'15'})).order.size).toBe('0.2');
+      // The preparation never mints the floor any more; the legacy branch is unreachable from a new basis (ratioMinimum wins).
+      expect(()=>planLiveSourceOrder(bind(large(),{ratioMinimum:true,ratioFloorMaxUsd:'15'}))).toThrow('below_min_notional');
     });
     it.each([['0.05','0.05','a position under twice the minimum closes in full'],['0.3','0.11','a larger one reduces by the minimum'],
       ['0.15','0.15','a reduction that would leave less than the minimum closes in full']])('a reduction under the minimum (position %s → %s): %s',(position,size)=>{

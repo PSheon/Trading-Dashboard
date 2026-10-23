@@ -64,9 +64,10 @@ export const liveCopyOverviewSchema = z.object({
      * per-trade bounds (null: any sizing), the largest budget and leverage. */
     caps: z.object({ fixedPerTradeUsd: z.object({ min: z.number(), max: z.number() }).strict().nullable(), maxAllocationUsd: z.number().nullable(),
       maxLeverage: z.number().nullable(), maxStrategiesPerUser: z.number().int().positive(),
-      /** TEST ONLY: a ratio open under the minimum order is raised to it,
-       * up to this many USD (COPY_LIVE_TEST_MIN_FLOOR_MAX_USD); null: off. */
-      testMinFloorMaxUsd: z.number().nullable().optional() }).strict().optional() }).strict(),
+      /** The smallest budget a copy may start with (decision D8: the exchange
+       * minimum order plus a fee buffer); below it `budget_below_exchange_minimum`.
+       * Optional while older api builds roll out. */
+      minBudgetUsd: z.number().positive().optional() }).strict().optional() }).strict(),
   strategies: z.array(liveCopyStrategySchema), mandates: z.array(liveCopyMandateSchema),
 }).strict();
 
@@ -115,6 +116,9 @@ export const liveCopyPortfolioItemSchema = z.object({
   /** The generation came from a one-click setup consent: its stop cancels
    * its orders with no further consent. */
   oneClick: z.boolean().optional(),
+  /** The leader's suggested minimum budget (decision D7; the trader profile's
+   * figure): a budget under it shows a warning pill. Null when none. */
+  suggestedMinBudgetUsd: z.number().int().positive().nullable().optional(),
 }).strict();
 export type LiveCopyPortfolioItem = z.infer<typeof liveCopyPortfolioItemSchema>;
 export const liveCopyPortfolioSchema = z.object({ network: z.enum(['testnet', 'mainnet']), automaticExecution: z.boolean(), items: z.array(liveCopyPortfolioItemSchema).max(50) }).strict();

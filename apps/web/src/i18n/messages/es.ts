@@ -945,6 +945,8 @@ export const es: Messages = {
       copyPositionsDesc: "Replica las posiciones que el trader ya tiene abiertas cuando empiezas. Desactívalo para copiar solo las posiciones nuevas.",
       amount: "Monto a copiar (USDC)",
       enterAmount: "Introduce un importe",
+      suggestedMin: "Sugerido ≥ ${amount}",
+      suggestedMinTip: "10 × el capital del trader ÷ el nocional mediano de sus ampliaciones en los últimos 30 días; se actualiza cada hora.",
       minToCopy: "Mínimo ${min} para copiar",
       tooActive: {
         rate: "Este trader opera con demasiada frecuencia para que la copia lo siga ({orders} órdenes en las últimas 24 horas, hasta {peak} por minuto), así que no se puede copiar. El límite es {perDay} al día y {perMinute} por minuto.",
@@ -954,8 +956,6 @@ export const es: Messages = {
         title: "Estimación de compatibilidad",
         belowMin: "Escaladas por proporción, unas {below} de las últimas {opens} aperturas ({pct}%) quedarían por debajo de la orden mínima de ${min} y no se ejecutarían.",
         allFit: "Escaladas por proporción, las últimas {opens} aperturas alcanzan la orden mínima de ${min}.",
-        raised: "Modo de prueba: escaladas por proporción, unas {below} de las últimas {opens} aperturas ({pct}%) quedan bajo el mínimo de ${min} y se elevan al mínimo (máximo ${max} cada una).",
-        suggested: "Para ejecutar cerca del {pct}%, copia con al menos ${amount}.",
         hip3: "Otras {count} son mercados HIP-3 que la política de riesgo de la plataforma puede no copiar.",
         sample: "Muestra: operaciones {from} – {to} (UTC). No incluye PnL posterior, límites ni vigencia de señales; cuenta el historial de órdenes.",
         unknownEquity: "No se puede leer el valor de la cuenta del trader, así que no se pueden estimar los tamaños por proporción.",

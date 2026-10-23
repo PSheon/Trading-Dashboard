@@ -163,10 +163,12 @@ export class TradersService {
    * are `activity()`. `address` must already be validated and lowercased.
    */
   async profile(address: string, userId: number | null): Promise<TraderProfileResponse> {
-    const [shared, favorites, kol] = await Promise.all([
+    const [shared, favorites, kol, suggestedMinBudgetUsd] = await Promise.all([
       this.profileCache.get(address, () => this.loadProfile(address), value => value.dataQuality?.partial ? 5_000 : PROFILE_TTL_MS, PAGE_RANK.profile),
       this.repository.favoritesAmong(userId, [address]),
       this.kols?.card(address),
+      // The read worker's hourly figure (decision D7): read per request, past the profile TTL, like the KOL entry.
+      this.repository.suggestedMinBudget(address),
     ]);
     const dataQuality = shared.dataQuality && { ...shared.dataQuality, sources: Object.fromEntries(
       Object.entries(shared.dataQuality.sources).map(([key, source]) => [key, { ...source,
@@ -175,7 +177,7 @@ export class TradersService {
     ) };
     // KOL entry read per request so admin edits skip the profile TTL.
     const card = kol ? { displayName: kol.displayName, xHandle: kol.xHandle, verified: kol.verified, avatarUrl: kolAvatarPath(address, kol.avatarEtag) } : null;
-    return { ...shared, displayName: kol?.displayName ?? shared.displayName, dataQuality, favorite: favorites.has(address), kol: card };
+    return { ...shared, displayName: kol?.displayName ?? shared.displayName, dataQuality, favorite: favorites.has(address), kol: card, suggestedMinBudgetUsd };
   }
 
   /**

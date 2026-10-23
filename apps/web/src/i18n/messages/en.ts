@@ -1735,6 +1735,8 @@ export const en: Messages = {
       copyPositionsDesc: "Mirror the positions the trader already holds when you start. Turn off to only copy newly opened positions.",
       amount: "Amount to copy (USDC)",
       enterAmount: "Enter an amount",
+      suggestedMin: "Suggested ≥ ${amount}",
+      suggestedMinTip: "10 × the trader’s equity ÷ the median notional of their adds over the last 30 days, updated hourly.",
       minToCopy: "Minimum ${min} to copy",
       tooActive: {
         rate: "This trader trades too often for copying to keep up ({orders} orders in the last 24 hours, up to {peak} a minute), so copying is not available. The limit is {perDay} a day and {perMinute} a minute.",
@@ -1744,8 +1746,6 @@ export const en: Messages = {
         title: "Copy fit estimate",
         belowMin: "Scaled by ratio, about {below} of the last {opens} opens ({pct}%) would be under the ${min} minimum order and not executed.",
         allFit: "Scaled by ratio, all of the last {opens} opens reach the ${min} minimum order.",
-        raised: "Test mode: scaled by ratio, about {below} of the last {opens} opens ({pct}%) are under the ${min} minimum order and are raised to the minimum (at most ${max} each).",
-        suggested: "To place about {pct}% of them, copy with at least ${amount}.",
         hip3: "Another {count} are HIP-3 markets the platform's risk policy may not copy.",
         sample: "Sample: fills {from} – {to} (UTC). Later PnL, caps and signal age are not included; the order history is what counts.",
         unknownEquity: "The trader's account value can't be read, so ratio order sizes can't be estimated.",

@@ -945,6 +945,8 @@ export const zhCN: Messages = {
       copyPositionsDesc: "在你开始跟单时，一并镜像交易员当前已持有的仓位。关闭则仅跟单之后新开的仓位。",
       amount: "跟单金额（USDC）",
       enterAmount: "请输入金额",
+      suggestedMin: "建议 ≥ ${amount}",
+      suggestedMinTip: "10 × 交易员权益 ÷ 他近 30 天加仓的中位名义额，每小时更新。",
       minToCopy: "最低 ${min} 才能跟单",
       tooActive: {
         rate: "此交易员交易太频繁（近 24 小时 {orders} 笔、峰值每分钟 {peak} 笔），系统无法实时跟上，暂不开放跟单。上限为每日 {perDay} 笔、每分钟 {perMinute} 笔。",
@@ -954,8 +956,6 @@ export const zhCN: Messages = {
         title: "跟单适配估算",
         belowMin: "按比例缩放，最近 {opens} 笔开仓中约 {below} 笔（{pct}%）会低于最低下单额 ${min}，不会执行。",
         allFit: "最近 {opens} 笔开仓按比例缩放后都达到最低下单额 ${min}。",
-        raised: "测试模式：按比例缩放，最近 {opens} 笔开仓中约 {below} 笔（{pct}%）低于最低下单额 ${min}，会提高到最低下单额下单（每笔最多 ${max}）。",
-        suggested: "想让约 {pct}% 的单能下出，跟单资金建议至少 ${amount}。",
         hip3: "另有 {count} 笔是 HIP-3 市场，可能因平台风控不跟单。",
         sample: "样本 {from} – {to}（UTC）的成交。估算不含之后的盈亏、上限与信号时效，实际以订单记录为准。",
         unknownEquity: "读不到交易员账户价值，无法估算比例跟单的单笔金额。",

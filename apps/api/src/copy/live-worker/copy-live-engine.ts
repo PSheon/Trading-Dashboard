@@ -22,7 +22,6 @@ import { classify, LIVE_CHARGE_UNOWNED, liveRetryDelayMs, unownedLiveChargeAlert
 import { budgetConsumer } from '../../hyperliquid/request-budgeter.service.js';
 import { LiveReadComparisonError } from '../live/live-shared-reads.js';
 import { LiveRiskBusyError, liveRiskBusyDetail } from '../live/postgres-live-risk-scope.js';
-import { liveDeploymentPolicy } from '../live-deployment.js';
 
 /** One source read's result, for the logs. */
 interface IngestOutcome { fast: boolean; fills: number; kind: string; state: string; through: number | null }
@@ -452,9 +451,7 @@ export class CopyLiveEngine {
         leaderTime: dispatch.leaderTime.getTime(), tid: BigInt(fill.tid), flip: canonical.length > 1, belowMinimum: dispatch.reason === 'below_min_notional' });
     }
     const limits = await this.deps.repository.limits(), minimum = minOrderNotional(limits).mul(HOLD_HEADROOM);
-    // TEST ONLY: with the minimum floor (COPY_LIVE_TEST_MIN_FLOOR_MAX_USD) a small open is raised, not held.
-    const floored = liveDeploymentPolicy()?.caps.testMinFloorMaxUsd !== undefined;
-    const equity = !floored && m.sourceNetwork === 'mainnet' && m.budgetUsd && this.deps.leaderEquity && legs.some(leg => leg.leg === 'open')
+    const equity = m.sourceNetwork === 'mainnet' && m.budgetUsd && this.deps.leaderEquity && legs.some(leg => leg.leg === 'open')
       ? await this.deps.leaderEquity(m.leaderAddress).catch(() => null) : null;
     // Every merged leg must still be a fresh signal when its order is planned.
     const windowMs = Math.max(0, Math.min(this.options.accumulateMs ?? MAX_ACCUMULATE_MS, limits.maxSignalAgeSeconds * 1000 - PLANNING_MARGIN_MS));

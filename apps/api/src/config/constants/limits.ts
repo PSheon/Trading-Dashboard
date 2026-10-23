@@ -2,7 +2,13 @@
  * How many times a money-path step is tried before it is given up.
  * Basis lines: see AGENTS.md (checked by test/tuning-constants.spec.ts).
  */
-import { MINUTE_MS } from './time.js';
+import { DAY_MS, MINUTE_MS } from './time.js';
+
+/** basis: measured — Hyperliquid's documented minimum order value, 10 USD ("the only exception is exactly closing a position with a reduce-only order")
+ * The exchange refuses an order worth less at its limit price; a policy's `minOrderNotionalUsd` can only raise it
+ * (copy/min-order-notional.ts), and D7/D8 derive the suggested and the smallest budgets from it.
+ */
+export const EXCHANGE_MIN_ORDER_NOTIONAL_USD = 10;
 
 /** basis: guessed — three orders per leader leg (the cloid suffix holds one digit); gate 9 records p50/p99 of attempts used
  * A later attempt exists only after the previous one was released as never
@@ -72,3 +78,35 @@ export const LEADER_FILLS_HISTORY_LIMIT = 200;
 /** basis: guessed — a leader's recent alerts list shows 50; verify: none needed
  */
 export const LEADER_ALERTS_HISTORY_LIMIT = 50;
+
+/** basis: derived — 30 days (decision D7, 2026-10-23: "近 30 天加倉"), under the 90-day history_fills retention
+ * The window of a leader's position-increasing orders whose median notional sizes the suggested minimum budget;
+ * it starts at the retention cut instead when that is later (suggested-budget.repository.ts).
+ */
+export const SUGGESTED_BUDGET_WINDOW_MS = 30 * DAY_MS;
+
+/** basis: guessed — fewer than 5 adds in the window is no sample: suggested = null, no pill; verify: Stage counts how many copied leaders carry a suggestion after a week
+ */
+export const SUGGESTED_BUDGET_MIN_ADDS = 5;
+
+/** basis: derived — DAY_MS: an equity snapshot older than a day (the scheduler writes one every 5 min for a watched leader) is not this leader's equity any more
+ * The suggestion then falls back to the leaderboard's or the pool's account value, else null.
+ */
+export const SUGGESTED_BUDGET_EQUITY_MAX_AGE_MS = DAY_MS;
+
+/** basis: guessed — Paul 2026-10-23 (decision D8): "交易所最低額＋手續費緩衝（約 12 USD）", so 2 USD over the 10 USD order minimum; verify: Stage records budget_below_exchange_minimum refusals and the smallest budget that completed an open and its close
+ * The buffer covers taker fees and the IOC slippage of one minimum-sized order and its close.
+ */
+export const LIVE_BUDGET_FEE_BUFFER_USD = 2;
+
+/** basis: derived — EXCHANGE_MIN_ORDER_NOTIONAL_USD + LIVE_BUDGET_FEE_BUFFER_USD
+ * The smallest budget an actual copy may start with (decision D8): below it a copy could never place one order,
+ * so the start is refused `budget_below_exchange_minimum`. A budget under the leader's suggested minimum (D7) is
+ * allowed, with a warning pill only.
+ */
+export const LIVE_BUDGET_MIN_USD = EXCHANGE_MIN_ORDER_NOTIONAL_USD + LIVE_BUDGET_FEE_BUFFER_USD;
+
+/** basis: guessed — 100 leaders a statement keeps one statement's scan to ~100 leaders × 30 days of fills, well under Stage's statement timeout; verify: the hourly log's duration per batch on Stage
+ * The suggested-budget refresh writes its leaders in batches of this many, each its own statement (review of D7).
+ */
+export const SUGGESTED_BUDGET_BATCH_LIMIT = 100;

@@ -945,6 +945,8 @@ export const ko: Messages = {
       copyPositionsDesc: "시작 시점에 트레이더가 이미 보유한 포지션까지 함께 복제합니다. 끄면 새로 열리는 포지션만 카피합니다.",
       amount: "카피할 금액 (USDC)",
       enterAmount: "금액을 입력하세요",
+      suggestedMin: "권장 ≥ ${amount}",
+      suggestedMinTip: "10 × 트레이더 자산 ÷ 최근 30일 추가 진입의 중위 명목 금액, 매시간 갱신.",
       minToCopy: "최소 ${min}부터 카피 가능",
       tooActive: {
         rate: "이 트레이더는 거래가 너무 잦아(최근 24시간 {orders}건, 최대 분당 {peak}건) 카피가 따라갈 수 없어 지금은 카피할 수 없습니다. 한도는 하루 {perDay}건, 분당 {perMinute}건입니다.",
@@ -954,8 +956,6 @@ export const ko: Messages = {
         title: "카피 적합도 추정",
         belowMin: "비율로 환산하면 최근 {opens}건의 진입 중 약 {below}건({pct}%)이 최소 주문 ${min} 미만이라 실행되지 않습니다.",
         allFit: "비율로 환산해도 최근 {opens}건의 진입 모두 최소 주문 ${min} 이상입니다.",
-        raised: "테스트 모드: 비율로 축소하면 최근 {opens}건의 진입 중 약 {below}건({pct}%)이 최소 주문액 ${min} 미만이며, 최소액으로 올려 주문합니다(건당 최대 ${max}).",
-        suggested: "약 {pct}%를 실행하려면 최소 ${amount}로 카피하는 것을 권장합니다.",
         hip3: "그 외 {count}건은 HIP-3 마켓으로, 플랫폼 리스크 정책상 카피되지 않을 수 있습니다.",
         sample: "표본: {from} – {to}(UTC) 체결. 이후 손익, 한도, 신호 유효 시간은 반영되지 않으며 실제 결과는 주문 내역 기준입니다.",
         unknownEquity: "트레이더의 계정 가치를 읽을 수 없어 비율 주문 금액을 추정할 수 없습니다.",

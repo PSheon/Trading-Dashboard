@@ -445,7 +445,7 @@ try {
     await waitInFlight(label);
     const reconcileArgs = ["--leader", HARNESS_LEADER, "--leader-network", "testnet", "--follower", copy.account, "--network", "testnet", "--since", since, "--db", "env",
       "--portfolio-url", `${API}/me/copy/live/portfolio`,
-      ...(TERMS.sizingMode === "ratio" ? ["--ratio-floor-max-usd", String(TERMS.ratioFloorMaxUsd)] : ["--per-trade-usd", String(TERMS.perTradeUsd), "--max-per-trade-usd", String(TERMS.maxPerTradeUsd)]),
+      ...(TERMS.sizingMode === "ratio" ? [] : ["--per-trade-usd", String(TERMS.perTradeUsd), "--max-per-trade-usd", String(TERMS.maxPerTradeUsd)]),
       "--max-leverage", String(TERMS.maxLeverage), ...allow.flatMap((a) => ["--allow-refusal", a]),
       // harness_timing's fallback when no coverage row is read: the testnet source's poll interval.
       "--source-poll-ms", String(Number(profileEnv(TERMS.profile).COPY_LIVE_TESTNET_SOURCE_INTERVAL_MS) || 60_000)];

@@ -80,6 +80,15 @@ it("最大 stops at the cap, and the api's above_max_allocation names the deploy
   expect(state.toasts.at(-1)).toBe("單一跟單最多 $50");
 });
 
+it("D8: the api's budget_below_exchange_minimum is said with its own floor, in the sentence the panel already has", async () => {
+  await render();
+  await type("40");
+  state.start.mockRejectedValue(new ApiError(409, "Refused", { code: "budget_below_exchange_minimum", min: 12 }));
+  await act(async () => cta().click());
+  expect(state.start).toHaveBeenCalledOnce();
+  expect(state.toasts.at(-1)).toBe("跟單 Hyperliquid 交易員的最低分配為 $12");
+});
+
 it("模擬 keeps the paper limits, and the phone sheet has no separate mode selector", async () => {
   localStorage.setItem("orbie:copy-mode:owner@email", "paper");
   await render();
@@ -92,9 +101,11 @@ it("模擬 keeps the paper limits, and the phone sheet has no separate mode sele
   expect(container.querySelector("button[aria-label='刪除']")).toBeTruthy();
 });
 
-it("bounds: live from the caps (minimum 1 without a per-trade cap), paper from the paper limits", () => {
+it("bounds: live from the caps (the deployment's smallest budget, else 1, without a per-trade cap), paper from the paper limits", () => {
   expect(copyAmountBounds(true, { minAllocationUsd: 100, maxAllocationUsd: 5000 }, caps)).toEqual({ min: 11, max: 50 });
   expect(copyAmountBounds(true, undefined, { fixedPerTradeUsd: null, maxAllocationUsd: null })).toEqual({ min: 1, max: null });
+  // D8: a ratio-only mainnet deployment names its floor (exchange minimum + fee buffer): 最低 $12 才能跟單 before any request.
+  expect(copyAmountBounds(true, undefined, { fixedPerTradeUsd: null, maxAllocationUsd: 50, minBudgetUsd: 12 })).toEqual({ min: 12, max: 50 });
   expect(copyAmountBounds(false, { minAllocationUsd: 100, maxAllocationUsd: 5000 }, caps)).toEqual({ min: 100, max: 5000 });
 });
 

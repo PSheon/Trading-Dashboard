@@ -225,7 +225,7 @@
     },
     "/me/copy/live/setups": {
       "post": {
-        "description": "Idempotent by key: admits one original setup and prepares its paused strategy, wallet, agent and deposit in tracked background work. Quick preparation returns the consent; slow preparation returns its original id within ten seconds for read-only polling. No exchange call before confirmation.\n\nAccess: user (owner); deployment network; prepares strategy, wallet, agent and deposit, no exchange call; one consent challenge\n\nError codes: copy_not_open, copy_paused, strategy_limit, already_copying, below_min_allocation, above_max_allocation, leverage_above_limit, watch_capacity, live_not_allowed, live_fixed_sizing_required, live_ratio_sizing_required, live_per_trade_out_of_range, live_source_network_unsupported, setup_unavailable, setup_wallet_conflict, funding_pending",
+        "description": "Idempotent by key: admits one original setup and prepares its paused strategy, wallet, agent and deposit in tracked background work. Quick preparation returns the consent; slow preparation returns its original id within ten seconds for read-only polling. No exchange call before confirmation.\n\nAccess: user (owner); deployment network; prepares strategy, wallet, agent and deposit, no exchange call; one consent challenge\n\nError codes: copy_not_open, copy_paused, strategy_limit, already_copying, below_min_allocation, above_max_allocation, budget_below_exchange_minimum, leverage_above_limit, watch_capacity, live_not_allowed, live_fixed_sizing_required, live_ratio_sizing_required, live_per_trade_out_of_range, live_source_network_unsupported, setup_unavailable, setup_wallet_conflict, funding_pending",
         "operationId": "CopyLiveSetupController_start",
         "parameters": [],
         "requestBody": {
@@ -845,6 +845,7 @@
           "already_copying",
           "below_min_allocation",
           "above_max_allocation",
+          "budget_below_exchange_minimum",
           "leverage_above_limit",
           "watch_capacity",
           "live_not_allowed",
@@ -5560,7 +5561,7 @@
     },
     "/me/copy/live/strategies/{id}": {
       "patch": {
-        "description": "A new generation with the new settings or budget under one setup consent; the current one keeps running until the consent is confirmed.\n\nAccess: user (owner); a new generation under one setup consent\n\nError codes: setup_unavailable, live_stop_in_progress, below_min_allocation, above_max_allocation, leverage_above_limit, copy_not_open",
+        "description": "A new generation with the new settings or budget under one setup consent; the current one keeps running until the consent is confirmed.\n\nAccess: user (owner); a new generation under one setup consent\n\nError codes: setup_unavailable, live_stop_in_progress, below_min_allocation, above_max_allocation, budget_below_exchange_minimum, leverage_above_limit, copy_not_open",
         "operationId": "CopyLiveSetupController_edit",
         "parameters": [
           {
@@ -6189,6 +6190,7 @@
           "live_stop_in_progress",
           "below_min_allocation",
           "above_max_allocation",
+          "budget_below_exchange_minimum",
           "leverage_above_limit",
           "copy_not_open"
         ]
@@ -8671,6 +8673,17 @@
                               },
                               "oneClick": {
                                 "type": "boolean"
+                              },
+                              "suggestedMinBudgetUsd": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "exclusiveMinimum": 0
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
                               }
                             },
                             "required": [
@@ -23765,6 +23778,17 @@
                                 "avatarUrl"
                               ],
                               "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "suggestedMinBudgetUsd": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "exclusiveMinimum": 0
                             },
                             {
                               "type": "null"
@@ -40486,11 +40510,9 @@
                                   "type": "integer",
                                   "exclusiveMinimum": 0
                                 },
-                                "testMinFloorMaxUsd": {
-                                  "type": [
-                                    "number",
-                                    "null"
-                                  ]
+                                "minBudgetUsd": {
+                                  "type": "number",
+                                  "exclusiveMinimum": 0
                                 }
                               },
                               "required": [

@@ -17,7 +17,7 @@ import { usePendingToast } from "@/lib/use-action-toast";
 import { UsdcIcon } from "@/components/wallet/bits";
 import { useI18n } from "@/i18n/provider";
 import { liveCopiesMessages } from "@/i18n/live-copies";
-import { apiErrorCode } from "@/lib/api";
+import { ApiError, apiErrorCode } from "@/lib/api";
 import { copyErrorText } from "@/lib/copy-error-text";
 import { useAuth } from "@/lib/auth";
 import { useCopyOf, useCopyOverview, useStartCopy } from "@/lib/copy";
@@ -26,7 +26,7 @@ import { useLiveCopyPortfolio } from "@/lib/copy-live-portfolio";
 import { useWallet } from "@/lib/wallet";
 import type { CopyStrategySettings, LiveCopySetup } from "@trading-dashboard/shared/contracts";
 import type { LeaderCopyActivity } from "@/lib/contracts";
-import { useLeaderCopyActivity, useSiteSettings } from "@/lib/queries";
+import { useLeaderCopyActivity, useSiteSettings, useTraderProfile } from "@/lib/queries";
 import { amountInput } from "@/lib/amount-input";
 import { hedgeWarning } from "@/lib/copy-portfolio";
 import { coinLabel, truncateAddress } from "@/lib/format";
@@ -35,6 +35,7 @@ import { Collapsible, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Switch } from "@/components/ui/switch";
 import { useTraderCopyFlow } from "./trader-copy-flow";
 import { CopyFitSummary } from "./copy-fit-summary";
+import { SuggestedBudgetPill } from "./suggested-budget-pill";
 
 type Direction = "same" | "reverse";
 /**
@@ -70,6 +71,8 @@ export function usePanelSetup(identity: string | null, leader: string, mode: Sit
 
 /** CopyDog's Hyperliquid floor (`Minimum ${min} to copy`); the api's policy wins once loaded. */
 const DEFAULT_MIN = 100;
+/** The floor a refusal names (`details.min`), when it does. */
+const apiErrorMin = (err: unknown): number | null => err instanceof ApiError && typeof err.details.min === "number" ? err.details.min : null;
 const KEYPAD = [["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"], ["00", "0", "del"]] as const;
 /** CopyDog's amount type: 64px, shrinking to 28px as the amount grows. */
 const AMOUNT_MAX_PX = 64;
@@ -182,6 +185,12 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName, li
   // its largest budget); the paper limits apply to 模擬 only.
   const { min, max } = copyAmountBounds(testnet, overview.data?.limits, deployment?.caps);
   const value = Number.parseFloat(amount);
+  // The leader's suggested minimum budget (D7/D9): a pill by the amount, warning once the typed amount is under it.
+  // Ratio sizing only, as the fit summary: a fixed amount per trade is checked against the minimum by its own field.
+  const ratioSized = !testnet || (!fixedOnly && sizing === "ratio");
+  const profile = useTraderProfile(address);
+  const suggested = ratioSized ? profile.data?.suggestedMinBudgetUsd ?? null : null;
+  const suggestedPill = suggested !== null ? <SuggestedBudgetPill suggested={suggested} budget={Number.isFinite(value) && value > 0 ? value : null} /> : null;
   const pct = balance > 0 ? Math.min(100, Math.round(((Number.isFinite(value) ? value : 0) / balance) * 100)) : 0;
   const paused = overview.data && (overview.data.platform.pauseNewRisk || overview.data.platform.reduceOnly || overview.data.user.pauseNewRisk || overview.data.user.reduceOnly);
 
@@ -342,6 +351,8 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName, li
     if (code === "leader_too_active") void copyActivity.refetch();
     toast.error(
       code === "leader_too_active" && tooActive ? tooActiveText(tooActive) :
+      // D8: the exchange floor (the api's `min`, 12) shares the one sentence the policy floor already has.
+      code === "budget_below_exchange_minimum" ? t("trader.copy.errors.minAllocation", { min: format.num(apiErrorMin(err) ?? min) }) :
       code === "below_min_allocation" ? t("trader.copy.errors.minAllocation", { min: format.num(min) }) :
       code === "above_max_allocation" ? t("trader.copy.errors.maxAllocation", { max: format.num(max ?? limit?.maxAllocationUsd ?? 0) }) :
       code === "copy_paused" ? t("trader.copy.errors.paused") :
@@ -536,6 +547,7 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName, li
             />
             <span className="leading-none font-bold text-muted-foreground" style={{ fontSize: `${fit.unit}rem` }}>USDC</span>
           </div>
+          {suggestedPill}
         </div>
       ) : (
         <div
@@ -571,6 +583,7 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName, li
           />
           {/* Orbit: the amount is the big figure, the unit a quiet suffix. */}
           <span className="shrink-0 self-center pt-[0.35em] font-display leading-none text-muted-foreground" style={{ fontSize: AMOUNT_UNIT_PX }}>USDC</span>
+          {suggestedPill}
           <button
             type="button"
             onClick={() => setFromPct(100)}
@@ -699,7 +712,7 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName, li
       </div>
 
       {/* Ratio sizing only: a fixed amount per trade is checked against the minimum by its own field. */}
-      {!testnet || (!fixedOnly && sizing === "ratio") ? <CopyFitSummary address={address} allocation={Number.isFinite(value) ? value : 0} floorMaxUsd={deployment?.caps?.testMinFloorMaxUsd ?? null} /> : null}
+      {ratioSized ? <CopyFitSummary address={address} allocation={Number.isFinite(value) ? value : 0} /> : null}
 
       {tooActive ? (
         <p role="alert" data-testid="copy-leader-too-active" className="flex items-start gap-2 rounded-xl bg-warning/10 px-3 py-2.5 text-xs leading-relaxed text-warning">
@@ -744,11 +757,13 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName, li
 /**
  * The amount a new copy may take: 模擬 within the paper limits (CopyDog's
  * $100 floor until they load); 正式 / 測試網 within the deployment's caps
- * (its per-trade minimum, else 1, and its largest budget, none when unset).
+ * (its per-trade minimum, else its smallest budget — the exchange minimum
+ * plus a fee buffer, decision D8 — else 1, and its largest budget, none when
+ * unset).
  */
 export function copyAmountBounds(live: boolean, paper: { minAllocationUsd: number; maxAllocationUsd: number } | undefined,
-  caps: { fixedPerTradeUsd: { min: number } | null; maxAllocationUsd: number | null } | null | undefined): { min: number; max: number | null } {
-  if (live) return { min: caps?.fixedPerTradeUsd?.min ?? 1, max: caps?.maxAllocationUsd ?? null };
+  caps: { fixedPerTradeUsd: { min: number } | null; maxAllocationUsd: number | null; minBudgetUsd?: number } | null | undefined): { min: number; max: number | null } {
+  if (live) return { min: caps?.fixedPerTradeUsd?.min ?? caps?.minBudgetUsd ?? 1, max: caps?.maxAllocationUsd ?? null };
   return { min: paper?.minAllocationUsd ?? DEFAULT_MIN, max: paper?.maxAllocationUsd ?? null };
 }
 

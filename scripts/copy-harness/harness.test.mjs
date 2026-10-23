@@ -404,12 +404,3 @@ test('portfolio confirmation opens the actual deployment view instead of waiting
   assert.equal(selected, 'actual', 'the global mode otherwise hides the pending actual copy');
 });
 
-test("reconcile FAILS a ratio open sent under the minimum when the TEST ONLY floor is on, and passes one at the minimum (Paul 2026-10-11)", () => {
-  const ratio = { sizing: null, ratioFloor: { maxUsd: 15, minOrderUsd: 10 } };
-  // 0.004 ETH at 3000 = 12 USD: at least the minimum.
-  assert.deepEqual(run({ rules: ratio }), []);
-  const small = [{ id: "d1", tid: "11", leg: "open", coin: "ETH", state: "settled", reason: "", adjustmentId: "", executionState: "filled", cloid: "0xc1", orderSize: "0.002", limitPx: "3000" },
-    { id: "d2", tid: "12", leg: "close", coin: "ETH", state: "settled", reason: "", adjustmentId: "", executionState: "filled", cloid: "0xc2", orderSize: "0.002", limitPx: "2990" }];
-  const fills = [{ cloid: "0xc1", oid: 91, coin: "ETH", side: "B", sz: "0.002", px: "2995" }, { cloid: "0xc2", oid: 92, coin: "ETH", side: "A", sz: "0.002", px: "2994" }];
-  assert.deepEqual(run({ rules: ratio, dispatches: small, followerFills: fills }), ["ratio_floor_below_minimum"]);
-});

@@ -26,12 +26,13 @@ import { TradeAnalyticsService } from "./trade-analytics.service.js";
 
 import { AnalysisHistoryRepository } from "./analysis-history.repository.js";
 import { AnalysisHistoryService } from "./analysis-history.service.js";
+import { SuggestedBudgetRepository } from "./suggested-budget.repository.js";
 
 /** Discovery capabilities and HTTP routes; startup/cron belongs to TradersWorkerModule. */
 @Module({
   imports: [HyperliquidModule, AnalyticsModule, KolAvatarModule, LeaderActivityModule],
   controllers: [TraderSearchController, TradersController, TradeAnalyticsController],
-  providers: [ChartSnapshotsRepository, ChartSnapshotsService, TraderSearchRepository, AnalysisHistoryRepository, AnalysisHistoryService, LeaderboardIngestRepository, TradersRepository, TradersService, LeaderboardIngestService, SpotPriceService, TradeAnalyticsRepository, TradeAnalyticsService,
+  providers: [ChartSnapshotsRepository, ChartSnapshotsService, TraderSearchRepository, AnalysisHistoryRepository, AnalysisHistoryService, LeaderboardIngestRepository, TradersRepository, TradersService, LeaderboardIngestService, SpotPriceService, TradeAnalyticsRepository, TradeAnalyticsService, SuggestedBudgetRepository,
     { provide: TraderOrdersReader, inject: [AppConfig, HyperliquidGlobalTransport], useFactory: (config: AppConfig, transport: HyperliquidGlobalTransport) => new TraderOrdersReader(
       new HyperliquidAllDexsAccountSource(Date.now, undefined, config.value.hyperliquid.apiUrl === 'https://api.hyperliquid-testnet.xyz/info' ? 'testnet' : 'mainnet', transport), Date.now, config.value.hyperliquid.apiUrl) },
     { provide: TraderTwapReader, inject: [AppConfig, HyperliquidGlobalTransport], useFactory: (config: AppConfig, transport: HyperliquidGlobalTransport) =>
@@ -39,6 +40,6 @@ import { AnalysisHistoryService } from "./analysis-history.service.js";
     { provide: TraderAccountReader, inject: [AppConfig, HyperliquidGlobalTransport], useFactory: (config: AppConfig, transport: HyperliquidGlobalTransport) =>
       new TraderAccountReader(new HyperliquidAllDexsAccountSource(Date.now, undefined, config.value.hyperliquid.apiUrl === 'https://api.hyperliquid-testnet.xyz/info' ? 'testnet' : 'mainnet', transport),
         Date.now, config.value.hyperliquid.apiUrl) }],
-  exports: [AnalysisHistoryService, TradersService, LeaderboardIngestService, TradeAnalyticsService],
+  exports: [AnalysisHistoryService, TradersService, LeaderboardIngestService, TradeAnalyticsService, SuggestedBudgetRepository],
 })
 export class TradersModule {}

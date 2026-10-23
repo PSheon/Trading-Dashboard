@@ -908,7 +908,7 @@ it('safe abort: a reserved deposit belongs to the original setup before its pare
 function flatAbortProof(): SetupAbortFlatObservation {
   return { purpose: 'setup-abort-return', snapshot: { network: testNetwork, accountAddress, role: 'user', accountAbstraction: 'default',
     observedAt: clock, completedAt: clock, sourceDigest: 'd'.repeat(64), collateralToken: 0, collateralCoin: 'USDC', perpEquity: '100', totalMarginUsed: '0',
-    withdrawable: '100', exposureUsd: '0', restingExposureUsd: '0', grossRestingExposureUsd: '0', positions: [], restingOrders: [],
+    withdrawable: '100', exposureUsd: '0', restingExposureUsd: '0', grossRestingExposureUsd: '0', positions: [], restingOrders: [], foreignRestingOrders: { count: 0, coins: [] },
     dexes: [{ dex: '', perpDexIndex: 0, supported: true, collateralToken: 0, collateralCoin: 'USDC', providerTime: clock, equity: '100', rawUsd: '100',
       marginUsed: '0', withdrawable: '100', exposureUsd: '0', crossEquity: '100', crossMarginUsed: '0', crossExposureUsd: '0', crossMaintenanceMarginUsed: '0' }],
     coverage: { complete: true, balanceComplete: true, orderComplete: true, listedDexes: [''], observedOrderDexes: [''], unobservedOrderDexes: [], earliestProviderTime: clock } } };

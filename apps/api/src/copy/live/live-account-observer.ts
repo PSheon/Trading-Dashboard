@@ -45,6 +45,12 @@ export interface LiveAccountSnapshot {
   readonly perpEquity: string; readonly totalMarginUsed: string; readonly withdrawable: string;
   readonly exposureUsd: string; readonly restingExposureUsd: string; readonly grossRestingExposureUsd: string;
   readonly positions: readonly LiveObservedPosition[]; readonly restingOrders: readonly LiveObservedRestingOrder[];
+  /** Open orders the exchange listed for the account on a spot pair (`@N`, `BASE/QUOTE`;
+   * mainnet 2026-10-23, 19 on `@260`): not perp orders of any venue, so left out of
+   * `restingOrders` and every exposure figure, and counted here (the distinct pairs,
+   * sorted). A copy account never places one: a count above zero is foreign activity,
+   * logged as `live_account_foreign_resting_orders` and kept in the stored snapshot. */
+  readonly foreignRestingOrders: { readonly count: number; readonly coins: readonly string[] };
   readonly dexes: readonly LiveObservedDex[];
   readonly coverage: { readonly complete: boolean; readonly balanceComplete: true; readonly orderComplete: boolean;
     readonly listedDexes: readonly string[]; readonly observedOrderDexes: readonly string[];
@@ -124,12 +130,28 @@ const stateSchema = z.object({ marginSummary: summary, crossMarginSummary: summa
 const ordersSchema = z.array(z.object({ coin, side: z.enum(['B', 'A']), limitPx: positive, sz: positive,
   origSz: positive, oid: integer, timestamp: integer, reduceOnly: z.boolean(), isTrigger: z.boolean(),
   isPositionTpsl: z.boolean(), cloid: z.string().regex(/^0x[0-9a-fA-F]{32}$/).nullish() })).max(5000);
+/** A spot pair as the exchange names it in an account's open orders: `@N` (the pair's
+ * spot index) or `BASE/QUOTE` (a canonical pair). Never a perp coin (LIVE_PERP_COIN
+ * admits neither `@` nor `/`). */
+const SPOT_PAIR = /^(?:@\d{1,10}|[^\s/:@\p{Cc}\p{Cf}]{1,40}\/[^\s/:@\p{Cc}\p{Cf}]{1,40})$/u;
+const listedOrdersSchema = z.array(z.object({ coin: z.string().min(1).max(80) }).passthrough()).max(5000);
+/** An account's listed open orders split into its perp orders (read by ordersSchema)
+ * and the spot-pair orders among them (`foreign`: kept out of every figure, counted). */
+function splitListedOrders(listed: unknown): { perp: unknown[]; foreign: string[] } {
+  const rows = listedOrdersSchema.parse(listed);
+  return { perp: rows.filter((row) => !SPOT_PAIR.test(row.coin)), foreign: rows.filter((row) => SPOT_PAIR.test(row.coin)).map((row) => row.coin) };
+}
 const dexSchema = z.array(z.object({ name: z.string().regex(LIVE_DEX_NAME).max(40) }).nullable()).min(1).max(MAX_LIVE_PERP_DEXES);
 const metaSchema = z.object({ collateralToken: integer, universe: z.array(z.object({ name: z.string().min(1).max(80),
   szDecimals: integer.refine((v) => v <= 6), maxLeverage: integer.refine((v) => v > 0), isDelisted: z.boolean().optional() })).max(10_000) });
 const tokenSchema = z.object({ index: integer, name: z.string().min(1).max(80), isCanonical: z.boolean() });
+/** Spot balances never enter equity (perpEquity is the perp venues' accountValue);
+ * they are read for the zero-exposure proofs (unsetup, setup abort) and checked
+ * against spotMeta. A prediction-market outcome token (mainnet 2026-10-23, a
+ * leader's `+158850`, `o458`: 28 of 94 balances) carries no `token` index and
+ * is not in spotMeta: accepted, for any role, and worth nothing here. */
 const spotSchema = z.object({ portfolioMarginEnabled: z.boolean().optional(), balances: z.array(z.object({
-  coin: z.string().min(1).max(80), token: integer, total: nonnegative, hold: nonnegative,
+  coin: z.string().min(1).max(80), token: integer.optional(), total: nonnegative, hold: nonnegative,
 })).max(10_000) });
 function fail(code: string): never { throw new LiveBoundaryError(code); }
 /** The freshness checks of one observation, by where they run. */
@@ -213,7 +235,7 @@ export class HyperliquidLiveAccountObserver {
     const snapshot = await this.observeInternal(accountAddress, {}, true);
     const zero = (v: string) => Dec.from(v).isZero;
     if (!snapshot.coverage.complete || !snapshot.coverage.orderComplete ||
-      snapshot.positions.length || snapshot.restingOrders.length || !zero(snapshot.totalMarginUsed) || !zero(snapshot.exposureUsd) ||
+      snapshot.positions.length || snapshot.restingOrders.length || snapshot.foreignRestingOrders.count || !zero(snapshot.totalMarginUsed) || !zero(snapshot.exposureUsd) ||
       !zero(snapshot.grossRestingExposureUsd) || snapshot.dexes.some(d => !zero(d.marginUsed) || !zero(d.exposureUsd) || !zero(d.crossMarginUsed) ||
         !zero(d.crossExposureUsd) || !zero(d.crossMaintenanceMarginUsed) || (d.dex !== '' && (!zero(d.equity) || !zero(d.rawUsd) || !zero(d.withdrawable)))))
       fail('live_account_setup_abort_not_flat');
@@ -300,18 +322,21 @@ export class HyperliquidLiveAccountObserver {
       unique(tokens.map((t) => t.index));
       const usdc = tokens.filter((t) => t.name === 'USDC' && t.isCanonical);
       if (usdc.length !== 1) fail('live_account_unsupported_collateral');
-      unique(spot.balances.map((b) => b.token));
+      unique(spot.balances.flatMap((b) => b.token === undefined ? [] : [b.token]));
       for (const b of spot.balances) {
-        if (!tokens.some((t) => t.index === b.token && t.name === b.coin) || Dec.from(b.hold).gt(b.total))
-          fail('live_account_invalid_spot_evidence');
+        // An indexed balance is the spotMeta token of that index and name; one without
+        // an index (an outcome token) must not be a spotMeta token missing its index.
+        const known = b.token === undefined ? !tokens.some((t) => t.name === b.coin) : tokens.some((t) => t.index === b.token && t.name === b.coin);
+        if (!known || Dec.from(b.hold).gt(b.total)) fail('live_account_invalid_spot_evidence');
       }
       const list = dexSchema.parse(initial[4]);
       if (list[0] !== null) fail('live_account_invalid_dex_evidence');
       unique(list.flatMap((d) => d ? [d.name] : []));
       const venues = [{ dex: '', index: 0 }, ...list.flatMap((d, index) => d ? [{ dex: d.name, index }] : [])];
       if (allowed.some((name) => !venues.some((v) => v.dex === name))) fail('live_account_unobserved_dex');
-      const positions: LiveObservedPosition[] = [], orders: LiveObservedRestingOrder[] = [];
+      const positions: LiveObservedPosition[] = [], orders: LiveObservedRestingOrder[] = [], foreignOrders: string[] = [];
       const dexes: LiveObservedDex[] = [];
+      const who = options.leader ? 'leader' : options.unsetup ? 'other account' : 'ordering account';
       let combinedOrders: LiveAllDexsOrderEvidence | undefined;
       const aggregate = async () => {
         this.fresh(started, 'state_start');
@@ -375,8 +400,12 @@ export class HyperliquidLiveAccountObserver {
         const scope = venue.dex ? { dex: venue.dex } : {};
         const meta = metas[venue.index], state = states.get(venue.dex);
         if (!meta || !state) fail('live_account_unobserved_dex');
-        const pending = leader ? [] : allOrders ? ordersSchema.parse(allOrders.get(venue.dex))
-          : supported.has(venue.dex) ? ordersSchema.parse(await read('frontendOpenOrders', 20, { user, ...scope })) : [];
+        // A leader's orders are not read at all. A follower's spot-pair orders are
+        // not perp orders of this venue: left out of `pending`, counted (foreignOrders).
+        const listed = leader ? { perp: [], foreign: [] } : splitListedOrders(allOrders ? allOrders.get(venue.dex)
+          : supported.has(venue.dex) ? await read('frontendOpenOrders', 20, { user, ...scope }) : []);
+        const pending = ordersSchema.parse(listed.perp);
+        foreignOrders.push(...listed.foreign);
         // Hyperliquid's own time: within PROVIDER_CLOCK_SKEW_MS ahead of ours.
         // The clock is sampled where the frame arrived (HyperliquidAllDexsAccountSource), not here.
         this.freshProvider(state.time, 'provider_state_time');
@@ -424,7 +453,7 @@ export class HyperliquidLiveAccountObserver {
         const notAbove = (value: string, bound: string) => near(Dec.min(Dec.from(value), Dec.from(bound)), value);
         // Which comparison failed, on which account and dex (no amounts).
         const inconsistent = (what: string) => {
-          new Logger('LiveAccountObserver').warn(`live_account_inconsistent_balances for ${user} (${options.leader ? 'leader' : options.unsetup ? 'other account' : 'ordering account'}), dex '${venue.dex}': ${what}`);
+          new Logger('LiveAccountObserver').warn(`live_account_inconsistent_balances for ${user} (${who}), dex '${venue.dex}': ${what}`);
           fail('live_account_inconsistent_balances');
         };
         const exposure = positionSum('positionValue'), margin = positionSum('marginUsed');
@@ -437,7 +466,7 @@ export class HyperliquidLiveAccountObserver {
         if (!notAbove(cross.accountValue, s.accountValue)) inconsistent('cross accountValue > accountValue');
         const active = Object.values(s).some((v) => !Dec.from(v).isZero) || Object.values(cross).some((v) => !Dec.from(v).isZero) ||
           !Dec.from(state.withdrawable).isZero || !Dec.from(state.crossMaintenanceMarginUsed).isZero ||
-          state.assetPositions.length > 0 || pending.length > 0;
+          state.assetPositions.length > 0 || pending.length > 0 || listed.foreign.length > 0;
         if (zeroOnly && active) fail(accountMode.role !== 'user' ? 'live_account_unsupported_role' : 'live_account_unsupported_abstraction');
         if (collateral.index !== usdc[0]!.index && (active || !venue.dex) && !(leader && venue.dex)) fail('live_account_unsupported_collateral');
         if (!counted(venue.dex) && active) fail('live_account_unsupported_dex_exposure');
@@ -449,7 +478,10 @@ export class HyperliquidLiveAccountObserver {
           crossMarginUsed: crossMargin.toString(), crossExposureUsd: crossExposure.toString(), crossMaintenanceMarginUsed: state.crossMaintenanceMarginUsed });
       }
       unique(orders.map((o) => o.oid));
-      if (orders.length > 5000 || positions.length > 10000) fail('live_account_unbounded_evidence');
+      if (orders.length + foreignOrders.length > 5000 || positions.length > 10000) fail('live_account_unbounded_evidence');
+      const foreignRestingOrders = { count: foreignOrders.length, coins: [...new Set(foreignOrders)].sort() };
+      // Named and counted, as foreign_usage_suspected is (hyperliquid/foreign-usage.ts): the pairs, never an amount.
+      if (foreignRestingOrders.count > 0) new Logger('LiveAccountObserver').warn(`live_account_foreign_resting_orders for ${user} (${who}): ${JSON.stringify(foreignRestingOrders)}`);
       // Nothing changed while it was observed (an epoch checks this once, for
       // every reader, after the last of them).
       if (!shared) {
@@ -467,7 +499,7 @@ export class HyperliquidLiveAccountObserver {
         withdrawable: sum('withdrawable'), exposureUsd: sum('exposureUsd'),
         restingExposureUsd: Dec.sum(orders.filter((o) => !o.reduceOnly).map((o) => Dec.from(o.notionalUsd))).toString(),
         grossRestingExposureUsd: Dec.sum(orders.map((o) => Dec.from(o.notionalUsd))).toString(),
-        positions: positions.sort((a, b) => a.asset - b.asset), restingOrders: orders,
+        positions: positions.sort((a, b) => a.asset - b.asset), restingOrders: orders, foreignRestingOrders,
         dexes, coverage: { complete: unobservedOrderDexes.length === 0, balanceComplete: true, orderComplete: unobservedOrderDexes.length === 0,
           listedDexes: venues.map((v) => v.dex), observedOrderDexes: venues.filter((v) => allOrders || counted(v.dex)).map((v) => v.dex),
           unobservedOrderDexes, earliestProviderTime: Math.min(...dexes.map((d) => d.providerTime)) } });

@@ -4,7 +4,7 @@ import { validateInfoResponse } from '../src/hyperliquid/response-validation.js'
 import type { HlInfoRequestBody } from '../src/hyperliquid/types.js';
 import { HyperliquidLiveSourceClient } from '../src/copy/copy-live-source.client.js';
 import { parseLiveSourceFill, presumedTwapSlice, canonicalLiveSourceLegs } from '../src/copy/live/copy-live-source-evidence.js';
-import { HyperliquidLiveAccountObserver, LiveObservationUnavailable } from '../src/copy/live/live-account-observer.js';
+import { HyperliquidLiveAccountObserver } from '../src/copy/live/live-account-observer.js';
 import { HyperliquidLiveMarketResolver } from '../src/copy/live/live-market-resolver.js';
 import { HyperliquidFollowerReceiptReader } from '../src/copy/live/follower-receipt-reader.js';
 import { parseFollowerFill, parseFollowerFunding } from '../src/copy/live/actual-fill-accounting.js';
@@ -118,15 +118,20 @@ describe('recorded Hyperliquid mainnet answers (fixtures/hyperliquid): the shape
   });
 
   describe('clearinghouseState → observed positions (the float-grid path)', () => {
-    it('surprise: the leader with the float-printed NEAR size also holds prediction-market outcome tokens (spot balances without a token index): its leader observation is unavailable, so its positions are never read', async () => {
-      const balances = info.raw<{ balances: { coin: string; token?: number }[] }>({ type: 'spotClearinghouseState', user: leader }).balances;
+    it('the leader with the float-printed NEAR size also holds prediction-market outcome tokens (spot balances without a token index): observed, its 8 perp positions read and its equity the perp venues\' accountValue (the outcome tokens count for nothing)', async () => {
+      const balances = info.raw<{ balances: { coin: string; token?: number; total: string }[] }>({ type: 'spotClearinghouseState', user: leader }).balances;
       const untokened = balances.filter(b => b.token === undefined);
-      // Outcome tokens ("+158850") and "o458"-style coins carry no `token` index; the observer's spot schema requires one.
+      // Outcome tokens ("+158850") and "o458"-style coins carry no `token` index; three of them are held.
       expect(untokened.length).toBeGreaterThanOrEqual(28); expect(untokened.every(b => /^[+o]\d+$/.test(b.coin))).toBe(true);
+      expect(untokened.filter(b => Dec.from(b.total).gt(0)).length).toBeGreaterThanOrEqual(3);
       const times = info.stateTimes(leader), now = Math.max(...times) + 1;
-      const refusal = await observer(now, info.accountSource(leader, () => now)).observe(leader, { leader: true }).then(() => null, (error: unknown) => error);
-      expect(refusal).toBeInstanceOf(LiveObservationUnavailable);
-      expect(String((refusal as Error).cause)).toContain('balances');
+      const snapshot = await observer(now, info.accountSource(leader, () => now)).observe(leader, { leader: true });
+      const states = info.states(leader) as [string, { marginSummary: { accountValue: string }; assetPositions: unknown[] }][];
+      expect(snapshot.positions).toHaveLength(8); expect(states.reduce((n, [, st]) => n + st.assetPositions.length, 0)).toBe(8);
+      expect(Dec.from(snapshot.perpEquity).eq(Dec.sum(states.map(([, st]) => Dec.from(st.marginSummary.accountValue))))).toBe(true);
+      expect(snapshot.perpEquity).toBe(states[0]![1].marginSummary.accountValue); // the HIP-3 venues hold nothing
+      expect(snapshot.restingOrders).toEqual([]); expect(snapshot.foreignRestingOrders).toEqual({ count: 0, coins: [] });
+      expect(snapshot.coverage.complete).toBe(true);
     });
     it.each([twapLeader, restingAccount])('%s: a leader observation accepts every recorded position, each size on its coin\'s grid', async (user) => {
       const times = info.stateTimes(user), now = Math.max(...times) + 1;
@@ -161,6 +166,7 @@ describe('recorded Hyperliquid mainnet answers (fixtures/hyperliquid): the shape
         requestedDexes: [...dexes], venues: dexes.map(dex => ({ dex, user, observedAt: now, receivedAt: now, orders: dex ? [] : perpOrders })) }) };
       const snapshot = await observer(now, source).observe(follower);
       expect(snapshot.restingOrders.map(o => o.oid).sort()).toEqual(perpOrders.map(o => String(o.oid)).sort());
+      expect(snapshot.foreignRestingOrders).toEqual({ count: 0, coins: [] });
       for (const o of snapshot.restingOrders) {
         const raw = perpOrders.find(p => String(p.oid) === o.oid)!;
         expect(o.cloid).toBeNull(); expect(grid(o.remainingSize, sizeDecimals(o.coin))).toBe(true);
@@ -172,10 +178,23 @@ describe('recorded Hyperliquid mainnet answers (fixtures/hyperliquid): the shape
     it('the follower-shaped account\'s own resting orders are all on a spot pair ("@260"), in the main dex\'s frontendOpenOrders next to perps', () => {
       expect(spotOrders.length).toBeGreaterThanOrEqual(19); expect(spotOrders.every(o => o.coin.startsWith('@'))).toBe(true);
     });
-    it('surprise: a resting order on a spot pair ("@260", in the main dex\'s frontendOpenOrders) makes the whole observation unavailable, not a named refusal', async () => {
+    it('a resting order on a spot pair ("@260", in the main dex\'s frontendOpenOrders) is foreign to copying: the observation succeeds with 0 perp resting orders and the 19 spot ones counted by pair', async () => {
       const times = info.stateTimes(follower), now = Math.max(...times) + 1;
       // No order channel: the observer reads frontendOpenOrders itself, spot orders included.
-      await expect(observer(now, info.accountSource(follower, () => now)).observe(follower)).rejects.toBeInstanceOf(LiveObservationUnavailable);
+      const snapshot = await observer(now, info.accountSource(follower, () => now)).observe(follower);
+      expect(snapshot.restingOrders).toEqual([]); expect(snapshot.restingExposureUsd).toBe('0'); expect(snapshot.grossRestingExposureUsd).toBe('0');
+      expect(snapshot.foreignRestingOrders).toEqual({ count: spotOrders.length, coins: ['@260'] }); expect(spotOrders.length).toBe(19);
+      expect(snapshot.positions.length).toBe(info.raw<State>({ type: 'clearinghouseState', user: follower }).assetPositions.length);
+      expect(Dec.from(snapshot.perpEquity).eq(info.raw<{ marginSummary: { accountValue: string } }>({ type: 'clearinghouseState', user: follower }).marginSummary.accountValue)).toBe(true);
+    });
+    it('over the order channel too: the spot rows next to the perp rows are excluded and counted, the perp rows read as before', async () => {
+      const times = info.stateTimes(follower), now = Math.max(...times) + 1;
+      const source = { ...info.accountSource(follower, () => now), readOrders: async (user: string, dexes: readonly string[]) => ({ network: 'mainnet' as const, accountAddress: user, observedAt: now, completedAt: now,
+        requestedDexes: [...dexes], venues: dexes.map(dex => ({ dex, user, observedAt: now, receivedAt: now, orders: dex ? [] : [...spotOrders.slice(0, 10), ...perpOrders, ...spotOrders.slice(10)] })) }) };
+      const snapshot = await observer(now, source).observe(follower);
+      expect(snapshot.restingOrders.map(o => o.oid).sort()).toEqual(perpOrders.map(o => String(o.oid)).sort());
+      expect(snapshot.foreignRestingOrders).toEqual({ count: 19, coins: ['@260'] });
+      expect(snapshot.coverage.orderComplete).toBe(true);
     });
   });
 

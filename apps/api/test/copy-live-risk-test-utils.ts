@@ -26,7 +26,7 @@ export function fixture(): LiveAccountRiskInput {
       checkedAt: now, sourceDigest: digest, quarantined: false, snapshot: { network: 'testnet', accountAddress: account,
         role: 'user', accountMode: 'standard', accountAbstraction: 'disabled', observedAt: now, completedAt: now,
         sourceDigest: digest, collateralToken: 7, collateralCoin: 'USDC', perpEquity: '100', totalMarginUsed: '0',
-        withdrawable: '100', exposureUsd: '0', restingExposureUsd: '0', grossRestingExposureUsd: '0', positions: [], restingOrders: [],
+        withdrawable: '100', exposureUsd: '0', restingExposureUsd: '0', grossRestingExposureUsd: '0', positions: [], restingOrders: [], foreignRestingOrders: { count: 0, coins: [] },
         dexes: [{ dex: '', perpDexIndex: 0, supported: true, collateralToken: 7, collateralCoin: 'USDC', providerTime: now,
           equity: '100', rawUsd: '100', marginUsed: '0', withdrawable: '100', exposureUsd: '0', crossEquity: '100',
           crossMarginUsed: '0', crossExposureUsd: '0', crossMaintenanceMarginUsed: '0' }],

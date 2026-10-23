@@ -119,7 +119,7 @@ export { describeUnexpected, safeErrorText } from '../../runtime/safe-error-text
 import { LIVE_STANDBY_RENEW_MS, SHARED_CAPACITY_RETRY_MS } from '../../config/constants/hyperliquid.js';
 import { SOURCE_STUCK_ALERT_MS } from '../../config/constants/alerts.js';
 import { ABSTRACTION_ATTEMPT_LIMIT, CLOSE_ATTEMPT_LIMIT, MAX_LIVE_LEG_ATTEMPTS } from '../../config/constants/limits.js';
-import { FAST_SOURCE_FEED_DOWN_POLL_MS, HOLD_MARGIN_MS, KICK_BUDGET_MS, PASS_BUDGET_MS, PLANNING_MARGIN_MS, SOURCE_LAG_MS, TESTNET_SOURCE_INTERVAL_MS, TESTNET_SOURCE_RETRY_MS } from '../../config/constants/timings.js';
+import { FAST_SOURCE_FEED_DOWN_POLL_MS, HOLD_MARGIN_MS, KICK_BUDGET_MS, PASS_BUDGET_MS, PLANNING_MARGIN_MS, SETTLEMENT_WAKE_DELAY_MS, SOURCE_LAG_MS, TESTNET_SOURCE_INTERVAL_MS, TESTNET_SOURCE_RETRY_MS } from '../../config/constants/timings.js';
 import { liveSourceAdmission } from '../live/postgres-live-risk-authority.js';
 const reasonOf = (error: unknown) => errorCode(error);
 /** A source read's failure for the log: its code, and which evidence check refused it (if one did). */
@@ -197,7 +197,16 @@ export class CopyLiveEngine {
     try { await this.deps.standby(mandates); } catch (error) { this.deps.log?.(`live standby not recorded: ${reasonOf(error)}`); }
   }
 
-  async tick(): Promise<void> {
+  /**
+   * One pass. `yieldTo` (CopyLiveWorkerService.drain): a kick's order half is
+   * waiting; the pass stops before its next order row and answers `yielded`,
+   * and the rows it did not reach, the flat reconcile and the stops keep for
+   * the pass that follows the kick at once (the service marks it due). Before
+   * 2026-10-23 a kick waited for the whole pass: on Stage mainnet a leg's
+   * order half queued behind other rows' settlement passes (3–6 s each, a
+   * claim wait up to SETTLEMENT_CLAIM_WAIT_MS) for up to passBudgetMs.
+   */
+  async tick(yieldTo?: () => boolean): Promise<'complete' | 'yielded'> {
     const started = this.now();
     if (this.deps.setups) {
       try { await budgetConsumer('copy.setup', () => this.deps.setups!.tick()); }
@@ -223,9 +232,11 @@ export class CopyLiveEngine {
     for (const row of await this.deps.repository.open()) {
       if (this.now() - started > this.options.passBudgetMs) break;
       if (held.has(row.id)) continue;
+      if (yieldTo?.()) return 'yielded';
       try { await budgetConsumer('copy.order', () => this.work(row, byId.get(row.mandateId) ?? null, limit)); }
       catch (error) { this.deps.log?.(`leg ${row.id} kept for the next pass: ${reasonOf(error)}`); }
     }
+    if (yieldTo?.()) return 'yielded';
     // Leader flat but follower may still hold some (IOC close partly filled, or
     // unsendable): the single-position closer (stopper's pass) closes the rest.
     for (const m of mandates.filter(row => row.activated && row.strategyStatus !== 'stopping' && row.strategyStatus !== 'stopped')) {
@@ -236,7 +247,17 @@ export class CopyLiveEngine {
       try { await budgetConsumer('copy.stop', () => this.deps.stopper!.tick()); }
       catch (error) { this.deps.log?.(`stops kept for the next pass: ${reasonOf(error)}`); }
     }
+    return 'complete';
   }
+
+  /** The worker's order-half wake (CopyLiveWorkerService): `leader`'s copies'
+   * legs are worked again at `at` (workLeader) without waiting for the next
+   * pass or the leader's next trade. Asked after an order's terminal ack, so
+   * its settlement runs SETTLEMENT_WAKE_DELAY_MS later, and after a
+   * settlement released, so the legs it held (unsettledOnAccount) go at
+   * once. Mainnet-source copies only (the kick path's). */
+  private wake?: (leader: string, at: number) => void;
+  onWake(listener: (leader: string, at: number) => void): void { this.wake = listener; }
 
   /** Whether this stream's signal may come from the fast source. */
   fastLeader(stream: Pick<LiveStreamWork, 'network' | 'leaderAddress'>): boolean {
@@ -557,6 +578,8 @@ export class CopyLiveEngine {
       await this.deps.repository.update(row, { state: 'settled', settledAt: new Date(this.now()), reason: null });
       try { await this.deps.settlementObservation?.(row.executionKey!); }
       catch { this.deps.log?.('Committed settlement observation could not be retained; scheduled reporting will retry'); }
+      // The account's next leg waited for this (unsettledOnAccount): worked now, not at the next pass.
+      if (mandate.sourceNetwork === 'mainnet') this.wake?.(mandate.leaderAddress, this.now());
     }
     else if (outcome.kind === 'unplaced' && outcome.unsent) await this.afterUnsent(row, mandate, signalAgeMs);
     else if (outcome.kind === 'unplaced') await this.deps.repository.update(row, { state: 'refused', reason: 'exchange_order_never_placed' });
@@ -718,6 +741,8 @@ export class CopyLiveEngine {
       }
       this.legRetryAt.delete(row.id);
       await this.deps.repository.update(row, { state: 'submitted', executionKey: record.key, firstAttemptAt: first, attempts: row.attempts + 1, reason: null, ...times });
+      // Terminal at the exchange (an IOC's answer): its settlement is due SETTLEMENT_WAKE_DELAY_MS after the ack, not at the next pass.
+      if (m.sourceNetwork === 'mainnet' && TERMINAL_STATES.has(record.state)) this.wake?.(m.leaderAddress, (timing.ackedAt ?? this.now()) + SETTLEMENT_WAKE_DELAY_MS);
       if (row.state === 'pending') this.deps.trace?.(`Copy order ${row.id}${members.length ? ` (+${members.length} merged)` : ''}: received +${row.receivedAt.getTime() - row.leaderTime.getTime()}, ` +
         `first attempt +${first.getTime() - row.leaderTime.getTime()}, sent ${times.sentAt ? `+${times.sentAt.getTime() - row.leaderTime.getTime()}` : '-'} ms after the leader`);
     } catch (error) {

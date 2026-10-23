@@ -27,6 +27,7 @@ import { now } from './copy-live-risk-test-utils.js';
 const unavailable = (cause: unknown) => Object.assign(new LiveBoundaryError('live_account_observation_unavailable'), { cause });
 import { closeTestDb, getTestDb, type TestDb } from './db-test-utils.js';
 import { CLOSE_ATTEMPT_LIMIT, MAX_LIVE_LEG_ATTEMPTS } from '../src/config/constants/limits.js';
+import { SETTLEMENT_WAKE_DELAY_MS } from '../src/config/constants/timings.js';
 import { SOURCE_STUCK_ALERT_MS } from '../src/config/constants/alerts.js';
 import { parseLiveSourceFill } from '../src/copy/live/copy-live-source-evidence.js';
 
@@ -1104,5 +1105,35 @@ describe('testnet copy execution engine', () => {
     clock = now + 1000; await engine().tick();
     expect(await dispatches()).toMatchObject([{ sourceFillId: fill, state: 'refused', reason: 'live_market_hip3_unsupported', attempts: 0 }]);
     expect(runtimeCalls).toHaveLength(0); // the runtime is what reads (and acquires) evidence
+  });
+  it('a pass yields to a waiting kick between its order rows (CopyLiveWorkerService.drain) and keeps the rows it did not reach and the stops for the resumed pass', async () => {
+    await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
+    const btc = await leaderFill(41, now + 100, 'B', '1', '0'), eth = await leaderFill(42, now + 200, 'B', '1', '0', 'ETH');
+    const stopper = { tick: vi.fn(async () => {}) };
+    clock = now + 1000;
+    // The kick arrives once the first row (BTC) is worked: ETH is not reached, the stops do not run.
+    let rows = 0;
+    expect(await engine({ stopper }).tick(() => rows++ >= 1)).toBe('yielded');
+    expect(runtimeCalls.map(c => c.sourceFillId)).toEqual([btc]);
+    expect(stopper.tick).not.toHaveBeenCalled();
+    // Nothing waiting: the pass completes (ETH reached and sent, the stops run).
+    clock = now + 1500;
+    expect(await engine({ stopper }).tick(() => false)).toBe('complete');
+    expect(stopper.tick).toHaveBeenCalledTimes(1);
+    expect(runtimeCalls.map(c => c.sourceFillId)).toEqual([btc, eth]);
+  });
+
+  it('asks the worker to work the leader again SETTLEMENT_WAKE_DELAY_MS after an order\'s terminal ack (its settlement), and right after a settlement released (the legs it held)', async () => {
+    await credit(); await coverage(now - 10_000, now + 5000); await engine().tick();
+    const btc = await leaderFill(43, now + 100, 'B', '1', '0');
+    const wakes: [string, number][] = [];
+    const e = engine(); e.onWake((who, at) => wakes.push([who, at]));
+    clock = now + 1000; await e.tick();
+    expect((await dispatches())[0]).toMatchObject({ sourceFillId: btc, state: 'submitted' });
+    // The double's IOC was acked at clock + 40 and journaled filled.
+    expect(wakes).toEqual([[leader, now + 1000 + 40 + SETTLEMENT_WAKE_DELAY_MS]]);
+    clock = now + 4000; await e.tick();
+    expect((await dispatches())[0]).toMatchObject({ state: 'settled' });
+    expect(wakes).toEqual([[leader, now + 1000 + 40 + SETTLEMENT_WAKE_DELAY_MS], [leader, now + 4000]]);
   });
 });

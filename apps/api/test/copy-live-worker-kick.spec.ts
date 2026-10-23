@@ -66,7 +66,7 @@ describe('copy live worker: realtime kicks', () => {
     service.onModuleDestroy(); engine.tick.mockResolvedValue(undefined);
     releasePass(); await pass;
   });
-  it('reads a leader once its feed trade is G old, even during a pass; its orders wait for the pass', async () => {
+  it('reads a leader once its feed trade is G old, even during a pass; its orders wait for a pass that never offers to yield (the engine\'s tick yields between its rows)', async () => {
     vi.useFakeTimers({ now: T0 });
     const { service, engine, log, releasePass } = setup();
     service.onLeaderTraded({ address: leader, time: T0 - 500, tid: 1 });
@@ -154,6 +154,61 @@ describe('copy live worker: realtime kicks', () => {
     service.start(3000); busyLeader(service);
     await vi.advanceTimersByTimeAsync(10_000);
     expect(setups.tick.mock.calls.length).toBeGreaterThanOrEqual(3);
+    service.onModuleDestroy();
+  });
+  /** A leader whose feed trade is G + 100 old at `due` (ms after T0): its kick's read falls due then. */
+  const tradeDue = (service: CopyLiveWorkerService, who: string, due: number, tid: number) => service.onLeaderTraded({ address: who, time: T0 + due - G - 100, tid });
+
+  it('a pass in flight yields to a waiting kick between its rows and resumes right after it, once per leader per pass: a second kick of that leader waits for the pass, another leader\'s kick preempts it', async () => {
+    vi.useFakeTimers({ now: T0 });
+    const other = `0x${'55'.repeat(20)}`, name = (who: string) => who === leader ? 'L1' : 'L2', log: string[] = [], at = () => `@${Date.now() - T0}`;
+    const engine = {
+      witness: vi.fn((_who: string, _tid: number, time: number) => time + G + 100), nextReadAt: vi.fn(() => 0), followUp: vi.fn(() => null), audit: vi.fn(async () => []),
+      signal: vi.fn(async (who: string) => { log.push(`signal ${name(who)} ${at()}`); return true; }),
+      workLeader: vi.fn(async (who: string) => { log.push(`kick ${name(who)} ${at()}`); }),
+      // Five rows of a second each; between rows the pass asks whether a kick waits (CopyLiveEngine.tick).
+      tick: vi.fn(async (yieldTo?: () => boolean) => {
+        log.push(`pass start ${at()}`);
+        for (let row = 1; row <= 5; row++) {
+          await new Promise<void>(resolve => setTimeout(resolve, 1000));
+          if (yieldTo?.()) { log.push(`pass yielded after row ${row} ${at()}`); return 'yielded' as const; }
+        }
+        log.push(`pass end ${at()}`); return 'complete' as const;
+      }),
+    };
+    const service = new CopyLiveWorkerService(testConfig(), new BackgroundJobs(), engine as unknown as CopyLiveEngine);
+    service.start(3_600_000);
+    const pass = service.tick();
+    tradeDue(service, leader, 1500, 1);
+    await vi.advanceTimersByTimeAsync(2000);
+    // The read ran beside the pass at 1500; the pass yielded at its next row end (2000), the kick ran, the pass resumed at once.
+    expect(log).toEqual(['pass start @0', 'signal L1 @1500', 'pass yielded after row 2 @2000', 'kick L1 @2000', 'pass start @2000']);
+    tradeDue(service, leader, 3500, 2); // L1 again: already preempted this pass, waits for it
+    tradeDue(service, other, 4500, 3);  // L2: its first, preempts
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(log.slice(5)).toEqual(['signal L1 @3500', 'signal L2 @4500', 'pass yielded after row 3 @5000', 'kick L2 @5000', 'pass start @5000', 'pass end @10000', 'kick L1 @10000']);
+    service.onModuleDestroy(); await pass;
+  });
+
+  it('the engine\'s wake (an order acked, a settlement released) runs the leader\'s order half at the time asked, without a read; the earlier of two wakes wins', async () => {
+    vi.useFakeTimers({ now: T0 });
+    let wake: ((who: string, at: number) => void) | undefined;
+    const engine = {
+      witness: vi.fn(() => null), nextReadAt: vi.fn(() => 0), followUp: vi.fn(() => null), audit: vi.fn(async () => []),
+      signal: vi.fn(async () => true), workLeader: vi.fn(async () => {}), tick: vi.fn(async () => 'complete' as const),
+      onWake: vi.fn((listener: (who: string, at: number) => void) => { wake = listener; }),
+    };
+    const service = new CopyLiveWorkerService(testConfig(), new BackgroundJobs(), engine as unknown as CopyLiveEngine);
+    service.start(3_600_000);
+    expect(wake).toBeDefined();
+    wake!(leader, T0 + 2000); wake!(leader, T0 + 1000);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(engine.workLeader).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(engine.workLeader).toHaveBeenCalledExactlyOnceWith(leader);
+    expect(engine.signal).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(engine.workLeader).toHaveBeenCalledTimes(1);
     service.onModuleDestroy();
   });
 });

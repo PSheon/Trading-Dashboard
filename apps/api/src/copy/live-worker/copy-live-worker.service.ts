@@ -24,6 +24,17 @@ import { LIVE_ENGINE } from './copy-live-engine.provider.js';
  * kick due within G of a read was read then: one read per witnessed trade
  * at a high trade rate (Stage: one leader held 341 p50 / 580 p95 of the
  * shared window).
+ *
+ * A kick's order half does not wait for a pass in flight: the pass yields to
+ * it between order rows (engine.tick's `yieldTo`) and is marked due again, so
+ * it follows the kick at once; a kick that is waiting when a pass falls due
+ * goes first. Both once per leader per pass (`yielded`): a leader kicked
+ * every G cannot starve the pass, whose other work (setups, stops, the flat
+ * reconcile, other leaders' rows) completes before that leader preempts it
+ * again. Before 2026-10-23 the order half queued behind the whole pass (up
+ * to its budget, 20 s). The engine's wake (engine.onWake: an order's
+ * terminal ack, a settlement released) is a kick of the order half alone at
+ * the time asked, no read: one timer per leader, the earlier time wins.
  */
 @Injectable()
 export class CopyLiveWorkerService implements OnApplicationBootstrap, OnModuleDestroy {
@@ -40,6 +51,10 @@ export class CopyLiveWorkerService implements OnApplicationBootstrap, OnModuleDe
   private readonly kicks = new Set<string>();
   private readonly audits = new Set<string>();
   private readonly scheduled = new Map<string, { at: number; timer: ReturnType<typeof setTimeout> }>();
+  /** Order-half wakes the engine asked for (onWake), one per leader. */
+  private readonly wakes = new Map<string, { at: number; timer: ReturnType<typeof setTimeout> }>();
+  /** Leaders the pass in flight already yielded to (or that went ahead of it); cleared when a pass completes. */
+  private readonly yielded = new Set<string>();
   private readonly signalling = new Set<string>();
   /** The earliest feed trade each scheduled read is for (timing logs). */
   private readonly trades = new Map<string, { tid: number; time: number; seenAt: number }>();
@@ -55,12 +70,29 @@ export class CopyLiveWorkerService implements OnApplicationBootstrap, OnModuleDe
     this.started = true; this.intervalMs = intervalMs; this.lastPassAt = Date.now();
     this.timer = setInterval(() => void this.tick(), intervalMs);
     this.timer.unref?.();
+    this.engine?.onWake?.((leader, at) => this.wake(leader, at));
   }
   onModuleDestroy(): void {
     this.started = false;
     clearInterval(this.timer);
     for (const { timer } of this.scheduled.values()) clearTimeout(timer);
     this.scheduled.clear();
+    for (const { timer } of this.wakes.values()) clearTimeout(timer);
+    this.wakes.clear();
+  }
+
+  /** The engine asks for `leader`'s order half at `at` (the earlier of two requests wins): a kick without a read. */
+  private wake(leader: string, at: number): void {
+    if (!this.started || this.jobs.stopping) return;
+    const held = this.wakes.get(leader);
+    if (held && held.at <= at) return;
+    if (held) clearTimeout(held.timer);
+    const timer = setTimeout(() => {
+      this.wakes.delete(leader);
+      this.kicks.add(leader); void this.drain();
+    }, Math.max(0, at - Date.now()));
+    timer.unref?.();
+    this.wakes.set(leader, { at, timer });
   }
 
   @OnEvent(COPY_LEADER_TRADED_EVENT)
@@ -138,24 +170,36 @@ export class CopyLiveWorkerService implements OnApplicationBootstrap, OnModuleDe
     await this.drain();
   }
 
-  /** Runs work one at a time: a due pass first, then kicks, then audits. */
+  /** A waiting kick the pass in flight has not yielded to yet, else any waiting kick. */
+  private nextKick(preempting: boolean): string | undefined {
+    for (const leader of this.kicks) if (!this.yielded.has(leader)) return leader;
+    return preempting ? undefined : this.kicks.values().next().value;
+  }
+
+  /** Runs work one at a time: a due pass first (a kick it has not yielded to
+   * yet goes ahead of it, and it yields to one between rows), then kicks, then audits. */
   private async drain(): Promise<void> {
     if (this.running || this.jobs.stopping || !this.engine) return;
     this.running = true;
     const engine = this.engine;
     try {
       while (!this.jobs.stopping && (this.passDue || this.kicks.size || this.audits.size)) {
-        if (this.passDue || Date.now() - this.lastPassAt >= this.intervalMs) {
-          this.passDue = false; this.lastPassAt = Date.now();
-          try { await this.jobs.run(() => engine.tick()); }
-          catch (error) { this.logger.error(`Copy pass on ${this.config.value.copy.live?.network ?? 'unknown network'} failed: ${safeErrorText(error)}`); }
-          continue;
-        }
-        const [leader] = this.kicks;
+        const passWanted = this.passDue || Date.now() - this.lastPassAt >= this.intervalMs;
+        const leader = this.nextKick(passWanted);
         if (leader !== undefined) {
-          this.kicks.delete(leader);
+          // Ahead of a due pass (or after the pass yielded to it): this leader's one preemption of this pass.
+          this.kicks.delete(leader); if (passWanted) this.yielded.add(leader);
           try { await this.jobs.run(() => engine.workLeader(leader)); }
           catch (error) { this.logger.error(`Copy kick of ${leader} failed: ${safeErrorText(error)}`); }
+          continue;
+        }
+        if (passWanted) {
+          this.passDue = false; this.lastPassAt = Date.now();
+          let outcome: Awaited<ReturnType<CopyLiveEngine['tick']>> | undefined;
+          try { outcome = await this.jobs.run(() => engine.tick(() => this.nextKick(true) !== undefined)); }
+          catch (error) { this.logger.error(`Copy pass on ${this.config.value.copy.live?.network ?? 'unknown network'} failed: ${safeErrorText(error)}`); }
+          // A pass that yielded resumes right after the kick; one that completed lets every leader preempt the next.
+          if (outcome === 'yielded') this.passDue = true; else this.yielded.clear();
           continue;
         }
         const [audited] = this.audits;

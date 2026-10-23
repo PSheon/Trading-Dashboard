@@ -377,6 +377,16 @@ export const SETTLEMENT_CLAIM_WAIT_MS = 15_000;
  */
 export const SETTLEMENT_RETRY_MS = 6_000;
 
+/** basis: measured — mainnet evidence probe 2026-10-14 (scripts/copy-harness, 819 fills): the fill index trails the exchange p50 37 ms,
+ * p90 722 ms, p99 3.75 s; the settlement pass's own ~150 ms before its receipt scan leaves (claim, record, scan claim at Stage's 8 ms
+ * round trip) puts that read past p90. verify: Stage records the share of first settlement passes ending live_settlement_receipts_incomplete
+ * After an order's terminal ack the engine wakes its leader's order half this long later (CopyLiveEngine.onWake →
+ * CopyLiveWorkerService), so the settlement runs then instead of at the next 3 s pass (COPY_LIVE_INTERVAL_MS) or kick:
+ * the local worker log (2026-10-17, gate 14) shows settlements starting 0.5–4.5 s after the ack. Earlier would read the
+ * follower's fills before the index has them (live_settlement_receipts_incomplete: a failed pass, SETTLEMENT_RETRY_MS later).
+ */
+export const SETTLEMENT_WAKE_DELAY_MS = 1_000;
+
 /** basis: derived — SETTLEMENT_RETRY_MS (6 s, 10 s after a failed read) × 10: about 1–1.5 min of failed passes
  * Failed passes (counted by decideRetry: a meter wait is not one) after
  * which a settlement stops retrying: its order is quarantined for its owner

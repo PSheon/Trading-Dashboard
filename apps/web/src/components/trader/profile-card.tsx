@@ -244,6 +244,13 @@ export function ProfileCard({
 
       <AccountValue profile={profile} />
 
+      {profile.positions.length === 0 ? (
+        // No positions: one pill, not a 0.0X leverage over empty bars and a
+        // 中性 0% / 0% bias.
+        <Section title={t("trader.holdings")}>
+          <span className="chip-sm w-fit bg-raised text-muted-foreground" data-testid="no-positions">{t("trader.noPositions")}</span>
+        </Section>
+      ) : (
       <Section title={t("trader.holdings")}>
         <div className="flex items-baseline justify-between gap-2.5 pt-0.5">
           <span className="text-[13px] font-bold text-muted-foreground">{t("trader.leverage")}</span>
@@ -288,6 +295,7 @@ export function ProfileCard({
           </span>
         </div>
       </Section>
+      )}
 
       <Section title={t("trader.overview")}>
         <Row label={t("trader.unrealized")}>

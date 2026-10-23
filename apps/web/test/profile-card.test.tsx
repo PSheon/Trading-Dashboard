@@ -141,3 +141,17 @@ it("最佳與最差 lists a coin once, with its closed trades summed (Stage 0x35
   expect(section).toContain(">SOL<");
   expect(section).not.toContain(">BTC<");
 });
+
+it("with no positions the 持倉 block is one pill, not a 0.0X leverage over empty bars and a neutral 0% / 0% bias", () => {
+  const empty = { ...base(), positions: [], longNotional: 0, shortNotional: 0, marginUsed: 0 };
+  const html = renderToStaticMarkup(<I18nProvider locale="zh-TW" messages={zhTW}><ProfileCard profile={empty} allTimeVolume={null} trades={undefined} tradesComputing={false} /></I18nProvider>);
+  const block = html.slice(html.indexOf(zhTW.trader.holdings), html.indexOf(zhTW.trader.overview));
+  expect(block).toMatch(/data-testid="no-positions"[^>]*>暫無持倉</);
+  expect(block).toContain("chip-sm");
+  for (const gone of ["0.0X", zhTW.trader.leverage, zhTW.trader.bias, zhTW.trader.biasNeutral, "cd-bar", "0%"]) expect(block).not.toContain(gone);
+  // With positions the block is as before.
+  const held = renderToStaticMarkup(<I18nProvider locale="zh-TW" messages={zhTW}><ProfileCard profile={base()} allTimeVolume={null} trades={undefined} tradesComputing={false} /></I18nProvider>);
+  expect(held).toContain(zhTW.trader.leverage);
+  expect(held).toContain("cd-bar");
+  expect(held).not.toContain("暫無持倉");
+});

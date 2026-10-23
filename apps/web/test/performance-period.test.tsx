@@ -28,7 +28,7 @@ describe("KPI tiles, CopyDog's", () => {
   it("表現 and ROI follow the tile's period; Sharpe and drawdown are all-time", () => {
     const allTime = portfolio(16_285_510, 3.843612);
     const html = render({ period: "month", periodPortfolio: portfolio(17_295_593, 5.359733), allTime, locale: "zh-TW" });
-    expect(html).toContain("+$17.30M");
+    expect(html).toContain("+$17.3M");
     expect(html).toContain("+536%");
     expect(html).toContain("30天");
     expect(html).toContain("4.80");

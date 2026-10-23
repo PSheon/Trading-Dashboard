@@ -133,9 +133,9 @@ it("最佳與最差 lists a coin once, with its closed trades summed (Stage 0x35
   const html = renderToStaticMarkup(<I18nProvider locale="zh-TW" messages={zhTW}><ProfileCard profile={base()} allTimeVolume={null} trades={trades} tradesComputing={false} /></I18nProvider>);
   const section = html.slice(html.indexOf("最佳與最差"), html.indexOf("最常交易"));
   expect(section.match(/>ZEC</g)?.length).toBe(1);
-  expect(section).toContain("+$4.8M");
-  expect(section).not.toContain("+$3.1M");
-  expect(section).not.toContain("+$1.7M");
+  expect(section).toContain("+$4.80M");
+  expect(section).not.toContain("+$3.10M");
+  expect(section).not.toContain("+$1.70M");
   // Three coins: the rows below the summed one move up.
   expect(section).toContain(">ETH<");
   expect(section).toContain(">SOL<");

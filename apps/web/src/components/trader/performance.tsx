@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { rovingFocus } from "@/lib/roving-focus";
 import { useI18n } from "@/i18n/provider";
-import { usdCompact, signedUsd2 } from "@/lib/format";
+import { cardUsd, usdCompact } from "@/lib/format";
 import { useChartSnapshots } from "@/lib/queries";
 import { partialSampleSince, pct1, winRateTone } from "@/lib/trade-format";
 import { useNow } from "@/lib/use-now";
@@ -254,7 +254,7 @@ export function KpiTiles({
         label={t("trader.kpi.pnl")}
         action={periodMenu}
         loading={!periodPortfolio && !portfolioFailed}
-        value={pnl === null ? "—" : signedUsd2(pnl)}
+        value={pnl === null ? "—" : cardUsd(pnl, { sign: true })}
         tone={signTone(pnl)}
         muted={lowSample}
         fill={along(pnl, -1e6, 1e6)}

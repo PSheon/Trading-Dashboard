@@ -94,6 +94,29 @@ export function usdCompact(value: Numeric, options: { sign?: boolean; digits?: n
   return `${prefix}$${body}`;
 }
 
+/**
+ * The one compact dollar figure of every card and tile (home cards, explore
+ * cards, the trader page's summary tiles and its 最佳與最差 / 最常交易 rail):
+ * three significant digits on K / M / B / T ("+$10.1M", "+$959K", "+$58.9M",
+ * "+$4.80M"), the same below $1,000 ("$958", "$58.9"), "$0" for nothing.
+ * The trader page's chart headline keeps the full figure (`Formatter.usd`).
+ */
+export function cardUsd(value: Numeric, options: { sign?: boolean } = {}): string {
+  const n = toNumber(value);
+  if (n === null) return DASH;
+  const a = Math.abs(n);
+  let body = "0";
+  if (a >= 0.005) {
+    const units: Array<[number, string]> = [[1, ""], [1e3, "K"], [1e6, "M"], [1e9, "B"], [1e12, "T"]];
+    // The first unit the figure fits under: 999.6K rounds to "1000K", so it reads "1.00M".
+    const [scale, suffix] = units.find(([s], i) => a / s < 999.5 || i === units.length - 1)!;
+    const m = a / scale;
+    body = `${m.toFixed(m < 9.995 ? 2 : m < 99.95 ? 1 : 0)}${suffix}`;
+  }
+  const prefix = body === "0" ? "" : n < 0 ? "-" : options.sign ? "+" : "";
+  return `${prefix}$${body}`;
+}
+
 /** Plain counts in CopyDog's K / M / B ("12.3K"), every locale. */
 export function numCompact(value: Numeric): string {
   const n = toNumber(value);

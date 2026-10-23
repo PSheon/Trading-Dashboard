@@ -32,7 +32,7 @@ import { CoinIcon } from "@/components/traders/coin-icon";
 
 import { useI18n } from "@/i18n/provider";
 import { useToast } from "@/components/ui/toast";
-import { coinLabel, truncateAddress, signedUsd1, signedUsd2, usd0, usd1, usd2 } from "@/lib/format";
+import { cardUsd, coinLabel, truncateAddress, signedUsd2, usd0, usd2 } from "@/lib/format";
 import { CopyScoreBar, TraderAvatar, XProfileLink } from "@/components/discover/board-bits";
 import { shareName } from "@/lib/share-card";
 import { pnlTone } from "@/lib/trade-format";
@@ -449,7 +449,7 @@ function BestWorstSection({ trades, computing }: { trades: TraderAnalyticsRespon
       {!trades ? (
         <Unavailable computing={computing} />
       ) : rows.length > 0 ? (
-        <CoinFigureRows rows={rows.map((c) => ({ key: c.coin, coin: c.coin, figure: signedUsd1(c.netPnl), className: pnlTone(c.netPnl) }))} />
+        <CoinFigureRows rows={rows.map((c) => ({ key: c.coin, coin: c.coin, figure: cardUsd(c.netPnl, { sign: true }), className: pnlTone(c.netPnl) }))} />
       ) : (
         <p className="text-xs text-muted-foreground">{t(trades ? "trader.noClosedTrades" : "trader.kpi.noTrades")}</p>
       )}
@@ -466,7 +466,7 @@ function MostTradedSection({ trades, computing }: { trades: TraderAnalyticsRespo
       {!trades ? (
         <Unavailable computing={computing} />
       ) : rows.length > 0 ? (
-        <CoinFigureRows rows={rows.map((c) => ({ key: c.coin, coin: c.coin, figure: usd1(c.volume) }))} />
+        <CoinFigureRows rows={rows.map((c) => ({ key: c.coin, coin: c.coin, figure: cardUsd(c.volume) }))} />
       ) : (
         <p className="text-xs text-muted-foreground">{t(trades ? "trader.noClosedTrades" : "trader.kpi.noTrades")}</p>
       )}

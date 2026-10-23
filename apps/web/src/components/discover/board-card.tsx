@@ -10,10 +10,10 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { TIME_ZONE } from "@/i18n/config";
 import { TraderName } from "@/components/traders/trader-name";
 import { useI18n } from "@/i18n/provider";
-import { boardPnl, boardRoi, roiPillShort, roiPillWhole } from "@/lib/board-format";
+import { boardRoi, roiPillShort, roiPillWhole } from "@/lib/board-format";
 import type { BoardTrader } from "@/lib/contracts";
 import { BoardSparkline, boardName, CoinStack, ScoreRing, signTone, TraderAvatar, VerifiedTick } from "./board-bits";
-import { timeAgo } from "@/lib/format";
+import { cardUsd, timeAgo } from "@/lib/format";
 import { useNow } from "@/lib/use-now";
 
 const traderHref = (address: string) => `/trader/${address}`;
@@ -70,7 +70,7 @@ export function BoardCard({ trader, pnlLabel, roiLabel, roiHint, now, accessory,
       <div className="flex min-w-0 items-end justify-between gap-3">
         <div className="min-w-0">
           <div className="text-xs font-bold text-muted-foreground">{pnlLabel}</div>
-          <div className={cn("num truncate font-display text-[1.625rem] leading-[1.1]", signTone(trader.pnl))}>{boardPnl(trader.pnl)}</div>
+          <div className={cn("num truncate font-display text-[1.625rem] leading-[1.1]", signTone(trader.pnl))}>{cardUsd(trader.pnl, { sign: true })}</div>
         </div>
       </div>
       <div className="flex min-w-0 items-center justify-between gap-2">
@@ -135,7 +135,7 @@ export function BoardCardSkeleton() {
 /** Home carousel card (CopyDog's hl-fcard): avatar, name, sparkline, PnL
  * and ROI pill; compact on phones (ROI pill on top). */
 export function HomeCard({ trader }: { trader: BoardTrader }) {
-  const { t, format } = useI18n();
+  const { t } = useI18n();
   const up = (trader.roi ?? 0) >= 0;
   const Arrow = up ? ArrowUpRight : ArrowDownRight;
   const pill = (
@@ -166,7 +166,7 @@ export function HomeCard({ trader }: { trader: BoardTrader }) {
       </div>
       <BoardSparkline values={trader.sparkline} height={52} plain />
       <span className={cn("num block truncate font-display text-xl leading-7", signTone(trader.pnl))} title={t("home.cardPnl")}>
-        {format.usd(trader.pnl, { compact: true, sign: true })}
+        {cardUsd(trader.pnl, { sign: true })}
       </span>
       {pill}
     </Link>
@@ -210,7 +210,6 @@ export function BoardMobileRowSkeleton() {
 /** Mobile list row (CopyDog's dense list): avatar, name, coins and score;
  * PnL and ROI pill on the right. */
 export function BoardMobileRow({ trader }: { trader: BoardTrader }) {
-  const { format } = useI18n();
   const up = (trader.roi ?? 0) >= 0;
   const Arrow = up ? ArrowUpRight : ArrowDownRight;
   return (
@@ -226,7 +225,7 @@ export function BoardMobileRow({ trader }: { trader: BoardTrader }) {
           <CoinStack coins={trader.topCoins.slice(0, 3)} size={14} />
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
-          <span className={cn("num font-display text-[1.0625rem] leading-5", signTone(trader.pnl))}>{format.usd(trader.pnl, { compact: true, sign: true })}</span>
+          <span className={cn("num font-display text-[1.0625rem] leading-5", signTone(trader.pnl))}>{cardUsd(trader.pnl, { sign: true })}</span>
           <span className={cn("num inline-flex h-5 items-center gap-0.5 text-xs font-extrabold", up ? "text-positive" : "text-negative")}>
             <Arrow className="size-3" strokeWidth={2.8} aria-hidden />
             {roiPillWhole(trader.roi)}

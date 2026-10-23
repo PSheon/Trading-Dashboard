@@ -74,6 +74,15 @@ describe("deploy-time tuning (DISCOVERY_*, HYPERLIQUID_*_WEIGHT_PER_MIN, RETENTI
   });
 });
 
+describe("retired environment variables", () => {
+  it("API_TERMINAL_SETTLEMENT and WORKER_TERMINAL_SETTLEMENT (D13, 2026-10-23: the api never settles; the copy worker's engine always does) are ignored, not switches", () => {
+    for (const extra of [{}, { API_TERMINAL_SETTLEMENT: "off" }, { IS_WORKER: "true", WORKER_ROLE: "copy", WORKER_TERMINAL_SETTLEMENT: "off" }, { IS_WORKER: "true", WORKER_TERMINAL_SETTLEMENT: "on" }]) {
+      const app = validateEnvironment({ ...BASE, ...extra }).app as Record<string, unknown>;
+      expect(app).not.toHaveProperty("terminalSettlement");
+    }
+  });
+});
+
 describe("migration 0061: the moved and removed settings leave the stored JSON", () => {
   async function apply() {
     for (const statement of migration.split("--> statement-breakpoint")) await db.execute(sql.raw(statement));

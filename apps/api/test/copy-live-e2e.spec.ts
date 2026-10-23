@@ -10,6 +10,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { privateKeyToAccount } from 'viem/accounts';
 import type { TypedDataDefinition } from 'viem';
 import { AppConfig } from '../src/config/app-config.js';
+import { SETTLEMENT_CLAIM_WAIT_MS } from '../src/config/constants/timings.js';
 import { validateEnvironment } from '../src/config/runtime-config.js';
 import { UnitOfWork } from '../src/db/unit-of-work.js';
 import { HyperliquidGlobalTransport } from '../src/hyperliquid/hyperliquid-global-transport.js';
@@ -164,12 +165,12 @@ async function providers(endpoint: string, body: Record<string, unknown> | undef
   if (!(String(body!.type) in values)) throw Error(`Unsupported offline INFO ${String(body!.type)}`);
   return Response.json(values[String(body!.type)]);
 }
-function engine(midPrice = '100', egress = global, withStopper = false, settleEgress = 'e2e-settle-egress') {
+function engine(midPrice = '100', egress = global, withStopper = false, settleEgress = 'e2e-settle-egress', settleBudget?: RequestBudgeterService) {
   // Settlement right after the order (scan 240 + status + account ~630): an
   // order and its settlement exceed one minute's 1200 testnet weight, so in
   // production settlement waits for a later pass; here it gets its own room.
   const settleGlobal = new HyperliquidGlobalTransport(new PostgresHyperliquidQuota(new UnitOfWork(drizzle(pool, { schema }))), { egressKey: settleEgress, ownerId: `${settleEgress}-owner` }, raw);
-  const settleBudget = new RequestBudgeterService(new AppConfig({ ...config.value, hyperliquid: { ...config.value.hyperliquid, budgetPerMin: 200, burst: 1000 } }));
+  settleBudget ??= new RequestBudgeterService(new AppConfig({ ...config.value, hyperliquid: { ...config.value.hyperliquid, budgetPerMin: 200, burst: 1000 } }));
   const reference = { network: 'mainnet' as const, read: vi.fn(async () => ({ midPrice, midObservedAt: Date.now(), leaderEquity: null, leaderEquityObservedAt: null })) };
   const options = { slippageBps: '30', extraRiskBufferBps: '5', restingOrderBuilderFeeCapTenthsBps: 100, maxSourceDeviationBps: '500' };
   const stops = new CopyLiveStopWorkerRepository(db, new UnitOfWork(db), testConfig()), closer = new ReduceOnlyCloser('testnet', pool, db, new UnitOfWork(db), config, egress, budget, 100, clock);
@@ -278,6 +279,53 @@ describe('testnet copy of a mainnet leader, end to end against provider doubles'
     expect(await db.select().from(schema.copyFollowerReceipts)).toHaveLength(1);
     // Later passes neither sign nor send again.
     await e.tick(); expect(exchangeBodies).toHaveLength(1);
+  });
+  it.each([true, false])('a terminal settlement goes out on the live lane while ordinary reads exhaust the main bucket (live lane kept: %s)', { timeout: 60_000 }, async kept => {
+    // The settler's bucket as the api loop's was (400/min, burst 800): background may spend 288 of
+    // the main 320; the rest (LIVE_RESERVE_SHARE) and the page reserve are the live lane's alone.
+    const settleBudget = new RequestBudgeterService(new AppConfig({ ...config.value, hyperliquid: { ...config.value.hyperliquid, budgetPerMin: 400, burst: 800 } }));
+    const e = engine('100', global, false, 'e2e-settle-egress', settleBudget);
+    const stop = new AbortController();
+    let reads: Promise<void> | undefined;
+    try {
+      // The order is sent on the second pass; the engine settles it on a later one (the former testnet handoff to the api is gone).
+      await e.tick(); await leaderOpens(); await e.tick();
+      expect((await db.select().from(schema.copyLiveDispatches))[0]).toMatchObject({ state: 'submitted' });
+      const before = exchangeBodies.length, nonces = await db.select().from(schema.copySignerNonces);
+      // A reporting pass has consumed the background allowance...
+      await settleBudget.acquire(288, 'background');
+      const original = settleBudget.acquire.bind(settleBudget);
+      // ...and without the live lane (its reserve, its place ahead of background) the settlement's reads would be ordinary reads, each waiting at most 3 s.
+      if (!kept) vi.spyOn(settleBudget, 'acquire').mockImplementation((weight, _priority, _rank, options) =>
+        original(weight, 'background', undefined, { ...options, signal: options?.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(3000)]) : AbortSignal.timeout(3000) }));
+      // ...while ordinary reads keep asking for every unit that refills.
+      let drained = 0;
+      reads = (async () => { while (!stop.signal.aborted) { try { await original(20, 'background', undefined, { signal: AbortSignal.any([stop.signal, AbortSignal.timeout(500)]) }); drained += 20; } catch { /* no room yet */ } } })();
+      const started = Date.now();
+      let settled = false; raw.mockClear();
+      while (!settled && Date.now() - started < SETTLEMENT_CLAIM_WAIT_MS) {
+        await e.tick();
+        settled = (await db.select().from(schema.copyLiveDispatches))[0]!.state === 'settled';
+        if (!settled) await new Promise(resolve => setTimeout(resolve, 250));
+      }
+      const [dispatch] = await db.select().from(schema.copyLiveDispatches);
+      if (kept) {
+        // Its receipt scan and evidence reads went out on the live lane within the claim's wait, the order settled once, nothing was signed or sent.
+        expect(dispatch).toMatchObject({ state: 'settled', attempts: 1 });
+        expect((await db.select().from(schema.copyLiveRiskReservations))[0]).toMatchObject({ state: 'released', releaseReason: 'verified_settlement' });
+        expect(await db.select().from(schema.copyFollowerReceipts)).toHaveLength(1);
+        expect(raw.mock.calls.some(([, init]) => init?.body && (JSON.parse(String(init.body)) as { type: string }).type === 'userFillsByTime')).toBe(true);
+      } else {
+        // As an ordinary read it never got its weight within the claim's wait: no scan went out, the dispatch is still submitted.
+        expect(dispatch).toMatchObject({ state: 'submitted' });
+        expect(await db.select().from(schema.copyFollowerReceipts)).toHaveLength(0);
+        expect(raw.mock.calls.some(([, init]) => init?.body && (JSON.parse(String(init.body)) as { type: string }).type === 'userFillsByTime')).toBe(false);
+        // The ordinary reads took what refilled meanwhile.
+        expect(drained).toBeGreaterThan(0);
+      }
+      expect(exchangeBodies).toHaveLength(before);
+      expect(await db.select().from(schema.copySignerNonces)).toEqual(nonces);
+    } finally { stop.abort(); await reads; settleBudget.onModuleDestroy(); }
   });
   it('recovers a dispatch interrupted after committed settlement without provider reads or another order', async () => {
     const e = engine(); await e.tick(); await leaderOpens(); await e.tick();

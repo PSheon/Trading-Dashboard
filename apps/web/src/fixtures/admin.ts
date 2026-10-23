@@ -47,7 +47,6 @@ export let adminSettings: AdminSettings = adminSettingsSchema.parse({
     },
   },
   discovery: {
-    homeMarkets: ["BTC", "ETH", "SOL", "HYPE", "xyz:TSLA", "xyz:NVDA", "xyz:GOLD", "DOGE"],
     lowSampleThreshold: LOW_SAMPLE_THRESHOLD,
   },
   notifications: {},
@@ -75,7 +74,6 @@ export function publicSettings(): PublicSettings {
     signupsOpen: general.signupsOpen,
     copyTradingEnabled: general.copyTradingEnabled,
     maintenance: general.maintenance,
-    homeMarkets: discovery.homeMarkets,
     hideVaults: discovery.hideVaults,
     lowSampleThreshold: discovery.lowSampleThreshold,
     defaultActiveWithin: discovery.defaultActiveWithin,

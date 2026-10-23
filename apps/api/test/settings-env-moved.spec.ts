@@ -111,6 +111,9 @@ describe("migration 0061: the moved and removed settings leave the stored JSON",
     const snapshot = await new SettingsService(new SettingsRepository(db), new UnitOfWork(db)).getAll();
     expect(snapshot.invalidSections).toEqual([]);
     expect(snapshot.discovery).toEqual(adminSettingsSchema.shape.discovery.parse({ hideVaults: false, lowSampleThreshold: 7, homeMarkets: ["ETH"] }));
+    // A row that still carries homeMarkets (removed 2026-10-23) reads: the unknown key is stripped, the rest kept.
+    expect(snapshot.discovery).not.toHaveProperty("homeMarkets");
+    expect(snapshot.discovery).toMatchObject({ hideVaults: false, lowSampleThreshold: 7 });
     // Idempotent: running it again changes nothing.
     await apply();
     expect(Object.fromEntries((await db.select().from(appSettings)).map((r) => [r.key, r.value]))).toEqual(rows);

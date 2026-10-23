@@ -28,20 +28,23 @@ export type Chrome = {
   fill?: boolean;
 };
 
-const UNDER_TAB_BAR = "pb-[calc(100px+env(safe-area-inset-bottom))]";
+/** Clear of a floating bottom bar (the tab bar, a trader's 跟單 bar): its
+ * offset, height and a gap, from the bar's own CSS (globals.css
+ * --phone-bar-clearance), so the last content never sits under it. */
+export const UNDER_PHONE_BAR = "pb-[calc(var(--phone-bar-clearance)+env(safe-area-inset-bottom))]";
 
 export const CHROME = {
   /** Home and the main browsing / personal pages. */
-  "(app)": { phoneHeader: "app", tabBar: true, footer: true, phonePad: `pt-[64px] ${UNDER_TAB_BAR}` },
+  "(app)": { phoneHeader: "app", tabBar: true, footer: true, phonePad: `pt-[64px] ${UNDER_PHONE_BAR}` },
   /** 投資組合: the app chrome, the page filling the window on desktop. */
-  "(app-fill)": { phoneHeader: "app", tabBar: true, footer: true, phonePad: `pt-[64px] ${UNDER_TAB_BAR}`, fill: true },
+  "(app-fill)": { phoneHeader: "app", tabBar: true, footer: true, phonePad: `pt-[64px] ${UNDER_PHONE_BAR}`, fill: true },
   /** A trader's page: the app header, its own back / name / actions bar
    * below it, and its sticky 跟單 button in place of the tab bar. */
-  "(detail)": { phoneHeader: "app", tabBar: false, footer: true, noFooterOnInsightsTab: true, phonePad: "pt-[72px] pb-[calc(96px+env(safe-area-inset-bottom))]", main: "md:pb-14" },
+  "(detail)": { phoneHeader: "app", tabBar: false, footer: true, noFooterOnInsightsTab: true, phonePad: `pt-[72px] ${UNDER_PHONE_BAR}`, main: "md:pb-14" },
   /** The 市場 pages: bare on a phone, only the page and its breadcrumb. */
   "(bare)": { phoneHeader: null, tabBar: false, footer: true, phonePad: "pt-4 pb-10" },
   /** The back office: its own header (AdminShell), the tab bar, no footer. */
-  "(admin)": { phoneHeader: null, tabBar: true, footer: false, phonePad: `pt-0 ${UNDER_TAB_BAR}` },
+  "(admin)": { phoneHeader: null, tabBar: true, footer: false, phonePad: `pt-0 ${UNDER_PHONE_BAR}` },
   /** About, help, the legal pages, a referral link: the ☰ menu, no tab bar. */
   "(site)": { phoneHeader: "menu", tabBar: false, footer: true, phonePad: "pt-[72px] pb-10" },
   /** The 404 for a URL no page serves. */

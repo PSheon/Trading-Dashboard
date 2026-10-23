@@ -28,8 +28,11 @@ import { OrbitSpinner } from "@/components/ui/orbit-spinner";
 import { useChangeLocale } from "@/lib/use-change-locale";
 
 /** Header right (Orbit): signed out → language, theme and 登入; signed in →
- * the account pill (avatar menu, total value, 儲值). Plus the demo badge in
- * fixture mode. */
+ * theme and the account pill (avatar menu, total value, 儲值). Plus the demo
+ * badge in fixture mode. The theme button stays in the header once signed
+ * in (2026-10-23: it was only drawn signed out, so a signed-in desktop had
+ * it nowhere but the account menu's sub-panel); the account menu keeps its
+ * three-way choice. */
 export function AccountControls() {
   const { t } = useI18n();
   const { status } = useAuth();
@@ -40,15 +43,9 @@ export function AccountControls() {
           {t("topbar.fixtureBadge")}
         </span>
       ) : null}
-      {status === "signedIn" ? (
-        <AccountPill />
-      ) : (
-        <>
-          <LocaleMenu />
-          <ThemeToggle className="hidden lg:flex" />
-          <AuthButton />
-        </>
-      )}
+      {status === "signedIn" ? null : <LocaleMenu />}
+      <ThemeToggle className="hidden lg:flex" />
+      {status === "signedIn" ? <AccountPill /> : <AuthButton />}
     </div>
   );
 }
@@ -147,7 +144,13 @@ function AccountMenu({ compact = false }: { compact?: boolean }) {
   const row = "flex min-h-12 w-full items-center gap-3 rounded-2xl px-3 text-sm font-bold outline-none transition-colors hover:bg-raised focus-visible:ring-2 focus-visible:ring-ring";
   const trigger = (
     <button type="button" aria-label={t("topbar.account")} aria-describedby={totalId} className={cn("orbit-press flex h-11 shrink-0 items-center rounded-full p-0.5 font-extrabold outline-none hover:bg-raised-hover focus-visible:ring-2 focus-visible:ring-ring", compact ? "gap-1 pr-1 [&>span:first-of-type]:size-8" : "gap-2 pr-3")}>
-      {trading.mode !== "paper" && trading.available ? <CopyEquityProbes /> : null}
+      {/* The copies' equity probes mount with the pill, not once the
+          deployment read has answered (2026-10-23): the total waited on a
+          chain of reads after sign-in — deployment, then the execution
+          wallets, then each copy's snapshot — and the phone pill sat as a
+          skeleton meanwhile. The probes' own reads are gated on the session
+          and the portfolio; an unavailable deployment still shows 「—」. */}
+      {trading.mode !== "paper" ? <CopyEquityProbes /> : null}
       <Initial label={label} />
       <span id={totalId} className="flex min-w-0 flex-col items-start gap-0.5 leading-none">
         <span className="sr-only">{t("portfolio.totalValue")}</span>

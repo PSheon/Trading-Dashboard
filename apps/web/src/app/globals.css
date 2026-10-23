@@ -1026,12 +1026,21 @@
 
 /* The phone navigation and trader action float over the same page inset. */
 @layer components {
+  /* The bar's size and offset are the one source of the page's bottom
+     clearance under it (--phone-bar-clearance, read by the route groups'
+     phone padding in components/shell/chrome.ts): the tab bar and a
+     trader's 跟單 bar never sit over the last content. */
+  :root {
+    --phone-bar-height: 68px;
+    --phone-bar-offset: 12px;
+    --phone-bar-clearance: calc(var(--phone-bar-offset) + var(--phone-bar-height) + 16px);
+  }
   .phone-floating-bar {
     position: fixed;
-    inset-inline: 12px;
-    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    inset-inline: var(--phone-bar-offset);
+    bottom: calc(var(--phone-bar-offset) + env(safe-area-inset-bottom, 0px));
     isolation: isolate;
-    height: 68px;
+    height: var(--phone-bar-height);
     border-radius: var(--radius-4xl);
     background: var(--raised);
     padding: 6px;

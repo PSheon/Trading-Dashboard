@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
-import { IsString, IsBoolean, IsInt, Min, Max, MaxLength, MinLength, IsIn, Matches, IsArray, ArrayMaxSize, IsObject, ValidateNested, IsNotEmptyObject, IsDefined, IsISO8601 } from "class-validator";
+import { IsString, IsBoolean, IsInt, Min, Max, MaxLength, IsIn, Matches, IsArray, ArrayMaxSize, IsObject, ValidateNested, IsNotEmptyObject, IsDefined, IsISO8601 } from "class-validator";
 import { Type } from "class-transformer";
 import { Optional, Nullable, ToLowerCase } from "../../common/decorators/input.decorator.js";
 import type * as c from "@trading-dashboard/shared/contracts";
@@ -56,8 +56,6 @@ class GeneralPatchDto {
   @Optional() @IsObject() @Type(() => MaintenanceDto) @ValidateNested() declare maintenance?: MaintenanceDto;
 }
 class DiscoveryPatchDto {
-  @ApiPropertyOptional({ type: "array", maxItems: 16, items: { type: "string", minLength: 1, maxLength: 24 } })
-  @Optional() @IsArray() @ArrayMaxSize(16) @IsString({ each: true }) @MinLength(1, { each: true }) @MaxLength(24, { each: true }) declare homeMarkets?: string[];
   @ApiPropertyOptional({ type: Boolean })
   @Optional() @IsBoolean() declare hideVaults?: boolean;
   @ApiPropertyOptional({ type: "integer", minimum: 0, maximum: 1000 })

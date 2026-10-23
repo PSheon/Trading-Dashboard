@@ -118,7 +118,6 @@ export class SettingsService implements ConsumerCapSource {
       signupsOpen: general.signupsOpen,
       copyTradingEnabled: general.copyTradingEnabled,
       maintenance: general.maintenance,
-      homeMarkets: discovery.homeMarkets,
       cryptoBoards: discovery.cryptoBoards,
       stockBoards: discovery.stockBoards,
       hideVaults: discovery.hideVaults,

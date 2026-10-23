@@ -55,13 +55,15 @@ describe("admin settings — real Postgres", () => {
   });
 
   it("GET /settings returns the public subset", async () => {
-    await patch({ discovery: { homeMarkets: ["ETH", "BTC"] } }, service_);
+    await patch({ discovery: { cryptoBoards: ["ETH", "BTC"] } }, service_);
     const pub = await new PublicSettingsController(settings).get();
     expect(publicSettingsSchema.strict().parse(pub)).toEqual(pub);
-    expect(pub.homeMarkets).toEqual(["ETH", "BTC"]);
-    // The two settings nobody read are gone (Paul, 2026-10-05).
+    expect(pub.cryptoBoards).toEqual(["ETH", "BTC"]);
+    // The settings nobody reads are gone (featuredAddresses, referralCode:
+    // Paul, 2026-10-05; homeMarkets: the home's market rows, 2026-10-23).
     expect(pub).not.toHaveProperty("featuredAddresses");
     expect(pub).not.toHaveProperty("referralCode");
+    expect(pub).not.toHaveProperty("homeMarkets");
   });
 
   it("serves a stored single-text announcement as before, and saves label, summary and href", async () => {

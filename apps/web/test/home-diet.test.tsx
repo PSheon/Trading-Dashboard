@@ -31,7 +31,8 @@ describe("home diet", () => {
     const home = await fixture();
     // The fixture's rows do overlap, as the api's do (the top KOL is also a top crypto trader).
     expect(home.featured.some((t) => home.crypto.some((c) => c.address === t.address))).toBe(true);
-    expect(home.markets.length).toBeGreaterThan(0);
+    // The api no longer sends per-market rows (the contract dropped `markets` the same day).
+    expect(home).not.toHaveProperty("markets");
     const html = render(home);
     expect(html.match(/aria-label="See all · /g)).toHaveLength(3);
     for (const title of [en.home.featured, en.home.topCrypto, en.home.topStock]) expect(html).toContain(`<h2 class="type-h2">${title}</h2>`);

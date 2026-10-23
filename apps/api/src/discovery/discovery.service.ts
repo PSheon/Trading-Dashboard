@@ -120,13 +120,13 @@ export class DiscoveryService {
   }
 
   /**
-   * Every home row, as CopyDog builds them: 精選, top crypto, top stocks, and one
-   * row per `discovery.homeMarkets` coin in fixed order (trending markets are
-   * tiles only); only traders whose sparkline moves. The calculator follows
-   * CopyDog's home hero filter (bundle 2026-10-04, `be()`).
+   * Every home row: 精選, top crypto and top stocks (the market tiles lead to
+   * each market's explore board; no per-market row is built since 2026-10-23),
+   * only traders whose sparkline moves. Four boards per read. The calculator
+   * follows CopyDog's home hero filter (bundle 2026-10-04, `be()`).
    */
   async home(): Promise<HomeBoardsResponse> {
-    const [{ candidates, scores, pool }, discovery] = await Promise.all([this.snapshot(), this.settings.get("discovery")]);
+    const { candidates, scores, pool } = await this.snapshot();
     const moves = (t: BoardTrader) => t.sparkline.length > 1 && Math.max(...t.sparkline) > Math.min(...t.sparkline);
     const row = (query: Partial<BoardQuery>, size = HOME_ROW_SIZE) =>
       buildBoard(candidates, { market: "crypto", board: "top100", sort: "copyScore", window: "all", ...query }, pool, undefined, scores).items.filter(moves).slice(0, size);
@@ -137,10 +137,6 @@ export class DiscoveryService {
     const profitable = (items: BoardTrader[]) => items.filter((t) => (t.pnl ?? 0) > 0);
     const stocks = profitable(row({ market: "stocks", sort: "pnl" }));
     const trending = await this.markets.trending();
-    const markets = [...new Set(discovery.homeMarkets)].map((coin) => {
-      const market = isStockCoin(coin) ? ("stocks" as const) : ("crypto" as const);
-      return { coin, market, items: profitable(row({ market, board: coin, sort: "pnl" })) };
-    });
     const seen = new Set(featured.map((t) => t.address));
     const named = row({ sort: "roi" }, 100).filter((t) => t.displayName && !seen.has(t.address));
     const winRate = new Map(candidates.map((c) => {
@@ -155,8 +151,8 @@ export class DiscoveryService {
     const calculator = (large.length > 0 ? large : eligible).sort((a, b) => (b.roi ?? 0) - (a.roi ?? 0)).slice(0, 6);
     const dates = candidates.map((c) => c.row.portfolioAt).filter((d): d is Date => d !== null);
     const updatedAt = dates.length > 0 ? new Date(Math.max(...dates.map((d) => d.getTime()))) : null;
-    return { featured, crypto, stocks, markets, calculator, trending: trendingTiles(trending), updatedAt, pool, rankingScope: "candidate_pool",
-      freshness: boardFreshness([...featured, ...crypto, ...stocks, ...markets.flatMap(m => m.items), ...calculator]) };
+    return { featured, crypto, stocks, calculator, trending: trendingTiles(trending), updatedAt, pool, rankingScope: "candidate_pool",
+      freshness: boardFreshness([...featured, ...crypto, ...stocks, ...calculator]) };
   }
 
   /** The traders the site shows (every board's top 100 in every sort and
@@ -173,7 +169,7 @@ export class DiscoveryService {
     for (const coin of discovery.cryptoBoards) for (const sort of sorts) add({ market: "crypto", board: coin, sort, window: "all" });
     for (const coin of discovery.stockBoards) for (const sort of sorts) add({ market: "stocks", board: coin, sort, window: "all" });
     const home = await this.home();
-    for (const t of [...home.featured, ...home.crypto, ...home.stocks, ...home.calculator, ...home.markets.flatMap((m) => m.items)]) shown.add(t.address);
+    for (const t of [...home.featured, ...home.crypto, ...home.stocks, ...home.calculator]) shown.add(t.address);
     return shown;
   }
 

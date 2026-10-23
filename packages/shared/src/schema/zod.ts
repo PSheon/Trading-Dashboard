@@ -1983,8 +1983,6 @@ export const homeBoardsResponseSchema = z.object({
   featured: z.array(boardTraderSchema),
   crypto: z.array(boardTraderSchema),
   stocks: z.array(boardTraderSchema),
-  /** Per coin, in the admin's board order (crypto, then stocks). */
-  markets: z.array(z.object({ coin: z.string(), market: boardMarketSchema, items: z.array(boardTraderSchema) })),
   /** The calculator card's six traders (all-time ROI). */
   calculator: z.array(boardTraderSchema),
   /** 依市場瀏覽's trending tiles (CopyDog's `leaderboard/trending-coins`): the

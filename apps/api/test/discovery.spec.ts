@@ -10,6 +10,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { AuthService } from "../src/common/auth/auth.service.js";
 import { UnitOfWork } from "../src/db/unit-of-work.js";
 import { buildBoard, toCandidate, boardKind, effectiveSort, effectiveWindow } from "../src/discovery/boards.js";
+
+// `buildBoard` keeps its implementation; the spy counts the boards a read builds.
+vi.mock("../src/discovery/boards.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/discovery/boards.js")>();
+  return { ...actual, buildBoard: vi.fn(actual.buildBoard) };
+});
 import { isStockCoin, portfolioNumbers } from "../src/discovery/discovery-figures.js";
 import { AdminKolController, CopyScoreController, DiscoveryController } from "../src/discovery/discovery.controller.js";
 import { DiscoveryPoolService, LEDGER_RANK } from "../src/discovery/discovery-pool.service.js";
@@ -370,15 +376,15 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
       expect(wireHomeBoardsSchema.parse(JSON.parse(JSON.stringify(home))).trending).toEqual(home.trending);
     });
 
-    it("lists CopyDog's fixed market rows in their order: the 24h-volume leaders never replace them", async () => {
+    it("builds no per-market board for a home read: the market tiles lead to explore, the busiest markets are tiles only", async () => {
       await seedPool();
       await db.update(discoveryTraders).set({ coinStats: { ETH: { pnl: 200, volume: 1000, trades: 2, wins: 2 } } }).where(eq(discoveryTraders.address, addr(1)));
       catalog.trending.mockResolvedValueOnce(["NO-DATA", "ETH", "xyz:TSLA", "BTC"]);
+      vi.mocked(buildBoard).mockClear();
       const home = await app.get(DiscoveryService).home();
-      // CopyDog's rows, not the busiest markets.
-      expect(home.markets.map(row => row.coin)).toEqual(["BTC", "ETH", "SOL", "HYPE", "xyz:SP500", "xyz:GOLD", "xyz:NVDA", "xyz:TSLA"]);
-      expect(home.markets.map(row => row.market)).toEqual(["crypto", "crypto", "crypto", "crypto", "stocks", "stocks", "stocks", "stocks"]);
-      // The busiest markets beyond the fixed tiles are tiles only.
+      // Four boards (精選, top crypto, top stocks, the calculator's ROI pool); none per coin.
+      expect(vi.mocked(buildBoard).mock.calls.map(([, query]) => query.board)).toEqual(["kol", "top100", "top100", "top100"]);
+      expect(home).not.toHaveProperty("markets");
       expect(home.trending?.coins).toEqual(["NO-DATA"]);
     });
 
@@ -453,11 +459,9 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
       expect(home.featured.map((t) => t.address)).toEqual([addr(2)]);
       expect(home.crypto.map((t) => t.address)).toEqual([addr(1), addr(2)]);
       expect(home.stocks.map((t) => t.address)).toEqual([addr(2)]);
-      // One row per default home market, in order, each by that coin's PnL,
-      // listing only traders who made money there (GOLD's −10 is left out).
-      expect(home.markets.map((m) => m.coin)).toEqual(["BTC", "ETH", "SOL", "HYPE", "xyz:SP500", "xyz:GOLD", "xyz:NVDA", "xyz:TSLA"]);
-      expect(home.markets.filter((m) => m.items.length > 0).map((m) => [m.coin, m.market, m.items.map((t) => t.pnl)]))
-        .toEqual([["BTC", "crypto", [300, 70]], ["xyz:TSLA", "stocks", [40]]]);
+      // The per-market rows are gone (2026-10-23): the payload carries none, raw or parsed.
+      expect(res.body.data).not.toHaveProperty("markets");
+      expect(home).not.toHaveProperty("markets");
       // Calculator: named traders (KOLs first) with ROI > 5%; addr(1) has no name.
       expect(home.calculator.map((t) => t.address)).toEqual([addr(2)]);
     });

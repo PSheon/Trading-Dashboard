@@ -165,6 +165,20 @@ The web typecheck includes `.next-e2e/dev/types`. After a page is removed, a
 `.next-e2e` left by an earlier browser run still points at it and typecheck
 fails locally (never in CI, which starts clean): delete `apps/web/.next-e2e`.
 
+## Unused message keys
+
+`node scripts/i18n-unused.mjs` (checks, after the script tests) lists every
+key of `apps/web/src/i18n/messages/en.ts` that nothing under `apps/web/src`
+reads and fails on the first one; `test/locales.test.ts` then keeps the other
+ten catalogs on the same keys. A key is read when a source file holds it as a
+string literal, holds a parent of it (`"trader.cols"`, `"nav." + page`), has a
+template literal it fits (`` `copyUpdates.${kind}.${value}` `` is any
+`copyUpdates.<x>.<y>`, not `copyUpdates.activityEmpty`), or walks to it from
+an object (`m.notFound.title`, `catalogs.en.meta`). That errs towards "used";
+the 2026-10-23 cleanup removed 31 keys (`common.*` leftovers, `topbar.signedInAs`,
+three toasts, and the paper-activity words under `copyUpdates`) on top of the
+earlier `copyAgents` block. `scripts/i18n-unused.test.mjs` covers the rules.
+
 ## Acceptance verdict scripts (read-only)
 
 `scripts/ops/copy-acceptance.mjs --strategy <id>` prints the D16 verdict for

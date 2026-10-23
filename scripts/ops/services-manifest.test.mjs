@@ -118,6 +118,14 @@ test("manifest: the startup refusals runtime-config.ts enforces are forbidden wh
   assert.equal(forbidden("HYPERLIQUID_READ_METER", "worker-read"), "optional");
   assert.equal(forbidden("HYPERLIQUID_BACKGROUND_REST_CAP", "worker-read").forbidden, "refused");
   assert.equal(forbidden("WORKER_ROLE", "api").forbidden, "refused");
+  // The Privy variables are read only by the processes that sign or verify with them (runtime-config.ts `signs`).
+  for (const name of ["PRIVY_APP_ID", "PRIVY_APP_SECRET", "PRIVY_AGENT_AUTHORIZATION_KEY", "PRIVY_AGENT_WORKER_QUORUM_ID"]) {
+    assert.equal(forbidden(name, "worker-read").forbidden, "secret", `${name} on worker-read`);
+    assert.equal(forbidden(name, "api"), "required", `${name} on api`);
+    assert.equal(forbidden(name, "worker-copy"), "required", `${name} on worker-copy`);
+    assert.deepEqual(manifest.variables[name].sameAs, ["api", "worker-copy"], `${name}.sameAs`);
+  }
+  assert.equal(forbidden("PRIVY_VERIFICATION_KEY", "worker-read").forbidden, "unused");
   for (const service of ["api", "worker-copy", "worker-read"]) {
     assert.equal(forbidden("COPY_LIVE_TESTNET_EVIDENCE_MAX_AGE_MS", service).forbidden, "refused");
     assert.equal(forbidden("APP_ROLE", service).forbidden, "retired");

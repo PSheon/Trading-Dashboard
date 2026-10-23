@@ -90,32 +90,35 @@
     },
     "PRIVY_APP_ID": {
       "purpose": "the environment's Privy app (sign-in, wallets, agent signing); set together with PRIVY_APP_SECRET",
-      "services": { "api": "required", "worker-copy": "required", "worker-read": "optional" },
-      "sameAs": ["api", "worker-copy", "worker-read"],
-      "rule": "required by code on every process whose COPY_TRADING_MODE is testnet or live (agent signing requires Privy credentials); the web's NEXT_PUBLIC_PRIVY_APP_ID is the same app id"
+      "services": { "api": "required", "worker-copy": "required" },
+      "forbidden": { "worker-read": "secret: set together with PRIVY_APP_SECRET, which worker-read never uses (it neither signs nor verifies Privy tokens); a set value is ignored with a startup warning" },
+      "sameAs": ["api", "worker-copy"],
+      "rule": "required by code on a signing process (the api, worker-copy) whose COPY_TRADING_MODE is testnet or live (agent signing requires Privy credentials); the web's NEXT_PUBLIC_PRIVY_APP_ID is the same app id"
     },
     "PRIVY_APP_SECRET": {
       "purpose": "the Privy app secret; set together with PRIVY_APP_ID",
-      "services": { "api": "required", "worker-copy": "required", "worker-read": "optional" },
-      "forbidden": { "web": "secret: the web uses the public app id only" },
-      "sameAs": ["api", "worker-copy", "worker-read"],
-      "rule": "as PRIVY_APP_ID: required wherever COPY_TRADING_MODE is testnet or live"
+      "services": { "api": "required", "worker-copy": "required" },
+      "forbidden": { "web": "secret: the web uses the public app id only", "worker-read": "secret: worker-read never signs or verifies Privy tokens; a set value is ignored with a startup warning" },
+      "sameAs": ["api", "worker-copy"],
+      "rule": "as PRIVY_APP_ID: required on the api and worker-copy wherever COPY_TRADING_MODE is testnet or live"
     },
     "PRIVY_VERIFICATION_KEY": {
       "purpose": "ES256 public key that verifies users' Privy tokens on the api; requires PRIVY_APP_ID",
-      "services": { "api": "optional" }
+      "services": { "api": "optional" },
+      "forbidden": { "worker-read": "unused: worker-read verifies no Privy token; a set value is ignored with a startup warning" }
     },
     "PRIVY_AGENT_AUTHORIZATION_KEY": {
       "purpose": "base64 P256 PKCS8 private key that signs copy execution through Privy; set together with PRIVY_AGENT_WORKER_QUORUM_ID",
-      "services": { "api": "required", "worker-copy": "required", "worker-read": "optional" },
-      "forbidden": { "web": "secret: signing never happens in the web" },
-      "sameAs": ["api", "worker-copy", "worker-read"],
-      "rule": "a process with COPY_TRADING_MODE=testnet|live refuses to start without it (the api signs setups under API_SETUP_DRIVE=local); worker-read never signs, so it needs the key only if it also carries COPY_TRADING_MODE=live"
+      "services": { "api": "required", "worker-copy": "required" },
+      "forbidden": { "web": "secret: signing never happens in the web", "worker-read": "secret: worker-read never signs (runtime/worker-role.ts); a set value is ignored with a startup warning" },
+      "sameAs": ["api", "worker-copy"],
+      "rule": "a signing process (the api, worker-copy) with COPY_TRADING_MODE=testnet|live refuses to start without it (the api signs setups under API_SETUP_DRIVE=local); worker-read starts without it in every mode"
     },
     "PRIVY_AGENT_WORKER_QUORUM_ID": {
       "purpose": "the Privy key quorum of PRIVY_AGENT_AUTHORIZATION_KEY",
-      "services": { "api": "required", "worker-copy": "required", "worker-read": "optional" },
-      "sameAs": ["api", "worker-copy", "worker-read"],
+      "services": { "api": "required", "worker-copy": "required" },
+      "forbidden": { "worker-read": "secret: set together with PRIVY_AGENT_AUTHORIZATION_KEY, which worker-read never uses; a set value is ignored with a startup warning" },
+      "sameAs": ["api", "worker-copy"],
       "rule": "as PRIVY_AGENT_AUTHORIZATION_KEY"
     },
     "ACCOUNT_DELETION_MARKER_KEY": {
@@ -303,7 +306,7 @@
       "purpose": "paper (default) | disabled | testnet | live: the deployment's copy capability; testnet/live also execute real orders on HYPERLIQUID_NETWORK",
       "services": { "api": "required", "worker-copy": "required", "worker-read": "optional" },
       "sameAs": ["api", "worker-copy"],
-      "rule": "live requires HYPERLIQUID_NETWORK=mainnet, PRIVY_AGENT_AUTHORIZATION_KEY + PRIVY_AGENT_WORKER_QUORUM_ID, HYPERLIQUID_EGRESS_KEY and COPY_LIVE_ALLOWED_PRIVY_USER_IDS on that process; the api and worker-copy must agree. worker-read runs paper copy only, but if it carries `live` the same requirements apply to it"
+      "rule": "live requires HYPERLIQUID_NETWORK=mainnet, HYPERLIQUID_EGRESS_KEY and COPY_LIVE_ALLOWED_PRIVY_USER_IDS on that process, plus PRIVY_AGENT_AUTHORIZATION_KEY + PRIVY_AGENT_WORKER_QUORUM_ID on the api and worker-copy (the processes that sign); the api and worker-copy must agree. worker-read runs paper copy only: with `live` it needs the same non-Privy variables and none of the Privy ones"
     },
     "COPY_LIVE_ALLOWED_PRIVY_USER_IDS": {
       "purpose": "comma-separated did:privy: ids who may copy with real funds; required with COPY_TRADING_MODE=live",

@@ -3,7 +3,7 @@ import { createPrivateKey, createPublicKey } from "node:crypto";
 import { WALLET_NETWORKS } from "@trading-dashboard/shared/contracts";
 
 import { booleanValue, databaseUrl, integerValue, servicePermissions } from "./parse-env.js";
-import { workerRoleValue } from "../runtime/worker-role.js";
+import { runsCopy, workerRoleValue } from "../runtime/worker-role.js";
 import { liveSetupTimings, liveStopTimings, type LiveSetupTimings, type LiveStopTimings } from "./live-timings.js";
 import { HYPERLIQUID_BACKGROUND_REST_CAP, MAINNET_WORKER_WEIGHT, READ_WORKER_BACKGROUND_REST_CAP } from './constants/hyperliquid.js';
 import { isReadMeterKey, readMeterKey, type HyperliquidMeter } from '../hyperliquid/hyperliquid-meter-key.js';
@@ -53,6 +53,8 @@ function walletNetwork(source: Environment) {
   };
 }
 
+/** The variables only a signing or verifying process reads (PRIVY_VERIFICATION_KEY needs PRIVY_APP_ID). */
+const PRIVY_VARIABLES = ["PRIVY_APP_ID", "PRIVY_APP_SECRET", "PRIVY_VERIFICATION_KEY", "PRIVY_AGENT_AUTHORIZATION_KEY", "PRIVY_AGENT_WORKER_QUORUM_ID"] as const;
 interface AgentSigningConfig { authorizationPrivateKey: string; authorizationPublicKey: string; workerQuorumId: string }
 function agentSigning(source: Environment): AgentSigningConfig | undefined {
   const authorizationPrivateKey = optional(source.PRIVY_AGENT_AUTHORIZATION_KEY);
@@ -205,17 +207,19 @@ function testnetEvidenceMaxAgeMs(source: Environment, wallet: "mainnet" | "testn
   if (wallet !== "testnet") throw new Error(`${key} is testnet only: the execution network (HYPERLIQUID_NETWORK) is ${wallet}, whose evidence window is always ${LIVE_EVIDENCE_MAX_AGE_MS} ms`);
   return integerValue(key, raw, LIVE_EVIDENCE_MAX_AGE_MS, LIVE_EVIDENCE_MAX_AGE_MS, LIVE_TESTNET_EVIDENCE_MAX_AGE_CAP_MS);
 }
-function copyTrading(source: Environment, wallet: "mainnet" | "testnet", egressKey: string | undefined):
+/** `signs`: this process signs (the api, a worker that runs copy work); the
+ * `read` worker does not, so it neither needs nor parses the agent key. */
+function copyTrading(source: Environment, wallet: "mainnet" | "testnet", egressKey: string | undefined, signs: boolean):
   { mode: CopyTradingMode; workerIntervalMs: number; agent?: AgentSigningConfig; live?: LiveCopyConfig; testnetEvidenceMaxAgeMs?: number } {
   const testnetEvidence = testnetEvidenceMaxAgeMs(source, wallet);
   const mode = (source.COPY_TRADING_MODE ?? "paper").trim().toLowerCase();
   if (mode !== "paper" && mode !== "disabled" && mode !== "testnet" && mode !== "live") throw new Error("COPY_TRADING_MODE must be paper, testnet, live or disabled");
-  const agent = agentSigning(source);
+  const agent = signs ? agentSigning(source) : undefined;
   let live: LiveCopyConfig | undefined;
   if (mode === "testnet" || mode === "live") {
     const name = `COPY_TRADING_MODE=${mode}`, network = mode === "live" ? "mainnet" : "testnet";
     if (wallet !== network) throw new Error(`${name} requires HYPERLIQUID_NETWORK=${network}`);
-    if (!agent) throw new Error(`${name} requires PRIVY_AGENT_AUTHORIZATION_KEY and PRIVY_AGENT_WORKER_QUORUM_ID`);
+    if (signs && !agent) throw new Error(`${name} requires PRIVY_AGENT_AUTHORIZATION_KEY and PRIVY_AGENT_WORKER_QUORUM_ID`);
     if (!egressKey) throw new Error(`${name} requires HYPERLIQUID_EGRESS_KEY (shared by the api and the worker)`);
     const allowedPrivyUserIds = privyUserIds(source.COPY_LIVE_ALLOWED_PRIVY_USER_IDS);
     if (mode === "live" && !allowedPrivyUserIds) throw new Error("COPY_TRADING_MODE=live requires COPY_LIVE_ALLOWED_PRIVY_USER_IDS (the Privy users who may copy with real funds)");
@@ -397,6 +401,16 @@ export function validateEnvironment(source: Environment = process.env) {
   // role on the api would mean nothing, so a set one is refused there.
   const workerRole = workerRoleValue(source.WORKER_ROLE);
   if (!isWorker && optional(source.WORKER_ROLE) !== undefined) throw new Error("WORKER_ROLE applies to the worker only (IS_WORKER=true)");
+  // The Privy variables belong to the processes that sign or verify with
+  // them: the api (sign-in, user flows, setups under API_SETUP_DRIVE=local)
+  // and a worker that runs copy work (`copy`, `all`). The `read` worker never
+  // does (runtime/worker-role.ts), so it starts without them and, given
+  // them, ignores them with one warning (`warnings`, logged at startup)
+  // rather than carrying live credentials it has no use for.
+  const signs = !isWorker || runsCopy(workerRole);
+  const warnings: string[] = [];
+  const ignoredPrivy = signs ? [] : PRIVY_VARIABLES.filter((name) => optional(source[name]) !== undefined);
+  if (ignoredPrivy.length) warnings.push(`WORKER_ROLE=read never signs or verifies with Privy: ${ignoredPrivy.join(", ")} set but ignored; remove them from this service`);
   // API_SETUP_DRIVE: `local` (default, today) drives a setup inside the
   // api's confirm/advance; `worker` only marks it due and wakes the copy
   // worker (NOTIFY copy_setup_due, copy/copy-setup-due.ts).
@@ -422,8 +436,8 @@ export function validateEnvironment(source: Environment = process.env) {
   productionSecret("AUTH_SERVICE_TOKEN", serviceToken, production);
   const adminEmails = (source.AUTH_ADMIN_EMAILS ?? "").split(",").map((v) => v.trim().toLowerCase()).filter(Boolean);
   if (adminEmails.some((v) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v))) throw new Error("AUTH_ADMIN_EMAILS must contain email addresses");
-  const appId = optional(source.PRIVY_APP_ID);
-  const appSecret = optional(source.PRIVY_APP_SECRET);
+  const appId = signs ? optional(source.PRIVY_APP_ID) : undefined;
+  const appSecret = signs ? optional(source.PRIVY_APP_SECRET) : undefined;
   if (Boolean(appId) !== Boolean(appSecret)) throw new Error("PRIVY_APP_ID and PRIVY_APP_SECRET must be set together");
   // The deletion markers' own key (deletion-markers.ts); unset keeps the key
   // derived from PRIVY_APP_SECRET. A rotated key stays in PREVIOUS_KEYS for
@@ -433,7 +447,7 @@ export function validateEnvironment(source: Environment = process.env) {
   if (previousMarkerKeys.length && !markerKey) throw new Error("ACCOUNT_DELETION_MARKER_PREVIOUS_KEYS requires ACCOUNT_DELETION_MARKER_KEY");
   productionSecret("ACCOUNT_DELETION_MARKER_KEY", markerKey, production);
   const deletionMarker = { key: markerKey, previousKeys: previousMarkerKeys };
-  const verificationKey = optional(source.PRIVY_VERIFICATION_KEY)?.replace(/\\n/g, "\n");
+  const verificationKey = signs ? optional(source.PRIVY_VERIFICATION_KEY)?.replace(/\\n/g, "\n") : undefined;
   if (verificationKey) {
     if (!appId) throw new Error("PRIVY_VERIFICATION_KEY requires configured Privy credentials");
     try {
@@ -549,8 +563,8 @@ export function validateEnvironment(source: Environment = process.env) {
     expensivePerMinute: integerValue("API_EXPENSIVE_PER_MINUTE", source.API_EXPENSIVE_PER_MINUTE, 10, 1, 1000000),
     favoritesPerUser: integerValue("MAX_FAVORITES_PER_USER", source.MAX_FAVORITES_PER_USER, 100, 1, 10000),
   };
-  return { app, database, limits, http, auth: { serviceToken, permissions, adminEmails, appId, appSecret, verificationKey, deletionMarker }, telegram, hyperliquid, alert, stream, copy: copyTrading(source, hyperliquid.wallet.network, egressKey), archive: archive(source), tuning: tuningConfig(source),
-    egressIdentity: egressIdentityConfig(source, isWorker) };
+  return { app, database, limits, http, auth: { serviceToken, permissions, adminEmails, appId, appSecret, verificationKey, deletionMarker }, telegram, hyperliquid, alert, stream, copy: copyTrading(source, hyperliquid.wallet.network, egressKey, signs), archive: archive(source), tuning: tuningConfig(source),
+    egressIdentity: egressIdentityConfig(source, isWorker), warnings };
 }
 
 /** The default IP echoes, in order: three independent IPv4-only https hosts

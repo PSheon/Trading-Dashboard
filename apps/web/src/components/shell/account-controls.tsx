@@ -28,8 +28,11 @@ import { OrbitSpinner } from "@/components/ui/orbit-spinner";
 import { useChangeLocale } from "@/lib/use-change-locale";
 
 /** Header right (Orbit): signed out → language, theme and 登入; signed in →
- * the account pill (avatar menu, total value, 儲值). Plus the demo badge in
- * fixture mode. */
+ * theme and the account pill (avatar menu, total value, 儲值). Plus the demo
+ * badge in fixture mode. The theme button stays in the header once signed
+ * in (2026-10-23: it was only drawn signed out, so a signed-in desktop had
+ * it nowhere but the account menu's sub-panel); the account menu keeps its
+ * three-way choice. */
 export function AccountControls() {
   const { t } = useI18n();
   const { status } = useAuth();
@@ -40,15 +43,9 @@ export function AccountControls() {
           {t("topbar.fixtureBadge")}
         </span>
       ) : null}
-      {status === "signedIn" ? (
-        <AccountPill />
-      ) : (
-        <>
-          <LocaleMenu />
-          <ThemeToggle className="hidden lg:flex" />
-          <AuthButton />
-        </>
-      )}
+      {status === "signedIn" ? null : <LocaleMenu />}
+      <ThemeToggle className="hidden lg:flex" />
+      {status === "signedIn" ? <AccountPill /> : <AuthButton />}
     </div>
   );
 }

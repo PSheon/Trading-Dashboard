@@ -541,6 +541,10 @@ export const traderSuggestedBudgets = pgTable(
      * retention cut when that is later. */
     windowFrom: timestamp("window_from", { withTimezone: true }).notNull(),
     computedAt: timestamp("computed_at", { withTimezone: true }).notNull(),
+    /** True when the leader had more fills in the window than the heavy-account
+     * cap (a market maker): the median is of the newest `cap` fills only, and
+     * `adds` counts the adds among those. */
+    sampled: boolean("sampled").notNull().default(false),
   },
   (table) => [primaryKey({ columns: [table.chain, table.address] })],
 );

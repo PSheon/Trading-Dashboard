@@ -23,7 +23,9 @@ export class TradersWorker implements OnApplicationBootstrap {
     try {
       const result = await this.suggested.refresh();
       if (result.skipped) { this.logger.warn('Suggested budgets: the previous refresh is still running; this tick skipped'); return; }
-      this.logger.log(`Suggested budgets: ${result.leaders} leaders in ${result.batches} batches, ${result.suggested} with a suggestion, ${result.ms} ms`);
+      this.logger.log(`Suggested budgets: ${result.leaders} leaders, ${result.suggested} with a suggestion, ${result.sampled} sampled, ${result.remaining} left to the next tick, ${result.ms} ms`);
+      // One line a run for the leaders whose own statement failed (a timeout on a heavy leader); the others were written.
+      if (result.failed.length) this.logger.warn(`Suggested budgets: ${result.failed.length} leaders skipped — ${result.failed.map(f => `${f.address}: ${f.error}`).join("; ")}`);
     } catch (error) { this.logger.warn(`Suggested budgets failed: ${safeErrorText(error)}`); }
   }
   @Cron(CronExpression.EVERY_MINUTE) historyTick() {

@@ -53,7 +53,7 @@ it('a stopping worker claims nothing', async () => {
   expect(repository.claim).not.toHaveBeenCalled();
 });
 it('starts the leaderboard import and one suggested-budget refresh at boot, and warms no process-local cache', async () => {
-  const ingest = { start: vi.fn() }, suggested = { refresh: vi.fn(async () => ({ skipped: false as const, leaders: 3, suggested: 1, batches: 1, ms: 5 })) };
+  const ingest = { start: vi.fn() }, suggested = { refresh: vi.fn(async () => ({ skipped: false as const, leaders: 3, suggested: 1, sampled: 0, failed: [], remaining: 0, ms: 5 })) };
   const worker = new TradersWorker(ingest as never, {} as never, {} as never, suggested as never);
   worker.onApplicationBootstrap();
   await Promise.resolve();

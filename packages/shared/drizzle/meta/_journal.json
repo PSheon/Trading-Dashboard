@@ -645,6 +645,13 @@
       "when": 1792724357683,
       "tag": "0091_suggested_min_budget",
       "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1792860579374,
+      "tag": "0092_suggested_budget_sampled",
+      "breakpoints": true
     }
   ]
 }

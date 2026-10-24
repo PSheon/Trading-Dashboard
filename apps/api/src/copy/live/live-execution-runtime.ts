@@ -51,7 +51,7 @@ import { captureLiveOrderIdentity, parseLiveIocAcknowledgement } from './live-or
 import { PostgresLiveSettlement } from './postgres-live-settlement.js';
 import { LiveLeverageUpdated, LiveLeverageUpdater, LiveLeverageUpdateRequired } from './live-leverage-update.js';
 import { beginLiveExecutionTiming, LiveSpanRecorder, timedLiveSpan, type LiveExecutionTiming, type LiveExecutionTimingHook, type LiveExecutionDiagnosticHook } from './live-execution-diagnostics.js';
-import { LIVE_RESERVE_WAIT_MS, REST_CHARGE_LIFETIME_MS } from '../../config/constants/hyperliquid.js';
+import { LIVE_READ_WAIT_MS, LIVE_RESERVE_WAIT_MS, REST_CHARGE_LIFETIME_MS } from '../../config/constants/hyperliquid.js';
 import { MAX_LIVE_LEG_ATTEMPTS } from '../../config/constants/limits.js';
 import { LIVE_ORDER_BOUNDARY_WEIGHT } from '../../config/constants/weights.js';
 import { liveEvidenceMaxAgeMs } from '../../config/live-evidence-window.js';
@@ -268,8 +268,8 @@ export class LiveExecutionRuntime {
       // TimeoutError (Stage 2026-10-06), and a weight the bucket can never
       // hold fails at once (live_budget_over_capacity). Initial evidence was
       // prepaid before the SQL locks, bounded by the signal deadline. Extra
-      // reads inside this original scope still wait at most five seconds.
-      const reserve = liveBudget(this.budget, { maxWaitMs: 5000 });
+      // reads inside this original scope still wait at most LIVE_READ_WAIT_MS.
+      const reserve = liveBudget(this.budget, { maxWaitMs: LIVE_READ_WAIT_MS });
       // Weight from the named pools in order, the rest from the bucket; a
       // refused reservation puts back what the pools gave.
       const paidFrom = (order: readonly (keyof typeof pools)[]) => async (weight: number) => {

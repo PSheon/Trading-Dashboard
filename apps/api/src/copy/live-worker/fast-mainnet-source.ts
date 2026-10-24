@@ -3,7 +3,7 @@ import { isOutOfScopeSpotFill } from '../../watcher/action-classifier.js';
 import type { LiveSourceReadResult } from '../copy-live-source.client.js';
 import { liveSourceDigest, parseLiveSourceFill, presumedTwapSlice, SOURCE_PAGE_ROWS, SOURCE_SATURATION_ROWS, type LiveSourceFillEvidence } from '../live/copy-live-source-evidence.js';
 import { address, LiveBoundaryError } from '../live/wallet-authorization.js';
-import { FOLLOW_UP_MAX_MS, FOLLOW_UP_MIN_MS, GAP_FOLLOW_UP_EXPIRY_MS, WITNESS_EXPIRY_MS } from '../../config/constants/timings.js';
+import { FOLLOW_UP_MAX_MS, FOLLOW_UP_MIN_MS, GAP_FOLLOW_UP_EXPIRY_MS, WITNESS_EXPIRY_MS, WITNESS_MARGIN_MS } from '../../config/constants/timings.js';
 import { liveEvidenceMaxAgeMs } from '../../config/live-evidence-window.js';
 
 /** Fast-source provider reads (the shared meter's `source` lane of the
@@ -87,7 +87,7 @@ export class FastMainnetSource {
     if (!Number.isSafeInteger(time) || time <= 0) return null;
     const leaderAddress = address(leader), witnessed = this.state(leaderAddress).witnessed, id = String(tid);
     if (!witnessed.has(id)) witnessed.set(id, time);
-    return Math.max(time + this.graceMs + 100, this.nextReadAt(leaderAddress));
+    return Math.max(time + this.graceMs + WITNESS_MARGIN_MS, this.nextReadAt(leaderAddress));
   }
 
   /** The earliest a read of this leader may start: G after its last one
@@ -131,7 +131,7 @@ export class FastMainnetSource {
     const recover = state.gaps > 0 && state.gapSince !== null && this.now() - state.gapSince <= GAP_FOLLOW_UP_EXPIRY_MS ? Math.max(state.lastReadAt, state.gapAt) + backoff(state.gaps - 1) : null;
     const witnessed = [...state.witnessed.values()], earliest = Math.min(...witnessed, state.beyond ?? Infinity);
     if (!Number.isFinite(earliest)) return recover;
-    const pending = Math.max(earliest + this.graceMs + 100, state.lastReadAt + backoff(state.misses));
+    const pending = Math.max(earliest + this.graceMs + WITNESS_MARGIN_MS, state.lastReadAt + backoff(state.misses));
     return recover === null ? pending : Math.min(recover, pending);
   }
 

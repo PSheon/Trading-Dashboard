@@ -10,6 +10,7 @@ import { networkUnreachable } from './live/error-class.js';
 import { explorerHealth } from './explorer-health.js';
 import type { FundingRow } from "./copy-funding.repository.js";
 import { BUILDER_FEE_READ_WEIGHT } from '../config/constants/weights.js';
+import { FUNDING_RESERVE_WAIT_MS } from '../config/constants/hyperliquid.js';
 
 /** The owner the funding work's charges carry on the shared meter (`live:funding:`): deposits, returns,
  * refunds and the evidence reads behind them, unless the work has an owner of its own (a stop's). */
@@ -35,7 +36,7 @@ export function consumeFundingNotDispatched(error: unknown, attempt: FundingRow)
 @Injectable()
 export class CopyFundingExchangeClient {
   constructor(private readonly budget: RequestBudgeterService,@Optional() private readonly global?:HyperliquidGlobalTransport) {if(global!==undefined&&!(global instanceof HyperliquidGlobalTransport))throw new LiveBoundaryError("funding_client_invalid");}
-  acquire() { return reserveLive(this.budget, 1, { maxWaitMs: 10_000 }); }
+  acquire() { return reserveLive(this.budget, 1, { maxWaitMs: FUNDING_RESERVE_WAIT_MS }); }
   private async read(url: string, body: Record<string, unknown>, weight: number, receipt = false, prepaid?: LiveBudgetReservation | void, priority: RequestPriority = "live"): Promise<unknown> {
     // A receipt lookup has no proof clock: it may queue up to one refill (≤120 s) instead of
     // abandoning on a 10 s estimate; HTTP stays 10 s after admission; balances/sends keep 10 s.

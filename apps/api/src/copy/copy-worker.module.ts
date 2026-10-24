@@ -21,6 +21,7 @@ import { WatcherRuntimeModule } from "../watcher/watcher-runtime.module.js";
 import { CopyReadModule } from "./copy-read.module.js";
 import { CopySetupDueListener } from "./live-worker/copy-setup-due.listener.js";
 import { liveEvidenceMaxAgeMs } from '../config/live-evidence-window.js';
+import { BUDGET_WAIT_BOUND_SLACK_MS } from '../config/constants/hyperliquid.js';
 
 export function followerSnapshotReader({ budget, transport, network }: Pick<WalletNetworkHyperliquid, 'budget' | 'transport' | 'network'>) {
   // Reporting waits before its evidence clock, under background fairness.
@@ -67,7 +68,7 @@ export function followerSnapshotReader({ budget, transport, network }: Pick<Wall
           issued = true;
           // Background lane: never spends the foreground reserve another process's order needs.
           return transport.fetchBackgroundInfo(input, init);
-        }, Date.now, liveEvidenceMaxAgeMs(network), source, waitMs + 2000, cache);
+        }, Date.now, liveEvidenceMaxAgeMs(network), source, waitMs + BUDGET_WAIT_BOUND_SLACK_MS, cache);
         return await observer.observe(account);
       } finally {
         // Only this phase refunds; once a transport read starts its charge stays.

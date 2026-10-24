@@ -21,6 +21,7 @@ import { LiveSharedReads } from '../live/live-shared-reads.js';
 import type { LiveSourceNetwork } from '../live/copy-live-source-evidence.js';
 import { liveReadCache } from '../live/live-read-cache.js';
 import { NEVER_PLACED_GRACE_MS, PROVIDER_CLOCK_SKEW_MS, SETTLEMENT_CLAIM_WAIT_MS } from '../../config/constants/timings.js';
+import { LIVE_READ_WAIT_MS } from '../../config/constants/hyperliquid.js';
 import { sharedRestRetryAfterMs } from '../../hyperliquid/hyperliquid-capacity-error.js';
 import { RESPONSE_WEIGHT } from '../live/follower-receipt-reader.js';
 import { errorCode } from '../../runtime/safe-error-text.js';
@@ -120,7 +121,7 @@ export class CopyLiveSettler {
     await reserveLive(this.budget, prepaid, { maxWaitMs: Math.min(180_000, this.budget.refillMs()) });
     const acquire = async (weight: number) => {
       const credit = Math.min(prepaid, weight); prepaid -= credit;
-      try { if (weight > credit) await reserveLive(this.budget, weight - credit, { maxWaitMs: 5000 }); }
+      try { if (weight > credit) await reserveLive(this.budget, weight - credit, { maxWaitMs: LIVE_READ_WAIT_MS }); }
       catch (error) { prepaid += credit; throw error; }
     };
     const scope = new PostgresLiveRiskScope(this.pool, this.now, { kind: 'settlement', id: request.key });

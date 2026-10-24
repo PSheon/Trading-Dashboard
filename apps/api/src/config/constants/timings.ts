@@ -206,6 +206,39 @@ export const WITNESS_EXPIRY_MS = 60_000;
  */
 export const FAST_SOURCE_GRACE_MS = 2000;
 
+/** basis: guessed — 100 ms of timer slack (626a4524, 2026-10-06): the read a kick sends certifies up to `sentAt − G`, which must reach the witnessed trade's exchange time when the timer fires early or the clocks round; verify: fast-source audit misses on Stage (a witnessed trade the read stopped short of)
+ * Added to G when FastMainnetSource schedules the read for a witnessed trade
+ * (`witness`, `followUp`).
+ */
+export const WITNESS_MARGIN_MS = 100;
+
+/** basis: guessed — 626a4524 (2026-10-06): while the trade feed is down the pass reads each fast-source leader every 7.5 s (8 reads a minute, ~170 weight, inside FAST_SOURCE_LEADER_WEIGHT); verify: feed-down reads per leader per minute on Stage
+ * The engine's `fastPollMs` default: the least time between two pass reads of
+ * a fast-source leader while no kicks come.
+ */
+export const FAST_SOURCE_FEED_DOWN_POLL_MS = 7_500;
+
+/** basis: guessed — 72f586ff (2026-10-06): on Stage the fast-source leader's kicks (~3.5 fills a minute plus follow-ups) never let the pass run; a kick's order half starts no work after 8 s; verify: kick duration p50/p99 on Stage
+ * The engine's `kickBudgetMs` default; the leader's remaining legs wait for the pass.
+ */
+export const KICK_BUDGET_MS = 8_000;
+
+/** basis: guessed — cd36049c (2026-10-04): a worker pass starts no more work after 20 s, so the next pass (COPY_LIVE_INTERVAL_MS 3 s) is not held up; verify: pass duration p99 on Stage
+ * The engine's `passBudgetMs` default.
+ */
+export const PASS_BUDGET_MS = 20_000;
+
+/** basis: guessed — cd36049c (2026-10-04): a mainnet source read stops 1 s before now, so the watcher's frames can confirm the fills it reads; verify: watched-source verification lag on Stage
+ * The engine's `sourceLagMs` default.
+ */
+export const SOURCE_LAG_MS = 1_000;
+
+/** basis: guessed — cd36049c (2026-10-04): a testnet leader is read from REST once a minute (two worst-case 120-weight reads per stream); verify: none needed (Stage copies mainnet leaders; the harness sets 3 s)
+ * The default of COPY_LIVE_TESTNET_SOURCE_INTERVAL_MS (runtime-config) and of
+ * the engine's `testnetSourceIntervalMs`; TESTNET_SOURCE_RETRY_MS doubles up to it.
+ */
+export const TESTNET_SOURCE_INTERVAL_MS = 60_000;
+
 /** basis: derived — WITNESS_EXPIRY_MS: a fast read that left its stream in gap is followed up for as long as a feed trade REST hasn't returned is
  * After it the pass's reads (the watched source, the feed-down poll) are the stream's way back; a follow-up that
  * kept firing on a stream nobody reads again (quarantined, its last copy gone) span a 0 ms timer until restart

@@ -16,6 +16,7 @@ import { CopySignalService } from "./copy-signal.service.js";
 import { CopyRepository } from "./copy.repository.js";
 import { CopyFollowerLedger } from "./live/copy-follower-ledger.js";
 import { HyperliquidFollowerReceiptReader } from "./live/follower-receipt-reader.js";
+import { LIVE_READ_WAIT_MS } from "../config/constants/hyperliquid.js";
 
 /** Copy providers that never sign or send: paper copy and follower reporting. The `read` worker
  * uses only these (no engine, signer or exchange client); CopyModule re-exports it. */
@@ -25,7 +26,7 @@ import { HyperliquidFollowerReceiptReader } from "./live/follower-receipt-reader
     CopyFollowerLedger, CopyFollowerScanRepository, CopyFollowerReconciler, CopyFollowerSnapshotRepository,
     { provide: HyperliquidFollowerReceiptReader, inject: [WALLET_NETWORK_HL], useFactory: ({ budget, transport, network }: WalletNetworkHyperliquid) =>
       // Reporting reads use the background lane, like snapshots.
-      new HyperliquidFollowerReceiptReader(network, liveBudget(budget, { lane: "background", maxWaitMs: 5_000 }), transport.fetchEssentialInfo,
+      new HyperliquidFollowerReceiptReader(network, liveBudget(budget, { lane: "background", maxWaitMs: LIVE_READ_WAIT_MS }), transport.fetchEssentialInfo,
         Date.now, weight => { if (weight > 0) budget.adjust(-weight); },
         { acquire: liveBudget(budget, { lane: "background", maxWaitMs: Math.min(180_000, budget.refillMs()) }), maxWaitMs: Math.min(180_000, budget.refillMs()) + 2000 }) },
   ],

@@ -29,6 +29,7 @@ import { PrivyOrderSigner } from '../live/privy-order-signer.js';
 import { address, LiveBoundaryError, WalletAuthorizationService } from '../live/wallet-authorization.js';
 import { liveReadCache } from '../live/live-read-cache.js';
 import { liveEvidenceMaxAgeMs, liveSnapshotMaxAgeMs } from '../../config/live-evidence-window.js';
+import { LIVE_READ_WAIT_MS } from '../../config/constants/hyperliquid.js';
 
 /** A close must reduce the observed position: opposite side, no larger (never open, enlarge or flip). */
 export function assertCloseWithinPosition(intent: Pick<LiveOrderIntent, 'side' | 'size'>, position: { size: string } | undefined): void {
@@ -78,7 +79,7 @@ export class ReduceOnlyCloser {
   constructor(readonly network: HyperliquidNetwork, private readonly pool: Pool, private readonly db: DrizzleDb, private readonly uow: UnitOfWork, private readonly config: AppConfig,
     private readonly global: HyperliquidGlobalTransport, private readonly budget: RequestBudgeterService, private readonly slippageBps: number,
     private readonly now = Date.now) {}
-  private acquire = (weight: number) => reserveLive(this.budget, weight, { maxWaitMs: 5000 });
+  private acquire = (weight: number) => reserveLive(this.budget, weight, { maxWaitMs: LIVE_READ_WAIT_MS });
 
   /** Reserve before evidence clocks start; only unspent local credit is refunded. */
   private async prepaid<T>(weight: number, work: (acquire: (weight: number) => Promise<void>) => Promise<T>): Promise<T> {

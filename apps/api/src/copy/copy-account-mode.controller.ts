@@ -12,7 +12,7 @@ export class CopyAccountModeController {
   overview(@CurrentUser() user: RequestUser | null) { return this.modes.overview(requireUserId(user)); }
   @Get('account-modes/by-key/:key') @Header('Cache-Control', 'no-store') @ApiDoc('Recover the original account mode preparation by its owner idempotency key')
   byKey(@CurrentUser() user: RequestUser | null, @Param() params: CopyAccountModeKeyDto) { return this.modes.byKey(requireUserId(user), params.key); }
-  @Post('execution-wallets/:id/mode') @HttpCode(200) @Header('Cache-Control', 'no-store') @ApiDoc('Prepare an explicit testnet standard-mode operation', 'Reserves an operation only; never signs, funds or starts trading.')
+  @Post('execution-wallets/:id/mode') @HttpCode(200) @Header('Cache-Control', 'no-store') @ApiDoc('Prepare an explicit standard-mode operation on the deployment network (COPY_TRADING_MODE testnet or live)', 'Reserves an operation only; never signs, funds or starts trading.')
   prepare(@CurrentUser() user: RequestUser | null, @Param() params: CopyWalletIdDto, @Body() body: PrepareCopyAccountModeDto) { return this.modes.prepare(requireUserId(user), params.id, body); }
   @Post('account-modes/:id/reconcile') @HttpCode(200) @Header('Cache-Control', 'no-store') @ApiDoc('Read the original account mode operation without signing or resubmission')
   reconcile(@CurrentUser() user: RequestUser | null, @Param() params: CopyWalletIdDto) { return this.modes.reconcile(requireUserId(user), params.id); }

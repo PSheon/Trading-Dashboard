@@ -118,18 +118,27 @@ export const liveCopiesMessages: Record<Locale, LiveCopiesText> = {
 };
 
 /** A mainnet copy's words for the keys that name the network: 正式, and
- * 測試網 nowhere (a testnet deployment keeps the base text). Locales
- * without their own fall back to English for these keys. */
+ * 測試網 nowhere (a testnet deployment keeps the base text). Every locale has
+ * its own (the type refuses a missing one; test/live-mode-wording.test.ts
+ * refuses a 測試網 word and an English fallback). */
 type MainnetCopiesText = Pick<LiveCopiesText, 'title' | 'testnet'> & { active: string };
-const mainnetCopies: Partial<Record<Locale, MainnetCopiesText>> = {
+const mainnetCopies: Record<Locale, MainnetCopiesText> = {
   en: { title: 'Live copies', testnet: 'Live', active: 'Copying the leader’s trades on Hyperliquid with real funds.' },
   'zh-TW': { title: '正式跟單', testnet: '正式', active: '正在 Hyperliquid 以真實資金跟隨交易員的交易。' },
   'zh-CN': { title: '正式跟单', testnet: '正式', active: '正在 Hyperliquid 以真实资金跟随交易员的交易。' },
+  ja: { title: '本番のコピー', testnet: '本番', active: 'Hyperliquid で実資金によりトレーダーの取引をコピーしています。' },
+  ko: { title: '실거래 카피', testnet: '실거래', active: 'Hyperliquid에서 실제 자금으로 트레이더의 거래를 따라가는 중입니다.' },
+  es: { title: 'Copias reales', testnet: 'Real', active: 'Copiando las operaciones del trader en Hyperliquid con fondos reales.' },
+  pt: { title: 'Cópias reais', testnet: 'Real', active: 'Copiando as operações do trader na Hyperliquid com fundos reais.' },
+  ru: { title: 'Реальное копирование', testnet: 'Реальный', active: 'Сделки трейдера копируются в Hyperliquid на реальные средства.' },
+  id: { title: 'Salinan riil', testnet: 'Riil', active: 'Menyalin trading trader di Hyperliquid dengan dana asli.' },
+  vi: { title: 'Sao chép thật', testnet: 'Thật', active: 'Đang sao chép giao dịch của trader trên Hyperliquid bằng tiền thật.' },
+  tr: { title: 'Gerçek kopyalar', testnet: 'Gerçek', active: 'Trader’ın işlemleri Hyperliquid’de gerçek fonlarla kopyalanıyor.' },
 };
 /** The copy texts for a copy's network (`item.network`). */
 export function liveCopiesText(locale: Locale, network: 'testnet' | 'mainnet' | null | undefined): LiveCopiesText {
   const base = liveCopiesMessages[locale];
   if (network !== 'mainnet') return base;
-  const mainnet = mainnetCopies[locale] ?? mainnetCopies.en!;
+  const mainnet = mainnetCopies[locale];
   return { ...base, title: mainnet.title, testnet: mainnet.testnet, hints: { ...base.hints, active: mainnet.active } };
 }

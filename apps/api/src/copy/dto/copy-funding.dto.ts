@@ -3,7 +3,7 @@ import { IsString, IsUUID, Matches, MaxLength } from "class-validator";
 
 export class CopyFundingInputDto {
   @ApiProperty({ type: String, format: "uuid", description: "Stable key for this exact account and amount" }) @IsUUID() declare idempotencyKey: string;
-  @ApiProperty({ type: String, description: "Exact positive testnet USDC, at most six decimals" }) @IsString() @MaxLength(32) @Matches(/^\d+(?:\.\d{1,6})?$/) declare amount: string;
+  @ApiProperty({ type: String, description: "Exact positive USDC on the deployment network (COPY_TRADING_MODE testnet or live), at most six decimals" }) @IsString() @MaxLength(32) @Matches(/^\d+(?:\.\d{1,6})?$/) declare amount: string;
 }
 export class CopyFundingIdDto { @ApiProperty({ type: String, format: "uuid" }) @IsUUID() declare id: string; }
 export class CopyFundingSubmitDto {

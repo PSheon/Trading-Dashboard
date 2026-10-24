@@ -3,7 +3,7 @@ import { isoUtcSchema, lowercaseAddressSchema } from './primitives.js';
 
 const iso = isoUtcSchema;
 const addr = lowercaseAddressSchema;
-/** B16: testnet execution wallets, their trading agent grant and copy stage. */
+/** B16: the deployment network's execution wallets (COPY_TRADING_MODE testnet or live), their trading agent grant and copy stage. */
 export const adminLiveAccountSchema = z.object({
   accountId: z.string(), userId: z.number().int(), userEmail: z.string().nullable(), strategyId: z.number().int(), leaderAddress: addr,
   sourceNetwork: z.enum(['testnet', 'mainnet']), accountAddress: addr.nullable(), accountState: z.string(), strategyStatus: z.string(),

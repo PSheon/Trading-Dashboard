@@ -94,7 +94,7 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | DELETE | `/admin/kols/:address` | 204 | kols.manage |
 | GET | `/discover/cards` | 200 | public |
 | GET | `/me/copy` | 200 | user |
-| GET | `/me/copy/live` | 200 | user (owner); local testnet mandate state |
+| GET | `/me/copy/live` | 200 | user (owner); local mandate state on the deployment network (COPY_TRADING_MODE testnet or live) |
 | GET | `/me/referral` | 200 | user (owner); confirmed entitlement only |
 | POST | `/me/referral/code` | 200 | user (owner) |
 | POST | `/me/referral/bind` | 200 | user (owner); first eligible attribution only |
@@ -108,7 +108,7 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | POST | `/me/copy/live/mandates/:id/resume` | 200 | user (owner); no signature within the generation's lifetime |
 | POST | `/me/copy/live/mandates/:id/revoke` | 200 | user (owner); local consent revocation preserves liabilities |
 | POST | `/me/copy/live/mandates/:id/stop` | 200 | user (owner); durable local risk barrier; no financial execution |
-| POST | `/me/copy/live/execution-wallets/:id/positions/close` | 200 | user (owner); one position of a running testnet copy; executed by the worker |
+| POST | `/me/copy/live/execution-wallets/:id/positions/close` | 200 | user (owner); one position of a running copy on the deployment network; executed by the worker |
 | GET | `/me/copy/live/execution-wallets/:id/closes` | 200 | user (owner); read only |
 | POST | `/me/copy/live/setups` | 200 | user (owner); deployment network; prepares strategy, wallet, agent and deposit, no exchange call; one consent challenge |
 | GET | `/me/copy/live/setups` | 200 | user (owner); read only |
@@ -121,7 +121,7 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | POST | `/me/copy/live/setups/:id/cancel` | 200 | user (owner); before the consent, once the setup failed or expired, or while its confirmed deposit awaits its credit (cancel and refund) |
 | PATCH | `/me/copy/live/strategies/:id` | 200 | user (owner); a new generation under one setup consent |
 | POST | `/me/copy/live/strategies/:id/renew` | 200 | user (owner); refused for now (renewal_unavailable) |
-| GET | `/me/copy/live/portfolio` | 200 | user (owner); testnet copies with their funding and stop stage; read only |
+| GET | `/me/copy/live/portfolio` | 200 | user (owner); the deployment network's copies with their funding and stop stage; read only |
 | GET | `/me/copy/live/stops` | 200 | user (owner); bounded durable stop history; read only |
 | GET | `/me/copy/live/stops/by-key/:key` | 200 | user (owner); exact original stop recovery; read only |
 | POST | `/me/copy/strategies` | 201 | user; 403 copy_not_open (`general.copyTradingEnabled` off); 409 already_copying / insufficient_balance / copy_paused |
@@ -142,12 +142,12 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | GET | `/me/copy/agents` | 200 | user (owner) |
 | GET | `/me/copy/account-modes` | 200 | user (owner) |
 | GET | `/me/copy/account-modes/by-key/:key` | 200 | user (owner); original idempotency key |
-| POST | `/me/copy/execution-wallets/:id/mode` | 200 | user (owner); ready dedicated testnet master |
+| POST | `/me/copy/execution-wallets/:id/mode` | 200 | user (owner); ready dedicated master on the deployment network |
 | POST | `/me/copy/account-modes/:id/reconcile` | 200 | user (owner); read-only original mode operation |
 | GET | `/me/copy/execution-wallets/:id/statement` | 200 | user (owner) |
 | GET | `/me/copy/execution-wallets/:id/activity` | 200 | user (owner); booked actual receipts; before-only pagination |
-| GET | `/me/copy/execution-wallets/:id/snapshot` | 200 | user (owner); cached actual testnet observation |
-| POST | `/me/copy/execution-wallets/:id/agent` | 200 | user (owner); configured testnet agent provider |
+| GET | `/me/copy/execution-wallets/:id/snapshot` | 200 | user (owner); cached actual observation on the deployment network |
+| POST | `/me/copy/execution-wallets/:id/agent` | 200 | user (owner); configured agent provider on the deployment network |
 | POST | `/me/copy/agents/:id/reconcile` | 200 | user (owner) |
 | GET | `/me/copy/funding` | 200 | user (owner) |
 | POST | `/me/copy/execution-wallets/:id/funding` | 200 | user (owner); live copy on the deployment's network (COPY_TRADING_MODE testnet or live); verified execution account |
@@ -155,12 +155,12 @@ Generated from packages/shared/src/wire-contracts.ts. Regenerate with `node scri
 | POST | `/me/copy/funding/:id/submit` | 200 | user (owner); exact source signature; one attempt |
 | POST | `/me/copy/funding/:id/cancel` | 200 | user (owner); unattempted intent only |
 | POST | `/me/copy/funding/:id/reconcile` | 200 | user (owner); positive transaction and recipient evidence |
-| POST | `/me/copy/live/execution-wallets/:id/returns` | 200 | user (owner); testnet; return to the main wallet, prepared only |
+| POST | `/me/copy/live/execution-wallets/:id/returns` | 200 | user (owner); deployment network (COPY_TRADING_MODE testnet or live); return to the main wallet, prepared only |
 | POST | `/me/copy/live/returns/:id/approve` | 200 | user (owner); signed by the worker under the owner's policy; no body; one attempt |
 | POST | `/me/copy/live/builder-approvals/:id/reconcile` | 200 | user (owner); read only |
 | POST | `/me/copy/strategies/:id/execution-wallet` | 200 | user (owner); configured wallet provider; deployment network only |
 | POST | `/me/copy/execution-wallets/:id/reconcile` | 200 | user (owner) |
-| POST | `/me/copy/execution-wallets/:id/automatic-return` | 200 | user (owner); testnet; fresh session adds the policy-bound worker signer |
+| POST | `/me/copy/execution-wallets/:id/automatic-return` | 200 | user (owner); deployment network (COPY_TRADING_MODE testnet or live); fresh session adds the policy-bound worker signer |
 | POST | `/me/copy/wallet-authorizations/:id/revoke` | 200 | user (owner) |
 | GET | `/admin/copy/overview` | 200 | copy.read |
 | GET | `/admin/copy/strategies` | 200 | copy.read |

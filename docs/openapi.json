@@ -6164,7 +6164,7 @@
             }
           }
         },
-        "summary": "Edit a testnet copy",
+        "summary": "Edit a copy on the deployment network (COPY_TRADING_MODE testnet or live)",
         "tags": [
           "CopyLiveSetup"
         ],
@@ -6800,7 +6800,7 @@
             }
           }
         },
-        "summary": "Renew a testnet copy",
+        "summary": "Renew a copy",
         "tags": [
           "CopyLiveSetup"
         ],
@@ -7421,7 +7421,7 @@
     },
     "/me/copy/live/execution-wallets/{id}/returns": {
       "post": {
-        "description": "An amount of idle funds while copying, or \"all\" once the copy's stop is flat. Moves nothing; send it with approve.\n\nAccess: user (owner); testnet; return to the main wallet, prepared only",
+        "description": "An amount of idle funds while copying, or \"all\" once the copy's stop is flat. Moves nothing; send it with approve.\n\nAccess: user (owner); deployment network (COPY_TRADING_MODE testnet or live); return to the main wallet, prepared only",
         "operationId": "CopyLiveReturnController_reserve",
         "parameters": [
           {
@@ -7972,7 +7972,7 @@
     },
     "/me/copy/live/portfolio": {
       "get": {
-        "description": "The deployment's network; a copy of another network is history (its `network`). Setup, deposit, funding, awaiting credit, starting, active or paused; stopping, sweeping and stopped. Database only; balances come from the account snapshot.\n\nAccess: user (owner); testnet copies with their funding and stop stage; read only",
+        "description": "The deployment's network; a copy of another network is history (its `network`). Setup, deposit, funding, awaiting credit, starting, active or paused; stopping, sweeping and stopped. Database only; balances come from the account snapshot.\n\nAccess: user (owner); the deployment network's copies with their funding and stop stage; read only",
         "operationId": "CopyLivePortfolioController_portfolio",
         "parameters": [],
         "responses": {
@@ -8728,7 +8728,7 @@
     },
     "/me/copy/live/execution-wallets/{id}/positions/close": {
       "post": {
-        "description": "Recorded now; the worker sends reduce-only IOC orders by the approved agent until the position is flat. The copy keeps following its leader.\n\nAccess: user (owner); one position of a running testnet copy; executed by the worker",
+        "description": "Recorded now; the worker sends reduce-only IOC orders by the approved agent until the position is flat. The copy keeps following its leader.\n\nAccess: user (owner); one position of a running copy on the deployment network; executed by the worker",
         "operationId": "CopyLiveCloseController_request",
         "parameters": [
           {
@@ -8861,7 +8861,7 @@
             }
           }
         },
-        "summary": "Close one position of my running testnet copy",
+        "summary": "Close one position of my running copy",
         "tags": [
           "CopyLiveClose"
         ],
@@ -35842,7 +35842,7 @@
     },
     "/me/copy/execution-wallets/{id}/automatic-return": {
       "post": {
-        "description": "Records Orbie's worker as the wallet's only additional signer, bound by a Privy policy I own (it can return this wallet's USDC only to my main wallet and set the standard account mode, never export the key), once Privy shows it. Only my browser can add it: until then 409 automatic_return_signer_missing with the workerQuorumId and policyId to add (Privy useSigners().addSigners), then call again. 503 setup_unavailable while the deployment has it off (COPY_AUTOMATIC_RETURN).\n\nAccess: user (owner); testnet; fresh session adds the policy-bound worker signer\n\nError codes: setup_unavailable, setup_wallet_conflict",
+        "description": "Records Orbie's worker as the wallet's only additional signer, bound by a Privy policy I own (it can return this wallet's USDC only to my main wallet and set the standard account mode, never export the key), once Privy shows it. Only my browser can add it: until then 409 automatic_return_signer_missing with the workerQuorumId and policyId to add (Privy useSigners().addSigners), then call again. 503 setup_unavailable while the deployment has it off (COPY_AUTOMATIC_RETURN).\n\nAccess: user (owner); deployment network (COPY_TRADING_MODE testnet or live); fresh session adds the policy-bound worker signer\n\nError codes: setup_unavailable, setup_wallet_conflict",
         "operationId": "CopyWalletController_automaticReturn",
         "parameters": [
           {
@@ -35984,7 +35984,7 @@
             }
           }
         },
-        "summary": "Turn on the automatic return for my testnet copy wallet",
+        "summary": "Turn on the automatic return for my copy wallet on the deployment network (COPY_TRADING_MODE testnet or live)",
         "tags": [
           "CopyWallet"
         ],
@@ -37568,7 +37568,7 @@
     },
     "/me/copy/execution-wallets/{id}/agent": {
       "post": {
-        "description": "Creates a restricted user-owned agent only; does not approve, fund or start trading.\n\nAccess: user (owner); configured testnet agent provider",
+        "description": "Creates a restricted user-owned agent only; does not approve, fund or start trading.\n\nAccess: user (owner); configured agent provider on the deployment network",
         "operationId": "CopyAgentController_prepare",
         "parameters": [
           {
@@ -37730,7 +37730,7 @@
             }
           }
         },
-        "summary": "Prepare a user-owned testnet trading agent",
+        "summary": "Prepare a user-owned trading agent on the deployment network (COPY_TRADING_MODE testnet or live)",
         "tags": [
           "CopyAgent"
         ],
@@ -38289,7 +38289,7 @@
     },
     "/me/copy/execution-wallets/{id}/mode": {
       "post": {
-        "description": "Reserves an operation only; never signs, funds or starts trading.\n\nAccess: user (owner); ready dedicated testnet master",
+        "description": "Reserves an operation only; never signs, funds or starts trading.\n\nAccess: user (owner); ready dedicated master on the deployment network",
         "operationId": "CopyAccountModeController_prepare",
         "parameters": [
           {
@@ -38467,7 +38467,7 @@
             }
           }
         },
-        "summary": "Prepare an explicit testnet standard-mode operation",
+        "summary": "Prepare an explicit standard-mode operation on the deployment network (COPY_TRADING_MODE testnet or live)",
         "tags": [
           "CopyAccountMode"
         ],
@@ -39387,7 +39387,7 @@
     },
     "/me/copy/execution-wallets/{id}/snapshot": {
       "get": {
-        "description": "Cached all-venue testnet equity, positions and remaining exchange orders with original observation times. Unavailable and stale evidence are explicit. This read does not contact the exchange, authorize trading or calculate account ROI.\n\nAccess: user (owner); cached actual testnet observation",
+        "description": "Cached all-venue equity on the deployment network (COPY_TRADING_MODE testnet or live), positions and remaining exchange orders with original observation times. Unavailable and stale evidence are explicit. This read does not contact the exchange, authorize trading or calculate account ROI.\n\nAccess: user (owner); cached actual observation on the deployment network",
         "operationId": "CopyFollowerSnapshotController_snapshot",
         "parameters": [
           {
@@ -40542,7 +40542,7 @@
             }
           }
         },
-        "summary": "Read my dedicated testnet copy strategies and local owner mandates",
+        "summary": "Read my dedicated copy strategies on the deployment network (COPY_TRADING_MODE testnet or live) and local owner mandates",
         "tags": [
           "CopyLiveMandate"
         ],
@@ -40552,7 +40552,7 @@
           }
         ],
         "x-required-permissions": [],
-        "description": "Access: user (owner); local testnet mandate state"
+        "description": "Access: user (owner); local mandate state on the deployment network (COPY_TRADING_MODE testnet or live)"
       }
     },
     "/me/copy/live/mandates/{id}/pause": {
@@ -44186,7 +44186,7 @@
             }
           }
         },
-        "summary": "Testnet execution wallets with their agent, trading grant, mandate and stop",
+        "summary": "Execution wallets on the deployment network (COPY_TRADING_MODE testnet or live) with their agent, trading grant, mandate and stop",
         "tags": [
           "AdminCopyLive"
         ],
@@ -44377,7 +44377,7 @@
             }
           }
         },
-        "summary": "Testnet copy wallet transfers: deposits from and returns to main wallets, newest first",
+        "summary": "Copy wallet transfers on the deployment network: deposits from and returns to main wallets, newest first",
         "tags": [
           "AdminCopyLive"
         ],
@@ -44609,7 +44609,7 @@
             }
           }
         },
-        "summary": "Testnet orders by journal state",
+        "summary": "Orders on the deployment network by journal state",
         "tags": [
           "AdminCopyLive"
         ],
@@ -44952,7 +44952,7 @@
             }
           }
         },
-        "summary": "Revoke a testnet copy's trading grant",
+        "summary": "Revoke a copy's trading grant",
         "tags": [
           "AdminCopyLive"
         ],
@@ -45182,7 +45182,7 @@
           },
           "budgetUsd": {
             "type": "string",
-            "description": "Budget in testnet USDC, deposited from the main wallet"
+            "description": "Budget in USDC on the deployment network (COPY_TRADING_MODE testnet or live), deposited from the main wallet"
           },
           "settings": {
             "$ref": "#/components/schemas/LiveCopyStrategySettingsDto"
@@ -45300,7 +45300,7 @@
           },
           "amount": {
             "type": "string",
-            "description": "Exact positive testnet USDC, at most six decimals, or \"all\" once the copy is stopped and flat"
+            "description": "Exact positive USDC on the deployment network (COPY_TRADING_MODE testnet or live), at most six decimals, or \"all\" once the copy is stopped and flat"
           }
         },
         "required": [
@@ -46265,7 +46265,7 @@
           },
           "amount": {
             "type": "string",
-            "description": "Exact positive testnet USDC, at most six decimals"
+            "description": "Exact positive USDC on the deployment network (COPY_TRADING_MODE testnet or live), at most six decimals"
           }
         },
         "required": [

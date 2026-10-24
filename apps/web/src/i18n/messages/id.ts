@@ -935,7 +935,7 @@ export const id: Messages = {
         hip3Pill: "{count} HIP-3",
         unknownEquityPill: "Tidak ada nilai akun",
         noOpensPill: "Tidak ada pembukaan terbaru",
-        unavailablePill: "Tidak dapat diestimasi",
+        unavailablePill: "Tidak dapat diperkirakan",
       },
       backspace: "Hapus",
       maxToCopy: "Maksimal ${max}",

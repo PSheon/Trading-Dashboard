@@ -933,7 +933,7 @@ export const ru: Messages = {
         belowMinPill: "{below}/{opens} открытий ниже минимума",
         allFitPill: "Все {opens} открытий достигают минимума",
         hip3Pill: "{count} HIP-3",
-        unknownEquityPill: "Нет стоимости счёта",
+        unknownEquityPill: "Стоимость счёта неизвестна",
         noOpensPill: "Нет недавних открытий",
         unavailablePill: "Нельзя оценить",
       },

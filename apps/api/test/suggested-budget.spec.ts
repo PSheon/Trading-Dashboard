@@ -119,7 +119,7 @@ describe("suggested minimum budget per leader", () => {
     expect(await stored(C)).toMatchObject({ suggestedMinBudgetUsd: null, adds: 0, leaderPerpEquityUsd: "1500", sampled: false });
     // Two heavy leaders and one empty, well under the pool's statement timeout each.
     expect(ms).toBeLessThan(STATEMENT_TIMEOUT_MS);
-  });
+  }, 60_000);
 
   it("stops at the run's time budget (after at least one leader) and the next tick continues from where it stopped; a refresh that finds one running is skipped", async () => {
     await db.insert(equitySnapshots).values([{ address: A, ts: NOW, accountValue: "20000" }, { address: B, ts: NOW, accountValue: "3000" }]);

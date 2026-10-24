@@ -106,7 +106,16 @@ export const LIVE_BUDGET_FEE_BUFFER_USD = 2;
  */
 export const LIVE_BUDGET_MIN_USD = EXCHANGE_MIN_ORDER_NOTIONAL_USD + LIVE_BUDGET_FEE_BUFFER_USD;
 
-/** basis: guessed — 100 leaders a statement keeps one statement's scan to ~100 leaders × 30 days of fills, well under Stage's statement timeout; verify: the hourly log's duration per batch on Stage
- * The suggested-budget refresh writes its leaders in batches of this many, each its own statement (review of D7).
+/** basis: measured — Stage 2026-10-24: tracked leaders' 30-day fill counts are heavy-tailed; ordinary ones hold 164 and 511 fills, the third target (a market maker, kept tracked) 806,756, and a 100-leader statement over them never finished under the 15 s statement timeout
+ * A leader with more fills than this in the window is read through the newest this-many fills only (one bounded
+ * index scan on `(account_id, time)`), its median computed over them and its row marked `sampled`: an
+ * order-of-magnitude budget needs no more. A leader under the cap is read whole (suggested-budget.repository.ts).
  */
-export const SUGGESTED_BUDGET_BATCH_LIMIT = 100;
+export const SUGGESTED_BUDGET_FILLS_CAP = 100_000;
+
+/** basis: guessed — 20 min of database time an hourly tick: 1,134 Stage targets (1,025 with history) at the ordinary leader's few ms a statement finish in seconds, and even a run of 1 s a leader completes in one tick; verify: the hourly log's leaders, remaining and ms on Stage
+ * The suggested-budget refresh reads one leader a statement until this much time has passed, then stops and the
+ * next hourly tick continues from the leader it stopped at (it always reads at least one), so a slow database
+ * never holds the read worker's pool for the whole hour.
+ */
+export const SUGGESTED_BUDGET_RUN_BUDGET_MS = 20 * MINUTE_MS;

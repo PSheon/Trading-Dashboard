@@ -11,7 +11,7 @@ import { EmptyLiveCopyMandateDto } from './dto/copy-live-mandate.dto.js';
 @UseFilters(BusyFilter)
 export class CopyLiveMandateController {
   constructor(private readonly mandates: CopyLiveMandateService) {}
-  @Get() @Header('Cache-Control', 'no-store') @ApiDoc('Read my dedicated testnet copy strategies and local owner mandates')
+  @Get() @Header('Cache-Control', 'no-store') @ApiDoc('Read my dedicated copy strategies on the deployment network (COPY_TRADING_MODE testnet or live) and local owner mandates')
   overview(@CurrentUser() user: RequestUser | null) { return this.mandates.overview(requireUserId(user)); }
   @SafetyExit() @Post('mandates/:id/pause') @HttpCode(200) @Header('Cache-Control', 'no-store') @ApiDoc('Pause new risk locally without cancelling orders or settling funds')
   pause(@CurrentUser() user: RequestUser | null, @Param() params: CopyWalletIdDto, @Body() body: EmptyLiveCopyMandateDto) { return this.mandates.pause(requireUserId(user), params.id, body); }

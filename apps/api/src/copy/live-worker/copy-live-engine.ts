@@ -84,12 +84,12 @@ interface LiveEngineOptions {
   readonly passBudgetMs: number;
   /** Max wait for more adds to an open too small for the exchange (default and max MAX_ACCUMULATE_MS). */
   readonly accumulateMs?: number;
-  /** A kick's order half starts no work after this (default 8 s), so the pass isn't held up. */
+  /** A kick's order half starts no work after this (default KICK_BUDGET_MS), so the pass isn't held up. */
   readonly kickBudgetMs?: number;
-  /** Feed down: min interval between pass reads of a fast-source leader. */
+  /** Feed down: min interval between pass reads of a fast-source leader (default FAST_SOURCE_FEED_DOWN_POLL_MS). */
   readonly fastPollMs?: number;
 }
-export const DEFAULT_ENGINE_OPTIONS: LiveEngineOptions = { testnetSourceIntervalMs: 60_000, sourceLagMs: 1_000, passBudgetMs: 20_000, fastPollMs: 7_500 };
+export const DEFAULT_ENGINE_OPTIONS: LiveEngineOptions = { testnetSourceIntervalMs: TESTNET_SOURCE_INTERVAL_MS, sourceLagMs: SOURCE_LAG_MS, passBudgetMs: PASS_BUDGET_MS, fastPollMs: FAST_SOURCE_FEED_DOWN_POLL_MS };
 
 /** HIP-3 (builder-deployed dex) fee scope cannot be proven (live-risk-provider):
  * refused at enqueue, before any evidence read spends weight. */
@@ -119,7 +119,7 @@ export { describeUnexpected, safeErrorText } from '../../runtime/safe-error-text
 import { LIVE_STANDBY_RENEW_MS, SHARED_CAPACITY_RETRY_MS } from '../../config/constants/hyperliquid.js';
 import { SOURCE_STUCK_ALERT_MS } from '../../config/constants/alerts.js';
 import { ABSTRACTION_ATTEMPT_LIMIT, CLOSE_ATTEMPT_LIMIT, MAX_LIVE_LEG_ATTEMPTS } from '../../config/constants/limits.js';
-import { HOLD_MARGIN_MS, PLANNING_MARGIN_MS, TESTNET_SOURCE_RETRY_MS } from '../../config/constants/timings.js';
+import { FAST_SOURCE_FEED_DOWN_POLL_MS, HOLD_MARGIN_MS, KICK_BUDGET_MS, PASS_BUDGET_MS, PLANNING_MARGIN_MS, SOURCE_LAG_MS, TESTNET_SOURCE_INTERVAL_MS, TESTNET_SOURCE_RETRY_MS } from '../../config/constants/timings.js';
 import { liveSourceAdmission } from '../live/postgres-live-risk-authority.js';
 const reasonOf = (error: unknown) => errorCode(error);
 /** A source read's failure for the log: its code, and which evidence check refused it (if one did). */
@@ -212,7 +212,7 @@ export class CopyLiveEngine {
     for (const stream of streams) {
       // Without kicks (feed down), a fast-source leader is polled.
       const poll = this.fastLeader(stream) && this.deps.fast!.feedUp?.() === false &&
-        started - (this.lastFastRead.get(stream.leaderAddress) ?? 0) >= (this.options.fastPollMs ?? 7_500);
+        started - (this.lastFastRead.get(stream.leaderAddress) ?? 0) >= (this.options.fastPollMs ?? FAST_SOURCE_FEED_DOWN_POLL_MS);
       try { await budgetConsumer('copy.source', () => this.ingest(stream, mandates, poll)); }
       catch (error) { this.deps.log?.(`source ${stream.network}:${stream.leaderAddress} not read: ${sourceReason(error)}`); }
       try { await this.watchStuck(stream); } catch (error) { this.deps.log?.(`source ${stream.network}:${stream.leaderAddress} not watched: ${reasonOf(error)}`); }
@@ -326,7 +326,7 @@ export class CopyLiveEngine {
     const byId = new Map(mandates.map(m => [m.mandateId, m]));
     for (const row of await this.deps.repository.open(100, [...byId.keys()])) {
       // A kick works this leader's fresh legs, briefly: the rest waits for the pass.
-      if (this.now() - started > (this.options.kickBudgetMs ?? 8_000)) break;
+      if (this.now() - started > (this.options.kickBudgetMs ?? KICK_BUDGET_MS)) break;
       if (held.has(row.id)) continue;
       try { await budgetConsumer('copy.order', () => this.work(row, byId.get(row.mandateId) ?? null, limit)); }
       catch (error) { this.deps.log?.(`leg ${row.id} kept for the next pass: ${reasonOf(error)}`); }

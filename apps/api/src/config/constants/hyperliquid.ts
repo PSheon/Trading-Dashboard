@@ -216,6 +216,29 @@ export const SHARED_CAPACITY_SLACK_MS = 250;
  */
 export const LIVE_RESERVE_WAIT_MS = 8_000;
 
+/** basis: guessed — one 5 s evidence clock (copy-live-engine.provider, "readers wait at most 5 s", 2026-10-10): a live read that waits longer for its weight fails its step, which is retried; verify: gate 9 local_budget waits by weight
+ * `maxWaitMs` of the live path's reads outside a setup step: the engine's
+ * and the settler's evidence reads, a stop's and a close's, an order's extra
+ * reads (live-execution-runtime), the agent approval verifier and the
+ * reporting reader (copy-read.module).
+ */
+export const LIVE_READ_WAIT_MS = 5_000;
+
+/** basis: guessed — twice LIVE_READ_WAIT_MS: a deposit's builder-fee read answers an owner's request, not an evidence clock; verify: gate 9 funding reserve waits
+ */
+export const FUNDING_RESERVE_WAIT_MS = 2 * LIVE_READ_WAIT_MS;
+
+/** basis: guessed — inside the 120 s setup abort lease: a refund proof may queue before its evidence clock, and 50 s leaves the lease room for the proof and the refund; verify: setup abort proof waits on Stage
+ * `maxWaitMs` of the setup abort's account observer (copy.module SETUP_ABORT_OBSERVER).
+ */
+export const SETUP_ABORT_OBSERVER_WAIT_MS = 50_000;
+
+/** basis: guessed — a bounded read is allowed 2 s past its budget wait for the request itself; verify: gate 9 bounded-read timeouts
+ * The follower snapshot observer's deadline (copy-worker.module) and the
+ * account-mode read's (privy-account-mode-client).
+ */
+export const BUDGET_WAIT_BOUND_SLACK_MS = 2_000;
+
 /** basis: guessed — a background turn or a 429 back-off can make a local estimate a second longer; verify: gate 9 local wait estimate vs actual
  * What `reserveLive` adds to a wait it allows.
  */

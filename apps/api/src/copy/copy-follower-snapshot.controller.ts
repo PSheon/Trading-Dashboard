@@ -8,6 +8,6 @@ import { CopyFollowerSnapshotService } from './copy-follower-snapshot.service.js
 export class CopyFollowerSnapshotController {
   constructor(private readonly snapshots: CopyFollowerSnapshotService) {}
   @Get('execution-wallets/:id/snapshot') @Header('Cache-Control', 'no-store')
-  @ApiDoc('Read my observed actual perpetual account', 'Cached all-venue testnet equity, positions and remaining exchange orders with original observation times. Unavailable and stale evidence are explicit. This read does not contact the exchange, authorize trading or calculate account ROI.')
+  @ApiDoc('Read my observed actual perpetual account', 'Cached all-venue equity on the deployment network (COPY_TRADING_MODE testnet or live), positions and remaining exchange orders with original observation times. Unavailable and stale evidence are explicit. This read does not contact the exchange, authorize trading or calculate account ROI.')
   snapshot(@CurrentUser() user: RequestUser | null, @Param() params: CopyWalletIdDto) { return this.snapshots.get(requireUserId(user), params.id); }
 }

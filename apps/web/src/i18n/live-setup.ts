@@ -256,15 +256,16 @@ const tr: LiveSetupText = {
 export const liveSetupMessages: Record<Locale, LiveSetupText> = { en, 'zh-TW': zhTW, 'zh-CN': zhCN, ja, ko, es, pt, ru, id, vi, tr };
 
 /** A mainnet deployment's words for the same keys: the actual mode is 正式
- * (real funds), and 測試網 appears nowhere. Locales without their own fall
- * back to English for these keys. */
+ * (real funds), and 測試網 appears nowhere. Every locale has its own (the
+ * type refuses a missing one; test/live-mode-wording.test.ts refuses a
+ * 測試網 word and an English fallback). */
 type MainnetText = Pick<LiveSetupText, 'testnet' | 'testnetBalance' | 'testnetNote' | 'adoptDisabled' | 'copying' | 'networkValue' | 'walletsHint'> & { errors: Pick<LiveSetupText['errors'], 'setup_unavailable' | 'insufficient_main_balance'> };
 const mainnetEn: MainnetText = {
   testnet: 'Live', testnetBalance: 'Main wallet', testnetNote: 'Uses real USDC on Hyperliquid mainnet.', adoptDisabled: 'Live copies follow new trades only; current positions are not copied.',
   copying: 'Copying · Live', networkValue: 'Hyperliquid mainnet (real funds)', walletsHint: 'A wallet made for each live copy, owned by you alone.',
   errors: { setup_unavailable: 'Live copy is not available right now.', insufficient_main_balance: 'Not enough USDC in your main wallet.' },
 };
-const mainnetText: Partial<Record<Locale, MainnetText>> = {
+const mainnetText: Record<Locale, MainnetText> = {
   en: mainnetEn,
   'zh-TW': { testnet: '正式', testnetBalance: '主錢包', testnetNote: '使用 Hyperliquid 主網的真實 USDC。', adoptDisabled: '正式跟單只跟新交易，不複製目前持倉。',
     copying: '跟單中 · 正式', networkValue: 'Hyperliquid 主網（真實資金）', walletsHint: '為每個正式跟單建立的錢包，只有你擁有。',
@@ -272,12 +273,36 @@ const mainnetText: Partial<Record<Locale, MainnetText>> = {
   'zh-CN': { testnet: '正式', testnetBalance: '主钱包', testnetNote: '使用 Hyperliquid 主网的真实 USDC。', adoptDisabled: '正式跟单只跟新交易，不复制当前持仓。',
     copying: '跟单中 · 正式', networkValue: 'Hyperliquid 主网（真实资金）', walletsHint: '为每个正式跟单创建的钱包，只有你拥有。',
     errors: { setup_unavailable: '正式跟单暂时无法使用。', insufficient_main_balance: '主钱包的 USDC 不足。' } },
+  ja: { testnet: '本番', testnetBalance: 'メインウォレット', testnetNote: 'Hyperliquid メインネットの実際の USDC を使います。', adoptDisabled: '本番のコピーは新しい取引のみをコピーし、現在のポジションはコピーしません。',
+    copying: 'コピー中 · 本番', networkValue: 'Hyperliquid メインネット（実資金）', walletsHint: '本番のコピーごとに作られる、あなただけが所有するウォレットです。',
+    errors: { setup_unavailable: '本番のコピーは現在利用できません。', insufficient_main_balance: 'メインウォレットの USDC が不足しています。' } },
+  ko: { testnet: '실거래', testnetBalance: '메인 지갑', testnetNote: 'Hyperliquid 메인넷의 실제 USDC를 사용합니다.', adoptDisabled: '실거래 카피는 새 거래만 카피하며 현재 포지션은 카피하지 않습니다.',
+    copying: '카피 중 · 실거래', networkValue: 'Hyperliquid 메인넷(실제 자금)', walletsHint: '실거래 카피마다 만들어지며 본인만 소유하는 지갑입니다.',
+    errors: { setup_unavailable: '지금은 실거래 카피를 사용할 수 없습니다.', insufficient_main_balance: '메인 지갑의 USDC가 부족합니다.' } },
+  es: { testnet: 'Real', testnetBalance: 'Billetera principal', testnetNote: 'Usa USDC real en la mainnet de Hyperliquid.', adoptDisabled: 'Las copias reales solo copian operaciones nuevas, no las posiciones actuales.',
+    copying: 'Copiando · Real', networkValue: 'Mainnet de Hyperliquid (fondos reales)', walletsHint: 'Una billetera para cada copia real, solo tuya.',
+    errors: { setup_unavailable: 'La copia real no está disponible ahora.', insufficient_main_balance: 'No hay suficiente USDC en tu billetera principal.' } },
+  pt: { testnet: 'Real', testnetBalance: 'Carteira principal', testnetNote: 'Usa USDC real na mainnet da Hyperliquid.', adoptDisabled: 'As cópias reais só copiam operações novas, não as posições atuais.',
+    copying: 'Copiando · Real', networkValue: 'Mainnet da Hyperliquid (fundos reais)', walletsHint: 'Uma carteira para cada cópia real, só sua.',
+    errors: { setup_unavailable: 'A cópia real não está disponível agora.', insufficient_main_balance: 'Não há USDC suficiente na sua carteira principal.' } },
+  ru: { testnet: 'Реальный', testnetBalance: 'Основной кошелёк', testnetNote: 'Используются реальные USDC в мейннете Hyperliquid.', adoptDisabled: 'Реальное копирование копирует только новые сделки, текущие позиции не копируются.',
+    copying: 'Копирование · Реальный', networkValue: 'Мейннет Hyperliquid (реальные средства)', walletsHint: 'Кошелёк для каждого реального копирования, принадлежит только вам.',
+    errors: { setup_unavailable: 'Реальное копирование сейчас недоступно.', insufficient_main_balance: 'Недостаточно USDC в основном кошельке.' } },
+  id: { testnet: 'Riil', testnetBalance: 'Dompet utama', testnetNote: 'Pakai USDC asli di mainnet Hyperliquid.', adoptDisabled: 'Copy riil hanya mengikuti trade baru, posisi yang sudah ada tidak di-copy.',
+    copying: 'Sedang copy · Riil', networkValue: 'Mainnet Hyperliquid (dana asli)', walletsHint: 'Dompet untuk tiap copy riil, hanya milik kamu.',
+    errors: { setup_unavailable: 'Copy riil sedang tidak tersedia.', insufficient_main_balance: 'USDC di dompet utama kamu tidak cukup.' } },
+  vi: { testnet: 'Thật', testnetBalance: 'Ví chính', testnetNote: 'Dùng USDC thật trên mainnet Hyperliquid.', adoptDisabled: 'Sao chép thật chỉ sao chép giao dịch mới, không sao chép vị thế hiện có.',
+    copying: 'Đang sao chép · Thật', networkValue: 'Mainnet Hyperliquid (tiền thật)', walletsHint: 'Mỗi lượt sao chép thật có một ví riêng, chỉ bạn sở hữu.',
+    errors: { setup_unavailable: 'Sao chép thật hiện không khả dụng.', insufficient_main_balance: 'Ví chính không đủ USDC.' } },
+  tr: { testnet: 'Gerçek', testnetBalance: 'Ana cüzdan', testnetNote: 'Hyperliquid mainnet üzerinde gerçek USDC kullanır.', adoptDisabled: 'Gerçek kopyalamada yalnızca yeni işlemler kopyalanır, mevcut pozisyonlar kopyalanmaz.',
+    copying: 'Kopyalanıyor · Gerçek', networkValue: 'Hyperliquid mainnet (gerçek fonlar)', walletsHint: 'Her gerçek kopyalama için açılan, yalnızca size ait cüzdan.',
+    errors: { setup_unavailable: 'Gerçek kopyalama şu anda kullanılamıyor.', insufficient_main_balance: 'Ana cüzdanınızda yeterli USDC yok.' } },
 };
 /** The setup texts for the deployment's network (`liveCopyOverview.network`). */
 export function liveSetupText(locale: Locale, network: 'testnet' | 'mainnet' | null | undefined): LiveSetupText {
   const base = liveSetupMessages[locale];
   if (network !== 'mainnet') return base;
-  const mainnet = mainnetText[locale] ?? mainnetEn;
+  const mainnet = mainnetText[locale];
   return { ...base, ...mainnet, errors: { ...base.errors, ...mainnet.errors } };
 }
 export const fill = (template: string, values: Record<string, string | number>) => template.replace(/\{(\w+)\}/g, (match, key: string) => key in values ? String(values[key]) : match);

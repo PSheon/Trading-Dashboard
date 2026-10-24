@@ -30,6 +30,7 @@ import type { AutoReturn } from './copy-live-auto-return.js';
 import type { CopyLiveFlatCarry } from './copy-live-flat-carry.js';
 import type { SystemStopOutcome } from '../copy-live-stop-system.js';
 import { FLAT_CARRY_RETRY_MS, REVOKE_DEADLINE_MS } from '../../config/constants/timings.js';
+import { LIVE_READ_WAIT_MS } from '../../config/constants/hyperliquid.js';
 import { liveEvidenceMaxAgeMs } from '../../config/live-evidence-window.js';
 
 // A single-position close gives up after retry.closeAttempts orders and a cancel
@@ -242,7 +243,7 @@ export class StopCanceller {
   constructor(private readonly network: HyperliquidNetwork, private readonly pool: Pool, private readonly db: DrizzleDb, private readonly config: AppConfig, private readonly global: HyperliquidGlobalTransport,
     private readonly budget: RequestBudgeterService, private readonly repository: CopyLiveStopWorkerRepository,
     private readonly reconcile: (account: CloseAccount, key: string) => Promise<LiveExecutionRecord>, private readonly now = Date.now) {}
-  private acquire = (weight: number) => reserveLive(this.budget, weight, { maxWaitMs: 5000 });
+  private acquire = (weight: number) => reserveLive(this.budget, weight, { maxWaitMs: LIVE_READ_WAIT_MS });
 
   async cancel(stop: StopRow, account: CloseAccount, target: { record: LiveExecutionRecord; intent: LiveOrderIntent | null }): Promise<string> {
     if (!target.intent) return 'stop_cancel_target_unproven';

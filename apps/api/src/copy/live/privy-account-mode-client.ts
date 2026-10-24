@@ -11,7 +11,7 @@ import {HyperliquidGlobalTransport} from '../../hyperliquid/hyperliquid-global-t
 import { SETUP_OWNER } from '../../hyperliquid/hyperliquid-global-quota.js';
 import { LiveBoundaryError } from './wallet-authorization.js';
 import { sharedCapacityWait, type LiveBudget, type LiveReserveOptions, type LiveBudgetReservation } from '../../hyperliquid/hyperliquid-budget-wait.js';
-import { LIVE_RESERVE_WAIT_MS } from '../../config/constants/hyperliquid.js';
+import { BUDGET_WAIT_BOUND_SLACK_MS, LIVE_RESERVE_WAIT_MS } from '../../config/constants/hyperliquid.js';
 import { ACCOUNT_MODE_OBSERVE_WEIGHT } from '../../config/constants/weights.js';
 import { liveEvidenceMaxAgeMs } from '../../config/live-evidence-window.js';
 
@@ -154,7 +154,7 @@ export class PrivyAccountModeClient {
       const t0 = this.now();
       const budgetWaitMs = options.maxWaitMs ?? LIVE_RESERVE_WAIT_MS;
       // The budget bounds its own wait; this bounds a budget that doesn't.
-      if (!options.prepaid) await boundedLiveRead(() => this.budget(ACCOUNT_MODE_OBSERVE_WEIGHT, { signal, maxWaitMs: budgetWaitMs }), budgetWaitMs + 2_000);
+      if (!options.prepaid) await boundedLiveRead(() => this.budget(ACCOUNT_MODE_OBSERVE_WEIGHT, { signal, maxWaitMs: budgetWaitMs }), budgetWaitMs + BUDGET_WAIT_BOUND_SLACK_MS);
       trace.push(`budget ${this.now() - t0}ms`);
       const bodies = (['userRole', 'userAbstraction', 'userDexAbstraction', 'spotClearinghouseState'] as const).map(type => ({ type, user: intent.accountAddress }));
       let started = 0;

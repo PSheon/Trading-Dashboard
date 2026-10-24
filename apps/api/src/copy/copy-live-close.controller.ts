@@ -14,7 +14,7 @@ import { RequestLiveManualCloseDto } from './dto/copy-live-close.dto.js';
 export class CopyLiveCloseController {
   constructor(private readonly closes: CopyLiveCloseService) {}
   @SafetyExit() @Post('execution-wallets/:id/positions/close') @HttpCode(200) @Header('Cache-Control', 'no-store')
-  @ApiDoc('Close one position of my running testnet copy', 'Recorded now; the worker sends reduce-only IOC orders by the approved agent until the position is flat. The copy keeps following its leader.')
+  @ApiDoc('Close one position of my running copy', 'Recorded now; the worker sends reduce-only IOC orders by the approved agent until the position is flat. The copy keeps following its leader.')
   request(@CurrentUser() user: RequestUser | null, @Param() params: CopyWalletIdDto, @Body() body: RequestLiveManualCloseDto) { return this.closes.request(requireUserId(user), params.id, body); }
   @Get('execution-wallets/:id/closes') @Header('Cache-Control', 'no-store')
   @ApiDoc('Read my single-position closes of a copy', 'Read only.')

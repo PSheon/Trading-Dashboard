@@ -44,7 +44,7 @@ function SnapshotView({ account }: { account: CopyExecutionAccount }) {
       {query.isError ? <div className="mt-3"><p role="alert" className="text-xs text-warning">{t('copyFollowerSnapshot.error')}</p><Button size="sm" variant="secondary" className="mt-2 min-h-11" loading={query.isFetching} onClick={() => void query.refetch()}>{t('executionWallets.retry')}</Button></div> : null}
       {view?.status === 'unavailable' ? <p className="mt-3 text-xs text-muted-foreground">{t('copyFollowerSnapshot.unavailable')}</p> : null}
       {view?.status === 'observed' ? <div className="mt-3 space-y-3 text-xs">
-        <p className="break-all font-mono text-muted-foreground">{t('executionWallets.networks.testnet')} · {view.accountAddress}</p>
+        <p className="break-all font-mono text-muted-foreground">{t(`executionWallets.networks.${account.network}`)} · {view.accountAddress}</p>
         <p role="status" className={fresh ? 'text-muted-foreground' : 'text-warning'}>{t(`copyFollowerSnapshot.${fresh ? 'fresh' : 'stale'}`)}</p>
         <p className="text-muted-foreground">{t('copyFollowerSnapshot.asOf', { time: format.dateTime(new Date(view.asOf.completedAt).toISOString()) })}</p>
         {view.lastReadIssue ? <p role="alert" className="text-warning">{t('copyFollowerSnapshot.readIssue')}</p> : null}

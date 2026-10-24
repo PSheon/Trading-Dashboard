@@ -7,7 +7,7 @@ import { runsCopy, workerRoleValue } from "../runtime/worker-role.js";
 import { liveSetupTimings, liveStopTimings, type LiveSetupTimings, type LiveStopTimings } from "./live-timings.js";
 import { HYPERLIQUID_BACKGROUND_REST_CAP, MAINNET_WORKER_WEIGHT, READ_WORKER_BACKGROUND_REST_CAP } from './constants/hyperliquid.js';
 import { isReadMeterKey, readMeterKey, type HyperliquidMeter } from '../hyperliquid/hyperliquid-meter-key.js';
-import { FAST_SOURCE_GRACE_MS, LIVE_EVIDENCE_MAX_AGE_MS, LIVE_TESTNET_EVIDENCE_MAX_AGE_CAP_MS } from './constants/timings.js';
+import { FAST_SOURCE_GRACE_MS, LIVE_EVIDENCE_MAX_AGE_MS, LIVE_TESTNET_EVIDENCE_MAX_AGE_CAP_MS, TESTNET_SOURCE_INTERVAL_MS } from './constants/timings.js';
 import { DATABASE_POOL_MAX_API, DATABASE_POOL_MAX_COPY_WORKER, DATABASE_POOL_MAX_READ_WORKER, DATABASE_POOL_MAX_WORKER } from './constants/database.js';
 import { COPY_EQUITY_FULL_RESOLUTION_MS } from './constants/cache-ttls.js';
 import { DAY_MS } from './constants/time.js';
@@ -228,7 +228,7 @@ function copyTrading(source: Environment, wallet: "mainnet" | "testnet", egressK
       ...(allowedPrivyUserIds ? { allowedPrivyUserIds } : {}),
       caps: liveCaps(source, mode),
       builderFee: mode !== "live",
-      testnetSourceIntervalMs: integerValue("COPY_LIVE_TESTNET_SOURCE_INTERVAL_MS", source.COPY_LIVE_TESTNET_SOURCE_INTERVAL_MS, 60_000, 1000, 600_000),
+      testnetSourceIntervalMs: integerValue("COPY_LIVE_TESTNET_SOURCE_INTERVAL_MS", source.COPY_LIVE_TESTNET_SOURCE_INTERVAL_MS, TESTNET_SOURCE_INTERVAL_MS, 1000, 600_000),
       maxSourceDeviationBps: integerValue("COPY_TESTNET_MAX_PRICE_DEVIATION_BPS", source.COPY_TESTNET_MAX_PRICE_DEVIATION_BPS, 500, 0, 10_000),
       slippageBps: integerValue("COPY_LIVE_SLIPPAGE_BPS", source.COPY_LIVE_SLIPPAGE_BPS, 30, 0, 500),
       intervalMs: integerValue("COPY_LIVE_INTERVAL_MS", source.COPY_LIVE_INTERVAL_MS, 3000, 1000, 60_000),

@@ -26,7 +26,7 @@ import { MainnetSourceReferenceReader } from '../live/live-source-reference.js';
 import { LiveExecutionRuntime } from '../live/live-execution-runtime.js';
 import { CopyLiveEngine, DEFAULT_ENGINE_OPTIONS } from './copy-live-engine.js';
 import { liveStandbyNeed } from './live-standby-need.js';
-import { HYPERLIQUID_SOURCE_REST_RESERVE } from '../../config/constants/hyperliquid.js';
+import { HYPERLIQUID_SOURCE_REST_RESERVE, LIVE_READ_WAIT_MS } from '../../config/constants/hyperliquid.js';
 import { CopyLiveSettler } from './copy-live-settler.js';
 import { CopyLiveWorkerRepository } from './copy-live-worker.repository.js';
 import { WatchedMainnetSource } from './watched-mainnet-source.js';
@@ -82,8 +82,8 @@ export const liveEngineProvider: FactoryProvider<CopyLiveEngine | null> = {
       network: wallet.network, budgetPerMin: walletConfig.value.hyperliquid.budgetPerMin });
     logger.log(`Order bucket (${wallet.network}): capacity ${fit.capacity}; the heaviest order evidence (${fit.users - 1} accounts + the leader) weighs ${fit.weight}`);
     // reserveLive: a timed-out wait is HyperliquidBudgetWait; a weight over the
-    // bucket fails at once (live_budget_over_capacity). Readers wait at most 5 s.
-    const reserve = liveBudget(walletBudget, { maxWaitMs: 5000 });
+    // bucket fails at once (live_budget_over_capacity). Readers wait at most LIVE_READ_WAIT_MS.
+    const reserve = liveBudget(walletBudget, { maxWaitMs: LIVE_READ_WAIT_MS });
     const reference = new MainnetSourceReferenceReader(market);
     const options = { slippageBps: String(live.slippageBps), extraRiskBufferBps: EXTRA_RISK_BUFFER_BPS,
       restingOrderBuilderFeeCapTenthsBps: RESTING_BUILDER_FEE_CAP_TENTHS_BPS, maxSourceDeviationBps: String(live.maxSourceDeviationBps) };

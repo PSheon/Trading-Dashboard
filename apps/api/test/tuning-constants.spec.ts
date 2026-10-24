@@ -10,7 +10,14 @@ import { join, relative, resolve } from 'node:path';
  * - two constants with the same name are refused (one meaning, one name);
  * - a constant in the home without a basis line is refused: the first line
  *   of its comment says measured / derived / copied / guessed and the
- *   source, and a guessed one says how it will be verified (AGENTS.md).
+ *   source, and a guessed one says how it will be verified (AGENTS.md);
+ * - a tuning value hiding as a literal outside the home is refused (2026-10-24,
+ *   copy-live-engine's `kickBudgetMs ?? 8_000`, `fastPollMs: 7_500` and the fast
+ *   source's `graceMs + 100`): an option field's default (`fooMs ?? 8_000`), an
+ *   option literal (`fooMs: 7_500`) and arithmetic on a clock (`graceMs + 100`),
+ *   unless allow-listed here with its reason. Only a tuning-named left operand
+ *   (camel-case `…Ms`, `…Limit`, …; `…_MS`) is looked at, so an id, a rank or a
+ *   count is never flagged; 0 (none) and ±1 (a boundary) are not tuning values.
  */
 const SRC = resolve(import.meta.dirname, '../src');
 const HOME = join(SRC, 'config', 'constants');
@@ -30,6 +37,16 @@ const ALLOWED: Readonly<Record<string, string>> = {
   'copy/copy-live-source.client.ts:ROW_CAP': "the source reader's response caps (with POSSIBLE_CAP, BODY_CAP), unseen by this guard until its DEADLINE became the evidence window (2026-10-16); they move with a basis line in phase 2",
 };
 const BASIS = /^\/\*\* basis: (measured|derived|copied|guessed) — .+/;
+const UNIT = '(?:Ms|Limit|Attempts|Share|TtlMs|Weight|Cap|Reserve|Floor)';
+/** Each rule's match ends with the literal. */
+const LITERAL_RULES: Readonly<Record<string, RegExp>> = {
+  'option default': new RegExp(`\\b[a-z][A-Za-z0-9]*${UNIT}\\s*\\?\\?\\s*-?\\d[\\d_]*\\b`, 'g'),
+  'option literal': new RegExp(`\\b[a-z][A-Za-z0-9]*${UNIT}\\s*:\\s*-?\\d[\\d_]*\\b`, 'g'),
+  'clock arithmetic': new RegExp(`\\b[A-Za-z0-9_.]*(?:${UNIT}|_MS)\\b\\)?\\s*[+-]\\s*\\d[\\d_]*\\b`, 'g'),
+};
+const notTuning = (literal: string) => { const n = Math.abs(Number(literal.replace(/_/g, ''))); return n === 0 || n === 1; };
+/** Literals that stay where they are (`file:match`), each with its reason. */
+const ALLOWED_LITERALS: Readonly<Record<string, string>> = {};
 
 function* files(dir: string): Generator<string> {
   if (!existsSync(dir)) return;
@@ -55,6 +72,22 @@ describe('tuning constants have one home (src/config/constants)', () => {
       const [rel, name] = key.split(':') as [string, string];
       expect(declarations(join(SRC, rel)), `allow-listed ${key} no longer exists: drop it`).toContain(name);
     }
+  });
+  it('no option default, option literal or clock arithmetic hides a tuning value under the guarded directories, unless allow-listed with a reason', () => {
+    const strays: string[] = [], seen = new Set<string>();
+    for (const dir of GUARDED) for (const path of files(join(SRC, dir))) {
+      if (path.startsWith(HOME)) continue;
+      const rel = relative(SRC, path), text = readFileSync(path, 'utf8');
+      for (const [kind, rule] of Object.entries(LITERAL_RULES)) for (const m of text.matchAll(rule)) {
+        const literal = /-?\d[\d_]*$/.exec(m[0])![0];
+        if (notTuning(literal)) continue;
+        const key = `${rel}:${m[0].replace(/\s+/g, ' ')}`;
+        seen.add(key);
+        if (!ALLOWED_LITERALS[key]) strays.push(`${rel}:${text.slice(0, m.index).split('\n').length} ${kind}: ${m[0]}`);
+      }
+    }
+    expect(strays, 'name these in src/config/constants/ with a basis line (or allow-list them with a reason)').toEqual([]);
+    for (const key of Object.keys(ALLOWED_LITERALS)) expect(seen.has(key), `allow-listed ${key} no longer exists: drop it`).toBe(true);
   });
   it('no two constants share a name (the home and the guarded directories)', () => {
     const seen = new Map<string, string[]>();

@@ -17,7 +17,7 @@ import { CopyWalletRepository } from './copy-wallet.repository.js';
 import type { MasterTypedData } from './live/master-action.js';
 import { safeErrorText } from '../runtime/safe-error-text.js';
 import { digest, Fail, SetupPart, Wait, type SetupContext, type SetupSigner } from './copy-live-setup-shared.js';
-import { SETUP_CLAIM_RENEW_MS, SHARED_CAPACITY_MIN_RETRY_MS } from '../config/constants/hyperliquid.js';
+import { SETUP_CLAIM_RENEW_MS, SHARED_CAPACITY_MIN_RETRY_MS, SHARED_CAPACITY_SLACK_MS } from '../config/constants/hyperliquid.js';
 import { SETUP_CLAIM_LOG_EVERY_MS } from '../config/constants/timings.js';
 import { ACCOUNT_MODE_OBSERVE_WEIGHT, ACCOUNT_MODE_STEP_WEIGHT, AGENT_STEP_WEIGHT, ATTEMPT_SOCKET_CONNECTS, ATTEMPT_STEP_WEIGHT, BUILDER_FEE_READ_WEIGHT, BUILDER_STEP_WEIGHT } from '../config/constants/weights.js';
 
@@ -161,7 +161,7 @@ export class SetupSteps extends SetupPart {
       if (waitMs > 0) {
         this.logClaimWait(row.id, weight, waitMs, meter);
         reservation?.park?.(); reservation = undefined;
-        throw new HyperliquidBudgetWait(Math.min(SETUP_CLAIM_RENEW_MS, Math.max(SHARED_CAPACITY_MIN_RETRY_MS, waitMs + 250)), 'shared_capacity', { weight, bucket: 'shared:setup' });
+        throw new HyperliquidBudgetWait(Math.min(SETUP_CLAIM_RENEW_MS, Math.max(SHARED_CAPACITY_MIN_RETRY_MS, waitMs + SHARED_CAPACITY_SLACK_MS)), 'shared_capacity', { weight, bucket: 'shared:setup' });
       }
       let ended = true;
       try { return await capacity.runSetup(() => step(reservation), row.id); }

@@ -78,9 +78,9 @@ function Ring({ value, className }: { value: number; className?: string }) {
 const TONE = { positive: "text-positive", warning: "text-warning", negative: "text-negative" } as const;
 
 /**
- * The trader page on phones, laid out as CopyDog's app: its own top bar,
- * the chart first (損益 / ROI), window pills, a 2×2 card (帳戶價值, 夏普,
- * 勝率 with a ring, 回撤), the page's tabs (持倉 / 洞察 / 表現 / 交易 / 動態,
+ * The trader page on phones: its own top bar, a 2×2 card (帳戶價值, 夏普,
+ * 勝率 with a ring, 回撤), the chart (損益 / ROI) with window pills, the
+ * page's tabs (持倉 / 洞察 / 表現 / 交易 / 動態,
  * as on desktop) with cards instead of tables, and a sticky 跟單 button in place of the tab bar that
  * opens the copy panel as a sheet. The copy score sits under the avatar
  * when the trader has one.
@@ -155,6 +155,46 @@ export function MobileTrader({
   return (
     <div className="flex flex-col gap-6 pb-6">
       <TopBar profile={profile} />
+
+      {/* QA on Stage, 2026-10-25: under the chart (488px) the 2×2 card sat
+          behind the tab row resting above the 跟單 bar (390×844), or below
+          the fold (360×740). Above the chart it is whole on first view. */}
+      <dl className="orbit-card card-pad grid grid-cols-2 gap-x-4 gap-y-5" data-testid="trader-phone-summary">
+        <div className="flex min-w-0 flex-col gap-[5px]">
+          <dt className="text-xs leading-4 font-bold text-muted-foreground">{t("trader.accountValue")}</dt>
+          <dd className="num font-display text-xl leading-[30px]" data-testid="account-value">{profile.accountValue === null ? "—" : usd2(profile.accountValue)}</dd>
+          {accountGap ? <dd role="status" className="text-[11px] leading-[14px] font-bold text-warning">{accountGap}</dd> : null}
+        </div>
+        <div className="flex min-w-0 flex-col gap-[5px]">
+          <dt className="text-xs leading-4 font-bold text-muted-foreground">{t("trader.kpi.sharpe")}</dt>
+          <dd className={cn("num font-display text-xl leading-[30px]", sharpe === null ? "" : sharpe >= 1.5 ? "text-positive" : sharpe >= 0 ? "text-warning" : "text-negative")}>
+            {sharpe === null ? "—" : sharpe.toFixed(2)}
+          </dd>
+        </div>
+        <div className="flex min-w-0 flex-col gap-[5px]">
+          <dt className="text-xs leading-4 font-bold text-muted-foreground">{t("trader.kpi.winRate")}</dt>
+          <dd className={cn("num flex items-center gap-2 font-display text-xl leading-[30px]", winTone ? TONE[winTone] : "")}>
+            {winRate === null ? (tradesWait.computing ? <SkelBar className="ui-skeleton h-5 w-16" /> : "—") : pct1(winRate)}
+            {winRate !== null ? <Ring value={winRate} /> : null}
+          </dd>
+          {winRate === null && tradesWait.unavailable ? (
+            // Never an endless skeleton: after the busy retries (or 30 s), 「—」 and 重試.
+            <dd role="status" className="text-[11px] leading-[14px] font-bold text-muted-foreground">
+              {t("trader.analyticsUnavailable")}{" "}
+              <button type="button" onClick={tradesWait.retry} className="min-h-6 text-primary-text underline outline-none focus-visible:ring-2 focus-visible:ring-ring">{t("trader.retry")}</button>
+            </dd>
+          ) : null}
+          {analytics && sampleSince !== null ? (
+            <dd className="num text-[11px] leading-[14px] font-bold text-muted-foreground" title={t("trader.kpi.tradesSinceHint")}>
+              {t("trader.kpi.tradesSince", { count: analytics.summary.trades, date: format.shortDate(sampleSince) })}
+            </dd>
+          ) : null}
+        </div>
+        <div className="flex min-w-0 flex-col gap-[5px]">
+          <dt className="text-xs leading-4 font-bold text-muted-foreground">{t("trader.mobile.drawdown")}</dt>
+          <dd className="num font-display text-xl leading-[30px] text-negative">{mdd === null ? "—" : pct1(mdd)}</dd>
+        </div>
+      </dl>
 
       <section aria-label={t("trader.chart.pnlLabel")} className="flex flex-col gap-5 rounded-2xl bg-raised p-4 [--skel-bar:var(--border)]">
         <div className="flex items-stretch justify-between gap-3">
@@ -237,43 +277,6 @@ export function MobileTrader({
         />
       </section>
 
-      <dl className="orbit-card card-pad grid grid-cols-2 gap-x-4 gap-y-5">
-        <div className="flex min-w-0 flex-col gap-[5px]">
-          <dt className="text-xs leading-4 font-bold text-muted-foreground">{t("trader.accountValue")}</dt>
-          <dd className="num font-display text-xl leading-[30px]" data-testid="account-value">{profile.accountValue === null ? "—" : usd2(profile.accountValue)}</dd>
-          {accountGap ? <dd role="status" className="text-[11px] leading-[14px] font-bold text-warning">{accountGap}</dd> : null}
-        </div>
-        <div className="flex min-w-0 flex-col gap-[5px]">
-          <dt className="text-xs leading-4 font-bold text-muted-foreground">{t("trader.kpi.sharpe")}</dt>
-          <dd className={cn("num font-display text-xl leading-[30px]", sharpe === null ? "" : sharpe >= 1.5 ? "text-positive" : sharpe >= 0 ? "text-warning" : "text-negative")}>
-            {sharpe === null ? "—" : sharpe.toFixed(2)}
-          </dd>
-        </div>
-        <div className="flex min-w-0 flex-col gap-[5px]">
-          <dt className="text-xs leading-4 font-bold text-muted-foreground">{t("trader.kpi.winRate")}</dt>
-          <dd className={cn("num flex items-center gap-2 font-display text-xl leading-[30px]", winTone ? TONE[winTone] : "")}>
-            {winRate === null ? (tradesWait.computing ? <SkelBar className="ui-skeleton h-5 w-16" /> : "—") : pct1(winRate)}
-            {winRate !== null ? <Ring value={winRate} /> : null}
-          </dd>
-          {winRate === null && tradesWait.unavailable ? (
-            // Never an endless skeleton: after the busy retries (or 30 s), 「—」 and 重試.
-            <dd role="status" className="text-[11px] leading-[14px] font-bold text-muted-foreground">
-              {t("trader.analyticsUnavailable")}{" "}
-              <button type="button" onClick={tradesWait.retry} className="min-h-6 text-primary-text underline outline-none focus-visible:ring-2 focus-visible:ring-ring">{t("trader.retry")}</button>
-            </dd>
-          ) : null}
-          {analytics && sampleSince !== null ? (
-            <dd className="num text-[11px] leading-[14px] font-bold text-muted-foreground" title={t("trader.kpi.tradesSinceHint")}>
-              {t("trader.kpi.tradesSince", { count: analytics.summary.trades, date: format.shortDate(sampleSince) })}
-            </dd>
-          ) : null}
-        </div>
-        <div className="flex min-w-0 flex-col gap-[5px]">
-          <dt className="text-xs leading-4 font-bold text-muted-foreground">{t("trader.mobile.drawdown")}</dt>
-          <dd className="num font-display text-xl leading-[30px] text-negative">{mdd === null ? "—" : pct1(mdd)}</dd>
-        </div>
-      </dl>
-
       <ActivityTabs profile={profile} liveFills={liveFills} marks={marks} phone />
 
       <div data-testid="trader-copy-bar" className="phone-floating-bar z-40 md:hidden">
@@ -329,6 +332,14 @@ export function MobileTraderSkeleton() {
           <SkelCircle className="size-11 bg-raised" />
         </span>
       </div>
+      <dl className="orbit-card card-pad ui-skeleton grid grid-cols-2 gap-x-4 gap-y-5">
+        {figures.map((key) => (
+          <div key={key} className="flex min-w-0 flex-col gap-[5px]">
+            <dt className="text-xs leading-4 font-bold text-muted-foreground">{t(key)}</dt>
+            <SkelBar line="h-[30px]" className="h-5 w-24" />
+          </div>
+        ))}
+      </dl>
       <section className="ui-skeleton flex flex-col gap-5 rounded-2xl bg-raised p-4 [--skel-bar:var(--border)]">
         <div className="flex items-stretch justify-between gap-3">
           <div className="flex min-w-0 flex-1 flex-col items-start gap-2">
@@ -341,14 +352,6 @@ export function MobileTraderSkeleton() {
         <div className="h-[180px] rounded-2xl bg-background/60" />
         <div className="flex h-[52px] rounded-full bg-card" />
       </section>
-      <dl className="orbit-card card-pad ui-skeleton grid grid-cols-2 gap-x-4 gap-y-5">
-        {figures.map((key) => (
-          <div key={key} className="flex min-w-0 flex-col gap-[5px]">
-            <dt className="text-xs leading-4 font-bold text-muted-foreground">{t(key)}</dt>
-            <SkelBar line="h-[30px]" className="h-5 w-24" />
-          </div>
-        ))}
-      </dl>
       <div className="flex h-[52px] rounded-full bg-raised" />
       <div className="-mt-2 flex flex-col gap-3">
         {[0, 1].map((i) => (

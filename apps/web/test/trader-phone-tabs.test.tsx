@@ -55,6 +55,19 @@ it("keeps the phone tab row above the 跟單 bar: sticky to the bar's top, below
   expect(tablist!.closest('[data-testid="trader-activity-tabs"]')!.parentElement!.querySelector(":scope > section[aria-label]")).not.toBeNull();
 });
 
+/** QA on Stage, 2026-10-25 (390×844): the row resting above the bar covered
+ * the 2×2 card's 勝率 / 回撤 under the 488px chart; at 360×740 the card was
+ * below the fold. The card comes right after the top bar, before the chart
+ * and the tabs, and the row rests over nothing of it. */
+it("puts the phone 2×2 summary card above the chart and the tab row", () => {
+  const page = html(<MobileTrader profile={empty()} marks={{}} portfolio={undefined} allTime={undefined} window="allTime" onWindow={() => {}} loading={false} copyScore={null} />);
+  const column = page.querySelector('[data-testid="trader-phone-header"]')!.parentElement!;
+  const order = [...column.children].map((el) => el.tagName === "DL" ? "summary" : el.matches("section[aria-label]") ? "chart" : el.matches('[data-testid="trader-activity-tabs"]') ? "tabs" : el.matches('[data-testid="trader-phone-header"]') ? "header" : null).filter(Boolean);
+  expect(order).toEqual(["header", "summary", "chart", "tabs"]);
+  const summary = column.querySelector(":scope > dl")!;
+  expect([...summary.querySelectorAll("dt")].map((dt) => dt.textContent)).toEqual([zhTW.trader.accountValue, zhTW.trader.kpi.sharpe, zhTW.trader.kpi.winRate, zhTW.trader.mobile.drawdown]);
+});
+
 /** The short phone page (暫無持倉) left the footer jumping up under a ~116px
  * line: the panel keeps a least height on every size, the empty line
  * centred in it, the same on desktop and phones. */

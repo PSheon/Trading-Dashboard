@@ -7,7 +7,7 @@ const state = vi.hoisted(() => ({
   status: "signedIn",
   tab: "referral",
   view: "referral",
-  desktop: true,
+  desktop: undefined as boolean | undefined,
   render: vi.fn(),
 }));
 vi.mock("next/navigation", () => ({

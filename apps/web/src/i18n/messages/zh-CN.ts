@@ -843,7 +843,6 @@ export const zhCN: Messages = {
       fillsTitle: "无近期成交",
       fillsDesc: "尚未找到该交易员的成交记录。订单成交后将显示在这里。",
       twapTitle: "无进行中的 TWAP 订单",
-      twapDesc: "该交易员目前没有执行中的 TWAP 订单。进行中的 TWAP 订单会在执行期间显示在这里。",
       transfersTitle: "无转账记录",
       transfersDesc: "近期未找到该交易员的存款、提款或转账记录。",
     },

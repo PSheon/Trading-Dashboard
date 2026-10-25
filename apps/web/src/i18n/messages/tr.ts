@@ -843,7 +843,6 @@ export const tr: Messages = {
       fillsTitle: "Son Gerçekleşme Yok",
       fillsDesc: "Bu trader için henüz gerçekleşen emir bulunamadı. Emirler gerçekleştikçe burada görünecek.",
       twapTitle: "Aktif TWAP Emri Yok",
-      twapDesc: "Bu trader'ın şu anda çalışan TWAP emri yok. Aktif TWAP emirleri çalışırken burada görünür.",
       transfersTitle: "Transfer Yok",
       transfersDesc: "Yakın dönemde bu trader için para yatırma, çekme veya transfer bulunamadı.",
     },

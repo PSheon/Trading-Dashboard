@@ -1637,7 +1637,6 @@ export const zhTW = {
       fillsTitle: "無近期成交",
       fillsDesc: "尚未找到該交易員的成交紀錄。訂單成交後將顯示於此。",
       twapTitle: "無進行中的 TWAP 訂單",
-      twapDesc: "該交易員目前沒有執行中的 TWAP 訂單。進行中的 TWAP 訂單會在執行期間顯示於此。",
       transfersTitle: "無轉帳紀錄",
       transfersDesc: "近期未找到該交易員的存款、提款或轉帳紀錄。",
     },

@@ -1633,7 +1633,6 @@ export const en: Messages = {
       fillsTitle: "No Recent Fills",
       fillsDesc: "No executed fills found for this trader yet. Fills will appear here as orders execute.",
       twapTitle: "No Active TWAP Orders",
-      twapDesc: "This trader has no running TWAP orders right now. Active TWAP orders appear here while they execute.",
       transfersTitle: "No Transfers",
       transfersDesc: "No deposits, withdrawals or transfers found for this trader in the recent window.",
     },

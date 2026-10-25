@@ -843,7 +843,6 @@ export const id: Messages = {
       fillsTitle: "Tidak Ada Eksekusi Terbaru",
       fillsDesc: "Belum ada eksekusi untuk trader ini. Eksekusi akan muncul di sini seiring order terisi.",
       twapTitle: "Tidak Ada Order TWAP Aktif",
-      twapDesc: "Trader ini tidak punya order TWAP yang sedang berjalan. Order TWAP aktif muncul di sini selama dieksekusi.",
       transfersTitle: "Tidak Ada Transfer",
       transfersDesc: "Tidak ditemukan deposit, penarikan, atau transfer untuk trader ini pada periode terbaru.",
     },

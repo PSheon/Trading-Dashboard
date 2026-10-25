@@ -843,7 +843,6 @@ export const ja: Messages = {
       fillsTitle: "最近の約定なし",
       fillsDesc: "このトレーダーの約定はまだありません。注文が約定するとここに表示されます。",
       twapTitle: "実行中のTWAP注文なし",
-      twapDesc: "このトレーダーには現在、実行中のTWAP注文がありません。実行中の注文はここに表示されます。",
       transfersTitle: "入出金なし",
       transfersDesc: "直近の期間に、このトレーダーの入金・出金・送金は見つかりませんでした。",
     },

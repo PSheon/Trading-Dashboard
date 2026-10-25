@@ -7,6 +7,7 @@ import {
 } from "@/lib/contracts";
 import { api } from "@/lib/api";
 import { useI18n } from "@/i18n/provider";
+import { InfoTip } from "@/components/ui/info-tip";
 import { Panel, Skeleton, ErrorState } from "@/components/page";
 import { AddressAvatar } from "@/components/traders/address-avatar";
 import { TraderName, AddressText } from "@/components/traders/trader-name";
@@ -32,12 +33,13 @@ export function TraderSearchResults({ query }: { query: string }) {
       className="space-y-3 p-4"
       aria-labelledby="trader-search-title"
     >
-      <h2 id="trader-search-title" className="font-semibold">
-        {t("research.searchTitle")}
-      </h2>
-      <p className="text-xs leading-relaxed text-muted-foreground">
-        {t("research.searchHint")}
-      </p>
+      {/* What the search covers: the ⓘ's, not a sentence (Paul, 2026-10-25). */}
+      <div className="flex items-center gap-1">
+        <h2 id="trader-search-title" className="font-semibold">
+          {t("research.searchTitle")}
+        </h2>
+        <InfoTip label={t("common.moreInfo")} align="start">{t("research.searchHint")}</InfoTip>
+      </div>
       {!parsed.success ? (
         <p className="text-sm text-muted-foreground">
           {t("research.queryLength")}

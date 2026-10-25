@@ -843,7 +843,6 @@ export const es: Messages = {
       fillsTitle: "Sin ejecuciones recientes",
       fillsDesc: "Todavía no hay ejecuciones para este trader. Aparecerán aquí a medida que se ejecuten las órdenes.",
       twapTitle: "Sin órdenes TWAP activas",
-      twapDesc: "Este trader no tiene órdenes TWAP en curso. Las órdenes TWAP activas aparecerán aquí mientras se ejecutan.",
       transfersTitle: "Sin transferencias",
       transfersDesc: "No se encontraron depósitos, retiros ni transferencias de este trader en el periodo reciente.",
     },

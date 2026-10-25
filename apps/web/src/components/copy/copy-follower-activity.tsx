@@ -9,6 +9,7 @@ import { useCopyFollowerActivity } from '@/lib/copy-follower-activity';
 import { formatOriginalReductionPercent } from '@/lib/copy-follower-adjustment';
 import { formatFollowerAmount } from '@/lib/copy-follower-statements';
 import { useI18n } from '@/i18n/provider';
+import { InfoTip } from '@/components/ui/info-tip';
 import { Button } from '@/components/ui/button';
 
 /** Booked actual receipt history. It never signs, submits or reconciles orders. */
@@ -21,9 +22,9 @@ function ActivityView({ account }: { account: CopyExecutionAccount }) {
   const { t, format } = useI18n(), pagination = useCursorPager<string>(), before = pagination.cursor;
   const query = useCopyFollowerActivity(account, before), page = query.data;
   return <section className="mt-5 border-t-2 border-dotted border-border pt-5" aria-label={t('copyFollowerActivity.title')}>
-    <h4 className="text-sm font-bold">{t('copyFollowerActivity.title')}</h4>
-    <p className="mt-2 text-xs leading-5 text-muted-foreground">{t('copyFollowerActivity.hint')}</p>
-    <p className="mt-2 text-xs leading-5 text-muted-foreground">{t('copyFollowerStatement.deltaHint')}</p>
+    {/* What the list is and how to read its amounts: the ⓘ's (Paul, 2026-10-25). */}
+    <h4 className="flex items-center gap-1 text-sm font-bold">{t('copyFollowerActivity.title')}
+      <InfoTip label={t('common.moreInfo')} align="start"><span className="block">{t('copyFollowerActivity.hint')}</span><span className="mt-1 block">{t('copyFollowerStatement.deltaHint')}</span></InfoTip></h4>
     {query.isPending ? <p role="status" className="mt-3 text-xs">{t('copyFollowerActivity.loading')}</p> : null}
     {query.isError ? <div className="mt-3"><p role="alert" className="text-xs text-warning">{t('copyFollowerActivity.error')}</p><Button size="sm" variant="secondary" className="mt-2 min-h-11" loading={query.isFetching} onClick={() => void query.refetch()}>{t('executionWallets.retry')}</Button></div> : null}
     {page ? <div className="mt-3 space-y-3">

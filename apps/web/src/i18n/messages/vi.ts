@@ -843,7 +843,6 @@ export const vi: Messages = {
       fillsTitle: "Không có khớp lệnh gần đây",
       fillsDesc: "Chưa tìm thấy lệnh khớp nào của trader này. Các lệnh khớp sẽ hiển thị tại đây.",
       twapTitle: "Không có lệnh TWAP đang chạy",
-      twapDesc: "Hiện trader này không có lệnh TWAP nào đang chạy. Lệnh TWAP đang chạy sẽ hiển thị tại đây.",
       transfersTitle: "Không có giao dịch chuyển khoản",
       transfersDesc: "Không tìm thấy khoản nạp, rút hay chuyển nào của trader này trong giai đoạn gần đây.",
     },

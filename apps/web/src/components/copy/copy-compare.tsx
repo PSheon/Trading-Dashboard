@@ -8,6 +8,7 @@ import { Seg } from "@/components/copy/portfolio-parts";
 import { SkelBar, Skeleton } from "@/components/page";
 import { RoiPill } from "@/components/traders/bits";
 import { useI18n } from "@/i18n/provider";
+import { InfoTip } from "@/components/ui/info-tip";
 import type { CopyStrategyView } from "@/lib/contracts";
 import { performanceIsStale } from "@/components/copy/copy-performance";
 import { useCopyPerformance } from "@/lib/copy";
@@ -131,7 +132,8 @@ export function CopyCompare({ strategy: s, traderName, history = true, leaderHis
         ) : null}
       </div>
       <div className="border-t-2 border-dotted border-border p-3" data-testid="copy-compare">
-        <p className="text-xs font-semibold">{t("pf.detail.sameWindow", { date: format.dateTime(from) })}</p>
+        {/* How both figures are computed: the ⓘ's, not a footnote (Paul, 2026-10-25). */}
+        <p className="flex items-center gap-1 text-xs font-semibold">{t("pf.detail.sameWindow", { date: format.dateTime(from) })}<InfoTip label={t("common.moreInfo")} align="start">{t("pf.detail.note")}</InfoTip></p>
         <dl className="mt-2 grid grid-cols-2 gap-2">
           {([["yours", t("pf.detail.yourCopy"), yours], ["trader", traderName, theirs]] as const).map(([key, label, v]) => (
             <div key={key} className="rounded-xl bg-raised/50 p-3">
@@ -141,7 +143,6 @@ export function CopyCompare({ strategy: s, traderName, history = true, leaderHis
             </div>
           ))}
         </dl>
-        <p className="mt-2 text-[11px] text-muted-foreground">{t("pf.detail.note")}</p>
       </div>
     </section>
   );

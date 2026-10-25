@@ -843,7 +843,6 @@ export const ko: Messages = {
       fillsTitle: "최근 체결 없음",
       fillsDesc: "이 트레이더의 체결 내역이 아직 없습니다. 주문이 체결되면 여기에 표시됩니다.",
       twapTitle: "진행 중인 TWAP 주문 없음",
-      twapDesc: "이 트레이더는 현재 실행 중인 TWAP 주문이 없습니다. 실행 중인 TWAP 주문이 여기에 표시됩니다.",
       transfersTitle: "입출금 없음",
       transfersDesc: "최근 기간 동안 이 트레이더의 입금·출금·이체 내역이 없습니다.",
     },

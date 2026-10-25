@@ -615,7 +615,7 @@ export function TwapTab({ address }: { address: string }) {
   const { sorted, sort, onSort } = useSorted<TraderTwap, TwapKey>(rows, TWAP_KEYS, { key: "time", dir: "desc" });
   if (query.isError && !query.data) return <LoadError onRetry={() => query.refetch()} />;
   if (!query.data) return <Loading cols={(["coin", "orderSide", "size", "filled", "duration", "time"] as const).map((k) => t(`trader.cols.${k}`))} />;
-  if (rows.length === 0) return <Empty title={t("trader.empty.twapTitle")} body={t("trader.empty.twapDesc")} />;
+  if (rows.length === 0) return <Empty title={t("trader.empty.twapTitle")} />;
   const head = { sort, onSort };
   return (
     <Table dense className="text-xs">

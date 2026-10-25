@@ -112,7 +112,8 @@ const board = vi.hoisted(() => ({ result: {} as Record<string, unknown> }));
 const notFound = vi.hoisted(() => vi.fn(() => { throw new Error("NEXT_NOT_FOUND"); }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh() {} }), notFound }));
 vi.mock("next/link", () => ({ default: ({ children, href }: { children: React.ReactNode; href: string }) => <a href={href}>{children}</a> }));
-vi.mock("../src/lib/queries", () => ({ useCoinBoard: () => board.result, useCoinIndex: () => board.result }));
+const site = vi.hoisted(() => ({ result: { data: undefined } as { data?: { lowSampleThreshold: number } } }));
+vi.mock("../src/lib/queries", () => ({ useCoinBoard: () => board.result, useCoinIndex: () => board.result, useSiteSettings: () => site.result }));
 
 describe("/coins/<market>", () => {
   const render = (coin: string) => renderToStaticMarkup(<I18nProvider locale="zh-TW" messages={zhTW}><CoinBoardView coin={coin} /></I18nProvider>);
@@ -151,6 +152,24 @@ describe("/coins/<market>", () => {
     expect(html).toContain("<table");
     expect(html).toContain(zhTW.coins.listed);
     expect(html).not.toContain("尚無市場資料");
+  });
+
+  it("greys a win rate from fewer trades than the low-sample threshold and keeps the PnL ranking (Stage /coins/BTC, 2026-10-25)", () => {
+    const data = JSON.parse(JSON.stringify(fixtureCoinBoard("BTC")));
+    const [first, second] = data.items;
+    data.items = [{ ...first, pnl: 40_000_000, trades: 1, winRate: 1 }, { ...second, pnl: 1_000_000, trades: 30, winRate: 0.6 }];
+    board.result = { data, isError: false };
+    const cells = (html: string) => [...html.matchAll(/<td[^>]*>[^<]*%<\/td>/g)].map(([cell]) => cell);
+    const [low, full] = cells(render("BTC"));
+    expect(low).toContain("100.0%");
+    expect(low).toContain('data-low-sample="true"');
+    expect(low).toContain("text-subtle-foreground");
+    expect(full).toContain("60.0%");
+    expect(full).not.toContain("data-low-sample");
+    // The admin's threshold rules once the site settings are read.
+    site.result = { data: { lowSampleThreshold: 1 } };
+    expect(cells(render("BTC"))[0]).not.toContain("data-low-sample");
+    site.result = { data: undefined };
   });
 
   it("the fixtures match the contract", () => {

@@ -21,6 +21,10 @@ import type { CohortMarket, CohortWallet } from "@/lib/contracts";
 import { coinLabel, truncateAddress, usdCompact } from "@/lib/format";
 import { SentimentText, SplitBar } from "./sentiment";
 
+/** 交易資產 (QA 2026-10-25): three icons, the rest a +N pill listing every
+ * coin on hover, as the board cards' stacks (three). */
+const COHORT_ASSETS_SHOWN = 3;
+
 const money = (v: number | null, sign = false) => (v === null ? "—" : usdCompact(v, { sign, digits: 2 }));
 const pctText = (ratio: number | null) => {
   if (ratio === null) return "—";
@@ -95,7 +99,7 @@ export function WalletsTable({ rows }: { rows: CohortWallet[] }) {
                 </button>
               </div>
               {expanded ? <dl id={`cohort-wallet-${w.address}`} data-wallet-details className="mb-2 grid gap-3 rounded-xl bg-raised p-3">
-                <div><dt className="text-muted-foreground">{c("assets")}</dt><dd className="mt-1"><CoinStack coins={w.topAssets} size={20} dash /></dd></div>
+                <div><dt className="text-muted-foreground">{c("assets")}</dt><dd className="mt-1"><CoinStack coins={w.topAssets} size={20} max={COHORT_ASSETS_SHOWN} dash /></dd></div>
                 <div><dt className="text-muted-foreground">{c("copyScore")}</dt><dd className="mt-1"><CopyScoreBar score={w.copyScore} layout="number-first" className="flex items-center gap-2.5" barClassName="w-16" /></dd></div>
                 <div><dt className="text-muted-foreground">{c("positionValue")}</dt><dd className="num mt-1 font-semibold">{money(w.positionValue)}</dd></div>
                 <div><dt className="text-muted-foreground">{c("leverage")}</dt><dd className="num mt-1 font-semibold">{w.positionValue > 0 && w.leverage !== null ? `${w.leverage.toFixed(2)}×` : "—"}</dd></div>
@@ -143,7 +147,7 @@ export function WalletsTable({ rows }: { rows: CohortWallet[] }) {
                   {w.verified ? <VerifiedTick className="size-3.5" /> : null}
                 </Link>
               </TableCell>
-              <TableCell><CoinStack coins={w.topAssets} size={16} dash /></TableCell>
+              <TableCell><CoinStack coins={w.topAssets} size={18} max={COHORT_ASSETS_SHOWN} dash /></TableCell>
               <TableCell className={cn("num text-right", signTone(w.totalPnl))}>{money(w.totalPnl, true)}</TableCell>
               <TableCell className={cn("num text-right", signTone(w.roi))}>{pctText(w.roi)}</TableCell>
               <TableCell className="num text-right">{money(w.perpEquity)}</TableCell>

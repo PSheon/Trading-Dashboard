@@ -67,19 +67,27 @@ export function XProfileLink({ handle, className }: { handle: string; className?
   );
 }
 
-/** Up to five coin icons, overlapping (CopyDog's asset stack). */
+/** Up to `max` coin icons (five by default), overlapping (CopyDog's asset
+ * stack); with `max`, the rest are a +N pill whose hover lists every coin. */
 /** `dash`: show "—" when there are no coins (tables); cards show nothing. */
-export function CoinStack({ coins, size = 14, className, dash = false }: { coins: string[]; size?: number; className?: string; dash?: boolean }) {
+export function CoinStack({ coins, size = 14, className, dash = false, max }: { coins: string[]; size?: number; className?: string; dash?: boolean; max?: number }) {
   if (coins.length === 0) return dash ? <span className="text-subtle-foreground">—</span> : null;
+  const shown = coins.slice(0, max ?? 5);
+  const more = max === undefined ? 0 : coins.length - shown.length;
   return (
     <span role="img" className={cn("inline-flex items-center", className)} aria-label={coins.join(", ")}>
-      {coins.slice(0, 5).map((coin, i) => (
+      {shown.map((coin, i) => (
         <Tooltip key={coin} content={coinLabel(coin)} side="top" variant="chip">
           <span className="flex rounded-full" style={{ marginLeft: i === 0 ? 0 : -size * 0.36, zIndex: 5 - i }}>
             <CoinIcon coin={coin} size={size} />
           </span>
         </Tooltip>
       ))}
+      {more > 0 ? (
+        <Tooltip content={coins.map(coinLabel).join(" · ")} side="top" variant="chip">
+          <span data-testid="coin-stack-more" className="chip-sm ml-1 bg-raised px-1.5 text-muted-foreground">+{more}</span>
+        </Tooltip>
+      ) : null}
     </span>
   );
 }

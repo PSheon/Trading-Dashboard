@@ -450,3 +450,22 @@ it("D9: a copy whose budget is under the leader's suggested minimum carries one 
   expect(hidden.textContent).toBe(tip);
   expect([...pills[0]!.childNodes].filter(node => !(node instanceof HTMLElement && node.classList.contains('sr-only'))).map(node => node.textContent).join('')).toBe(label);
 });
+
+/** A button's accessible name as the browser computes it here: its
+ * aria-label, else its content, which inside a closed <details> (outside
+ * its summary) is not rendered and names nothing. */
+const accessibleName = (el: HTMLElement) => el.getAttribute('aria-label')?.trim()
+  || (el.closest('details:not([open])') && !el.closest('summary') ? '' : (el.textContent ?? '').trim());
+const buttonsByName = (name: RegExp) => [...container.querySelectorAll<HTMLElement>('button')].filter(b => name.test(accessibleName(b)));
+
+it('names every copy card by its leader and status pill, inside the collapsed 已結束 too (Stage /portfolio 2026-10-25: 7 cards without a name)', async () => {
+  items = [item(), item({ strategyId: 98, stage: 'stopped', status: 'stopped', mandate: null }),
+    item({ strategyId: 97, stage: 'stopped', status: 'stopped', mandate: null, sweep: { amount: '97.5', status: 'credited' } })];
+  await render('zh-TW', { open: false });
+  expect(container.querySelector('details')!.open).toBe(false);
+  expect(cards()).toHaveLength(3);
+  expect(buttonsByName(/^0x4444…4444 · 策略已啟用$/)).toHaveLength(1);
+  expect(buttonsByName(/^0x4444…4444 · 已結束$/)).toHaveLength(1);
+  expect(buttonsByName(/^0x4444…4444 · 返還已入帳$/)).toHaveLength(1);
+  expect(buttonsByName(/^0x4444…4444 · 已結束$/)[0]!.dataset.testid).toBe('live-copy-card');
+});

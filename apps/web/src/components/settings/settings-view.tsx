@@ -50,6 +50,7 @@ import { DeleteAccountButton, DeleteAccountDialog } from "./delete-account";
 import { ReferralSettings } from "./referral";
 import { CopyWalletsList } from "./copy-wallets";
 import { useLogout } from "@/lib/use-logout";
+import { useIsDesktop } from "@/lib/use-is-desktop";
 import { OrbitSpinner } from "@/components/ui/orbit-spinner";
 import { truncateAddress } from "@/lib/format";
 
@@ -80,13 +81,19 @@ export function SettingsView() {
   // state (its reads wait for the session), as a returning visitor sees it.
   const loading = status === "loading";
   const signedIn = status === "signedIn" || loading;
+  // Both layouts are served (CSS picks one before hydration); once the
+  // width is known only the one on screen is mounted, so the page has one
+  // 設定 heading, one copy-wallet list and one set of dialogs.
+  const desktop = useIsDesktop();
   return (
     <div aria-busy={loading || undefined} className="contents">
-      <div className="hidden md:block">{signedIn ? <DesktopSettings /> : <SignedOut />}</div>
+      {desktop !== false ? <div className="hidden md:block">{signedIn ? <DesktopSettings /> : <SignedOut />}</div> : null}
       {/* The phone page exists signed out too, with public preferences. */}
-      <div className="md:hidden">
-        <PhoneSettings signedIn={signedIn} />
-      </div>
+      {desktop !== true ? (
+        <div className="md:hidden">
+          <PhoneSettings signedIn={signedIn} />
+        </div>
+      ) : null}
     </div>
   );
 }

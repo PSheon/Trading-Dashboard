@@ -9,6 +9,7 @@ import { cn } from "cn";
 
 import { Skeleton } from "@/components/page";
 import { Button } from "@/components/ui/button";
+import { InfoTip } from "@/components/ui/info-tip";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -39,27 +40,35 @@ function TelegramIcon({ className }: { className?: string }) {
   );
 }
 
-/** One notification row: icon, title and hint on the left, action on the right. */
+/** One notification row: icon, title and a short state (or an ⓘ with the
+ * explanation) on the left, action on the right. */
 export function BotRow({
   title,
   hint,
+  tip,
   action,
   children,
   className,
 }: {
   title: string;
-  hint: React.ReactNode;
+  hint?: React.ReactNode;
+  /** What the row does, behind an ⓘ beside the title (no visible sentence). */
+  tip?: string;
   action: React.ReactNode;
   children?: React.ReactNode;
   className?: string;
 }) {
+  const { t } = useI18n();
   return (
     <div className={cn("py-3.5", className)}>
       <div className="flex items-center gap-3">
         <TelegramIcon />
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold">{title}</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>
+          <p className="flex items-center gap-1 text-sm font-semibold">
+            {title}
+            {tip ? <InfoTip label={t("common.moreInfo")} align="start">{tip}</InfoTip> : null}
+          </p>
+          {hint ? <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p> : null}
         </div>
         {action}
       </div>
@@ -76,7 +85,7 @@ export function TradingBotRow({ className }: { className?: string }) {
   const data = status.data;
   const canEnable = Boolean(data?.linked && data.enabled && data.bot);
   const checked = data?.copyAlertsEnabled ?? false;
-  return <BotRow className={className} title={t("settings.tradingBot")} hint={t("copyUpdates.alertHint")} action={
+  return <BotRow className={className} title={t("settings.tradingBot")} tip={t("copyUpdates.alertHint")} action={
     status.isError && !data ? <Button loading={status.isFetching} variant="secondary" size="sm" onClick={() => status.refetch()}>{t("common.retry")}</Button> :
     !data ? <Skeleton className="h-9 w-16 rounded-full" /> :
     <Button variant="secondary" size="sm" role="switch" aria-checked={checked} aria-label={t("settings.tradingBot")} loading={update.isPending} disabled={!(update.isPending) && (update.isPending || (!canEnable && !checked))} onClick={() => update.mutate(!checked)}>

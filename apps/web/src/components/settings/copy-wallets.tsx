@@ -1,10 +1,11 @@
 "use client";
 
+import { ChevronDown } from "lucide-react";
+import { useId, useState } from "react";
+import { cn } from "cn";
+
 import { TablePager, usePaged } from "@/components/ui/table-pager";
 import { DataList } from "@/components/ui/data-list";
-
-
-import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useWalletModals } from "@/components/wallet/wallet-modals";
 import { useLiveSetupText } from "@/components/copy/live-copy-setup-dialogs";
@@ -17,20 +18,32 @@ import { truncateAddress } from "@/lib/format";
  * wallets, read only, with 匯出私鑰 (Privy's own modal; the key never
  * reaches Orbie) and revoking a trading agent. Setting a copy up happens on
  * the trader page; the step-by-step forms live at /dev/copy (lab only).
+ * One row, 跟單錢包 with the count, opens the list (Paul, 2026-10-25:
+ * fourteen wallets were two pages of buttons); who owns the wallets is the
+ * row's hover.
  */
 export function CopyWalletsList() {
   const text = useLiveSetupText(), { t, format } = useI18n();
   const wallets = useExecutionWallets(), revoke = useRevokeWalletAuthorization();
   const { openExport } = useWalletModals();
   const [confirming, setConfirming] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  const listId = useId();
   const data = wallets.data;
   const accounts = data?.accounts.filter(account => account.state === "ready" && account.address) ?? [];
   const { rows: accountRows, pager } = usePaged(accounts);
   if (!data || (!accounts.length && !data.authorizations.length)) return null;
   return (
     <section className="orbit-card card-pad" aria-label={text.wallets}>
-      <h3 className="text-[0.9375rem] font-bold">{text.wallets}</h3>
-      <p className="mt-2 text-xs leading-5 text-muted-foreground">{text.walletsHint}</p>
+      <h3 className="text-[0.9375rem] font-bold">
+        <button type="button" aria-expanded={open} aria-controls={listId} title={text.walletsHint} onClick={() => setOpen(o => !o)}
+          className="orbit-press flex min-h-11 w-full items-center gap-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <span>{text.wallets}</span>
+          <span data-testid="copy-wallets-count" className="num chip-sm bg-raised text-foreground">{accounts.length}</span>
+          <ChevronDown aria-hidden className={cn("ml-auto size-4 text-muted-foreground transition-transform", open && "rotate-180")} />
+        </button>
+      </h3>
+      {open ? <div id={listId}>
       {!accounts.length ? <p className="mt-3 text-xs text-muted-foreground">{text.walletsEmpty}</p> : null}
       <DataList className="mt-3 ">
         {accountRows.map(account => {
@@ -61,6 +74,7 @@ export function CopyWalletsList() {
         })}
       </DataList>
       <TablePager {...pager} />
+      </div> : null}
       {revoke.isError ? <p role="alert" className="mt-2 text-xs text-negative">{t("executionWallets.actionError")}</p> : null}
     </section>
   );

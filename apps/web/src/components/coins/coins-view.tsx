@@ -65,8 +65,11 @@ function CoinIndexContent({ query }: { query: { data: CoinIndexResponse | undefi
   return (
     <Column>
       <p className="cd-label">{t("coins.markets")}</p>
-      <h1 className="type-h1 mt-1">{t("coins.indexTitle")}</h1>
-      <p className="mt-2 max-w-[68ch] text-[15px] leading-[1.5] font-bold text-muted-foreground">{t("coins.indexBody")}</p>
+      {/* How the markets are ranked is the ⓘ's, not a sentence (Paul, 2026-10-25). */}
+      <div className="mt-1 flex items-center gap-2">
+        <h1 className="type-h1">{t("coins.indexTitle")}</h1>
+        <InfoTip label={t("common.moreInfo")}>{t("coins.indexBody")}</InfoTip>
+      </div>
       <div className={cn("mt-[31px]", !query.data && !query.isError && "ui-skeleton")}>
         {query.isError && !query.data ? (
           <ErrorState onRetry={query.refetch} />
@@ -144,11 +147,11 @@ export function CoinBoardView({ coin }: { coin: string }) {
         <span aria-hidden> › </span>
         <span aria-current="page">{label}</span>
       </nav>
-      <h1 className="type-h1 mt-3">{t("coins.title", { coin: label })}</h1>
-      <p className="mt-2 max-w-[68ch] text-[15px] leading-[1.5] font-bold text-muted-foreground">
-        {t("coins.body", { coin: label })}{" "}
-        <InfoTip label={t("common.moreInfo")}>{t("coins.method")}</InfoTip>
-      </p>
+      {/* How the board is ranked and where its numbers come from: the ⓘ's, no visible sentence (Paul, 2026-10-25). */}
+      <div className="mt-3 flex items-center gap-2">
+        <h1 className="type-h1">{t("coins.title", { coin: label })}</h1>
+        <InfoTip label={t("common.moreInfo")}><span className="block">{t("coins.body", { coin: label })}</span><span className="mt-1 block">{t("coins.method")}</span></InfoTip>
+      </div>
 
       {noData ? (
         <p data-testid="coin-no-data" className="mt-8 text-sm leading-[1.5] text-muted-foreground">{t("coins.noData")}</p>

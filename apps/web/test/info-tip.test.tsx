@@ -101,7 +101,8 @@ describe("the moved sentences are tips, not lines", () => {
     ["src/components/insights/positioning-chart.tsx", 't("copyUpdates.historical")'],
     ["src/components/insights/positioning-chart.tsx", 't("insights.cohort.membershipChanged")'],
     ["src/components/coins/coins-view.tsx", 't("coins.method")'],
-    ["src/components/trader/copy-panel.tsx", "liveText.testnetNote"],
+    ["src/components/coins/coins-view.tsx", 't("coins.body"'],
+    ["src/components/coins/coins-view.tsx", 't("coins.indexBody")'],    ["src/components/trader/copy-panel.tsx", "liveText.testnetNote"],
     ["src/components/portfolio-view.tsx", 't("liveCopyUi.roundingHint")'],
   ])("%s renders %s only inside an InfoTip", (file, expr) => {
     const text = source(file);

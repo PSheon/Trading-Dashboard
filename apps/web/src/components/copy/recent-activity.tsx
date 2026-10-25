@@ -37,7 +37,7 @@ export function useEventLine() {
  * page past the events read asks for older ones). `names` maps the side's
  * copies (strategy id → trader name); events of other copies are left out,
  * so paper and real money never share a list. Copy activity only: deposits
- * and withdrawals are in 交易紀錄, and the empty line says so.
+ * and withdrawals are in 交易紀錄, which the empty dash says on hover.
  */
 export function CopyActivity({ names, className }: { names: Map<number, string>; className?: string }) {
   const { t } = useI18n();
@@ -65,7 +65,9 @@ export function CopyActivity({ names, className }: { names: Map<number, string>;
           })}
         </DataList>
       ) : (
-        <p className="py-4 text-sm text-muted-foreground">{query.isPending && !query.data ? t("copyUpdates.activityLoading") : t("folio.noCopyActivity")}</p>
+        query.isPending && !query.data ? <p className="py-4 text-sm text-muted-foreground">{t("copyUpdates.activityLoading")}</p>
+          // Nothing yet: a muted dash; where deposits and withdrawals are is its hover.
+          : <p data-testid="copy-activity-empty" className="py-4 text-sm text-muted-foreground" title={t("folio.noCopyActivity")}><span aria-hidden>—</span><span className="sr-only">{t("folio.noCopyActivity")}</span></p>
       )}
       <TablePager page={pager.page} hasNext={pager.page + 1 < pager.pages || (more && mine.length > 0)} busy={query.isLoadingOlder} onPage={onPage} className="px-0" />
     </div>

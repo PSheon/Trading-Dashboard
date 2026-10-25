@@ -39,7 +39,7 @@ async function mine(url: string) {
   window.history.replaceState(null, "", url);
   await act(async () => root.render(<I18nProvider locale="en" messages={en}><AppShell><p>page</p></AppShell></I18nProvider>));
   const nav = container.querySelector('header.orbit-header nav[aria-label="Mine"]');
-  return nav ? [...nav.querySelectorAll("a")].map((a) => ({ name: a.getAttribute("aria-label"), lit: a.getAttribute("aria-current") === "page", className: a.className })) : null;
+  return nav ? [...nav.querySelectorAll("a")].map((a) => ({ name: a.getAttribute("aria-label"), lit: a.getAttribute("aria-current") === "page", className: a.className, navClass: nav.className })) : null;
 }
 
 const APP_PAGES = ["/", "/explore", "/explore?market=stocks", "/explore?market=stocks&board=xyz:NVDA", "/insights", `/trader/0x${"ab".repeat(20)}`, `/trader/0x${"ab".repeat(20)}?tab=insights`, "/coins/BTC", "/coins/xyz:SP500", "/settings", "/portfolio", "/favorites"];
@@ -55,6 +55,9 @@ it("draws 投資組合 / 收藏 on every app page, unlit links in one enabled st
     expect(links, url).not.toBeNull();
     expect(links!.map((l) => l.name), url).toEqual(["Portfolio", "Saved"]);
     expect(links!.filter((l) => l.lit).map((l) => l.name), url).toEqual(url === "/portfolio" ? ["Portfolio"] : url === "/favorites" ? ["Saved"] : []);
+    // No entry animation on the capsule: a resize or a full-page capture
+    // restarts it, and the pair was caught half faded or at opacity 0.
+    expect(links![0]!.navClass, url).not.toMatch(/animate-in|fade-in|opacity/);
     for (const link of links!.filter((l) => !l.lit)) {
       expect(link.className, url).not.toMatch(/text-muted-foreground|opacity|disabled|pointer-events-none/);
       expect(link.className, url).toMatch(/\btext-foreground\b/);

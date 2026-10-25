@@ -49,7 +49,8 @@ function PageTransition({ children }: { children: React.ReactNode }) {
  *
  * 投資組合 / 收藏 are the visitor's own pages: they show once someone is
  * signed in, never while signed out or while sign-in is still unknown (the
- * signed-out header is drawn until then, and the capsule fades in).
+ * signed-out header is drawn until then), or while a saved session is
+ * being restored. It appears without a fade.
  *
  * What else a page gets (the phone top bar, the tab bar, the footer) is its
  * route group's chrome (./chrome.ts): the frame reads the active group, so
@@ -127,12 +128,11 @@ export function AppShell({
         </div>
         <div className="flex min-w-0 items-center justify-end gap-3">
           {mine ? (
-            <NavCapsule
-              label={t("nav.mine")}
-              items={mineNav}
-              pathname={pathname}
-              className="animate-in duration-300 fade-in-0 motion-reduce:animate-none"
-            />
+            // No entry fade (QA 2026-10-25): the browser restarts a CSS
+            // entry animation whenever the header is laid out again (a
+            // resize, a full-page capture), so the pair was caught half
+            // faded ("greyed") or at opacity 0 ("missing") on random pages.
+            <NavCapsule label={t("nav.mine")} items={mineNav} pathname={pathname} />
           ) : null}
           <IslandBoundary><AccountControls /></IslandBoundary>
         </div>

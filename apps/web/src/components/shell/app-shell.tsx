@@ -72,8 +72,14 @@ export function AppShell({
   // At the top of the page the bars are clear; once it scrolls, their
   // frosted panel (.bar-scrim) fades in.
   const scrolled = usePageScrolled();
-  const authStatus = useAuth().status;
+  const auth = useAuth();
+  const authStatus = auth.status;
   const signedIn = authStatus === "signedIn";
+  // 投資組合 / 收藏: also while a saved session is being restored, so a
+  // signed-in visitor's full page load has them at once (QA 2026-10-25: a
+  // reload of /explore?market=stocks drew the header without them until
+  // Privy was ready).
+  const mine = signedIn || Boolean(auth.restoring);
   const chrome = chromeFor(useSelectedLayoutSegment());
   const fill = Boolean(chrome?.fill);
   const guestFill = fill && (authStatus === "signedOut" || authStatus === "disabled");
@@ -120,7 +126,7 @@ export function AppShell({
           <IslandBoundary><AddressSearch /></IslandBoundary>
         </div>
         <div className="flex min-w-0 items-center justify-end gap-3">
-          {signedIn ? (
+          {mine ? (
             <NavCapsule
               label={t("nav.mine")}
               items={mineNav}
@@ -214,7 +220,10 @@ function NavCapsule({ label, items, pathname, className }: { label: string; item
             title={text}
             className={cn(
               "orbit-press relative z-10 flex h-11 items-center gap-2 rounded-[22px] px-3.5 font-extrabold whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-ring min-[1400px]:px-4",
-              active ? cn("text-primary-foreground", !pill && "bg-primary") : "text-muted-foreground hover:bg-raised-hover hover:text-foreground",
+              // Unlit links keep the full ink: a capsule with no page lit (the
+              // 投資組合 / 收藏 pair everywhere but those two pages) read as
+              // disabled in the muted grey (QA 2026-10-25).
+              active ? cn("text-primary-foreground", !pill && "bg-primary") : "text-foreground hover:bg-raised-hover",
             )}
           >
             <Icon className="size-[18px]" strokeWidth={2.4} aria-hidden />

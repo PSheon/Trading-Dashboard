@@ -44,6 +44,10 @@ export interface AuthState {
   userId?: string | null;
   /** The user's own embedded wallet (Privy mode only); null otherwise. */
   wallet: WalletSigner | null;
+  /** Still "loading", with a saved session being restored (a signed-in
+   * visitor's full page load): the header draws their own pages at once
+   * instead of seconds later, when the SDK is ready. */
+  restoring?: boolean;
 }
 
 const noop = () => {};
@@ -186,8 +190,9 @@ function PrivyAuth({ appId, children }: { appId: string; children: React.ReactNo
       identity: privy?.ready && privy.authenticated ? privy.identity : null,
       userId: privy?.ready && privy.authenticated ? privy.userId : null,
       wallet: privy?.ready && privy.authenticated ? privy.wallet : null,
+      restoring: status === "loading" && urgent === true,
     }),
-    [status, login, privy],
+    [status, login, privy, urgent],
   );
 
   return (

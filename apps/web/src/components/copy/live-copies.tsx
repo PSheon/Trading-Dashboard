@@ -240,14 +240,16 @@ function LiveCopyCard({ item, leader, account, onOpen, onEquity }: { item: LiveC
   useEffect(() => { onEquity?.(item.strategyId, item.stage === 'stopped' ? null : equity); }, [onEquity, item.strategyId, item.stage, equity]);
   const status = cardStatus(item);
   const suggested = shownSuggestion(item.suggestedMinBudgetUsd);
+  const statusLabel = lifecycleLabel(item, t) ?? (status === 'running' ? t('liveCopyUi.enabled') : t(`folio.status.${status}`));
   return (
-    <button type="button" onClick={onOpen} data-testid="live-copy-card" aria-haspopup="dialog"
+    // Named by the leader and the status pill: inside the collapsed 已結束 the content gives no name.
+    <button type="button" onClick={onOpen} data-testid="live-copy-card" aria-haspopup="dialog" aria-label={`${boardName(leader)} · ${statusLabel}`}
       className="orbit-card orbit-press flex w-full min-w-0 flex-col gap-2 p-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring">
       <span className="flex min-w-0 items-center gap-3">
         <TraderAvatar trader={leader} size={36} />
         <span className="min-w-0 flex-1 truncate text-[0.9375rem] font-bold">{boardName(leader)}</span>
         <span className="flex shrink-0 items-center gap-1.5 text-xs font-bold text-muted-foreground">
-          <span aria-hidden className={cn('size-2 rounded-full', DOT[status])} />{lifecycleLabel(item, t) ?? (status === 'running' ? t('liveCopyUi.enabled') : t(`folio.status.${status}`))}
+          <span aria-hidden className={cn('size-2 rounded-full', DOT[status])} />{statusLabel}
         </span>
       </span>
       {/* The card is the state and the figures; why a figure is unknown and

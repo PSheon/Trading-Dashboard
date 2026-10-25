@@ -188,18 +188,31 @@ test("phone trader chrome floats like the home nav and fades scrolling content u
 /** QA on Stage, 2026-10-25 (390×844): the summary pushed the trader's tab
  * row (持倉 / 洞察 / 表現 / 交易 / 動態) under the fixed 跟單 bar on first view.
  * It rests above the bar until the page reaches it; a press there brings
- * the opened panel into view. */
-for (const [width, height] of [[390, 844], [360, 740]] as const) test(`phone trader tab row is above the 跟單 bar on first view (${width}×${height})`, async ({ page }) => {
+ * the opened panel into view. Then (same day) the resting row covered the
+ * 2×2 card's 勝率 / 回撤: the card is whole above the row, nothing over it. */
+for (const [width, height] of [[390, 844], [360, 740]] as const) test(`phone trader summary card and tab row are both whole above the 跟單 bar on first view (${width}×${height})`, async ({ page }) => {
   await page.setViewportSize({ width, height });
   await page.goto("/en/trader/0xbf732ea04197942783e34730ed6e0f6099575d58");
   const bar = page.getByTestId("trader-copy-bar");
   const tabs = page.getByRole("tablist", { name: "Trading activity" }).filter({ visible: true });
+  const card = page.locator("main dl").filter({ hasText: "Win Rate" }).filter({ visible: true });
   await expect(bar).toBeVisible();
   await expect(tabs).toBeVisible();
+  await expect(card).toHaveCount(1);
   const barTop = (await bar.boundingBox())!.y;
   const row = (await tabs.boundingBox())!;
+  const summary = (await card.boundingBox())!;
+  const header = (await page.getByTestId("trader-phone-header").boundingBox())!;
   expect(row.y).toBeGreaterThan(0);
   expect(row.y + row.height).toBeLessThanOrEqual(barTop);
+  expect(summary.y).toBeGreaterThanOrEqual(header.y + header.height);
+  expect(summary.y + summary.height).toBeLessThanOrEqual(row.y);
+  // Nothing covers the card: its win-rate figure is what the browser hits there.
+  expect(await card.evaluate(dl => {
+    const value = [...dl.querySelectorAll("dt")].find(dt => dt.textContent === "Win Rate")!.nextElementSibling!;
+    const box = value.getBoundingClientRect();
+    return document.elementFromPoint(box.left + box.width / 4, box.top + box.height / 2)?.closest("dd") === value;
+  })).toBe(true);
   // Nothing covers the row: its first tab is what the browser hits there.
   const first = tabs.getByRole("tab").first();
   const box = (await first.boundingBox())!;

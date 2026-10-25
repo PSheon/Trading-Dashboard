@@ -184,3 +184,26 @@ test("phone trader chrome floats like the home nav and fades scrolling content u
   await expect(bar).toBeHidden();
   await expectNoSidewaysScroll(page);
 });
+
+/** QA on Stage, 2026-10-25 (390×844): the summary pushed the trader's tab
+ * row (持倉 / 洞察 / 表現 / 交易 / 動態) under the fixed 跟單 bar on first view.
+ * It rests above the bar until the page reaches it; a press there brings
+ * the opened panel into view. */
+for (const [width, height] of [[390, 844], [360, 740]] as const) test(`phone trader tab row is above the 跟單 bar on first view (${width}×${height})`, async ({ page }) => {
+  await page.setViewportSize({ width, height });
+  await page.goto("/en/trader/0xbf732ea04197942783e34730ed6e0f6099575d58");
+  const bar = page.getByTestId("trader-copy-bar");
+  const tabs = page.getByRole("tablist", { name: "Trading activity" }).filter({ visible: true });
+  await expect(bar).toBeVisible();
+  await expect(tabs).toBeVisible();
+  const barTop = (await bar.boundingBox())!.y;
+  const row = (await tabs.boundingBox())!;
+  expect(row.y).toBeGreaterThan(0);
+  expect(row.y + row.height).toBeLessThanOrEqual(barTop);
+  // Nothing covers the row: its first tab is what the browser hits there.
+  const first = tabs.getByRole("tab").first();
+  const box = (await first.boundingBox())!;
+  expect(await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.closest('[role="tab"]')?.textContent ?? null, [box.x + box.width / 2, box.y + box.height / 2])).toBe(await first.textContent());
+  await tabs.getByRole("tab", { name: "Performance" }).click();
+  await expect(page.getByRole("tabpanel").filter({ visible: true })).toBeInViewport();
+});

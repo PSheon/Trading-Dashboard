@@ -210,7 +210,8 @@ function PositionsContent({ profile, marks }: { profile: TraderProfileResponse; 
   const { sorted, sort, onSort } = useSorted<LivePosition, PositionKey>(profile.positions, keys, { key: "value", dir: "desc" });
   const { rows, pager } = usePaged(sorted, sort);
   if (profile.positions.length === 0) {
-    return <Empty title={t(profile.perpEquity === null ? "trader.positionsUnavailable" : "trader.noPositions")} />;
+    // Fills the tab panel's least height (TAB_PANEL_MIN), the line centred in it.
+    return <Empty title={t(profile.perpEquity === null ? "trader.positionsUnavailable" : "trader.noPositions")} className="flex min-h-48 flex-col items-center justify-center" />;
   }
   const head = { sort, onSort };
   return (

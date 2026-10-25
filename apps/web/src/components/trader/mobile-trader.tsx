@@ -274,7 +274,7 @@ export function MobileTrader({
         </div>
       </dl>
 
-      <ActivityTabs profile={profile} liveFills={liveFills} marks={marks} />
+      <ActivityTabs profile={profile} liveFills={liveFills} marks={marks} phone />
 
       <div data-testid="trader-copy-bar" className="phone-floating-bar z-40 md:hidden">
         <button

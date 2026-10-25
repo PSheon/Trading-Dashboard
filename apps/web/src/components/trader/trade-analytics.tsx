@@ -79,9 +79,9 @@ export function LoadError({ onRetry, message }: { onRetry: () => void; message?:
   );
 }
 
-export function Empty({ title, body }: { title: string; body?: string }) {
+export function Empty({ title, body, className }: { title: string; body?: string; className?: string }) {
   return (
-    <div className="px-6 py-12 text-center">
+    <div className={cn("px-6 py-12 text-center", className)}>
       <p className="text-sm font-semibold">{title}</p>
       {body ? <p className="mx-auto mt-1.5 max-w-md text-sm text-muted-foreground">{body}</p> : null}
     </div>

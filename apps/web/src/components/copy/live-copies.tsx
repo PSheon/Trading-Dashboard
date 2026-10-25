@@ -24,7 +24,7 @@ import { ExposurePanel } from '@/components/copy/portfolio-parts';
 import type { ExposureCopy } from '@/lib/copy-portfolio';
 import { TraderAvatar, boardName } from '@/components/discover/board-bits';
 import { RoiPill } from '@/components/traders/bits';
-import { SuggestedBudgetPill } from '@/components/trader/suggested-budget-pill';
+import { shownSuggestion, SuggestedBudgetPill } from '@/components/trader/suggested-budget-pill';
 import { Drawer } from '@/components/ui/drawer';
 import { truncateAddress } from '@/lib/format';
 import { LiveCopyActions } from '@/components/copy/live-copy-actions';
@@ -239,6 +239,7 @@ function LiveCopyCard({ item, leader, account, onOpen, onEquity }: { item: LiveC
   const { equity, pnl, roi } = useFigures(item, account);
   useEffect(() => { onEquity?.(item.strategyId, item.stage === 'stopped' ? null : equity); }, [onEquity, item.strategyId, item.stage, equity]);
   const status = cardStatus(item);
+  const suggested = shownSuggestion(item.suggestedMinBudgetUsd);
   return (
     <button type="button" onClick={onOpen} data-testid="live-copy-card" aria-haspopup="dialog"
       className="orbit-card orbit-press flex w-full min-w-0 flex-col gap-2 p-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring">
@@ -255,8 +256,8 @@ function LiveCopyCard({ item, leader, account, onOpen, onEquity }: { item: LiveC
         <span className="text-xs text-muted-foreground">{t('folio.pnl')}</span>
         <span className={cn('num text-[0.9375rem] font-bold', pnl === null ? 'text-muted-foreground' : pnl >= 0 ? 'text-positive' : 'text-negative')}>{pnl === null ? '—' : format.usd(pnl, { sign: true, digits: 2 })}</span>
         {/* D9: a running copy's budget is under the leader's suggested minimum (D7); the explanation is the pill's title and a hidden span (the card is a button). */}
-        {typeof item.suggestedMinBudgetUsd === 'number' && Number(item.budgetUsd) < item.suggestedMinBudgetUsd && !['stopping', 'sweeping', 'stopped'].includes(item.stage)
-          ? <SuggestedBudgetPill suggested={item.suggestedMinBudgetUsd} budget={Number(item.budgetUsd)} tip={false} testId="live-copy-budget-warning" /> : null}
+        {suggested !== null && Number(item.budgetUsd) < suggested && !['stopping', 'sweeping', 'stopped'].includes(item.stage)
+          ? <SuggestedBudgetPill suggested={suggested} budget={Number(item.budgetUsd)} tip={false} testId="live-copy-budget-warning" /> : null}
         {pnl === null ? <UnconfirmedPill className="ml-auto" /> : roi === null ? null : <RoiPill value={roi} className="ml-auto" />}
       </span>
     </button>

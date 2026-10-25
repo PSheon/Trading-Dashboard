@@ -92,8 +92,10 @@ export function BoardsView() {
   const data = query.data;
   const { rows: items, pager } = usePaged(data?.items ?? [], `${market}:${board}:${effectiveSort}:${r.effectiveWindow}:${style}`);
   const stocksTop = market === "stocks" && board === "top100";
-  // CopyDog labels the stocks top 100 with its scope, "Stocks", in every locale.
-  const scope = r.coin ? boardCoinLabel(board, t) : stocksTop ? "Stocks" : null;
+  // A coin board names its coin (BTC 損益); the stocks top 100 does not
+  // (QA 2026-10-25: "Stocks 損益" put an English word in every locale, and
+  // the 股票 tab already says it).
+  const scope = r.coin ? boardCoinLabel(board, t) : null;
   const pnlLabel = scope ? t("discover.coinPnl", { coin: scope }) : t("discover.pnl");
   const roiLabel = scope ? t("discover.coinRoi", { coin: scope }) : t("discover.roi");
   const roiHint = r.coin && scope ? t("discover.coinRoiHint", { coin: scope }) : stocksTop ? t("discover.stocksHint") : undefined;

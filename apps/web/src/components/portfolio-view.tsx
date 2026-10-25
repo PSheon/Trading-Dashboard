@@ -127,9 +127,8 @@ function MyFunds({ wallet, inCopies, className }: { wallet: ReturnType<typeof us
 function NoCopies() {
   const { t } = useI18n();
   return (
-    <div className="orbit-card card-pad flex flex-col items-center gap-2 text-center">
-      <p className="font-display text-lg">{t("folio.emptyTitle")}</p>
-      <p className="text-sm font-bold text-muted-foreground">{t("folio.emptyBody")}</p>
+    <div className="orbit-card card-pad flex flex-col items-center gap-2 text-center" data-testid="no-copies">
+      <h2 className="font-display text-lg">{t("folio.emptyTitle")}</h2>
       <Link href="/explore" className={cn(buttonVariants(), "mt-2")}>{t("folio.find")}</Link>
     </div>
   );
@@ -237,7 +236,7 @@ function FundButtons({ className }: { className?: string }) {
 function EmptyCopying({ className }: { className?: string }) {
   const { t } = useI18n();
   return (
-    <TabEmpty icon={UserPlus} title={t("portfolio.emptyTitle")} body={t("portfolio.emptyBody")} className={className}>
+    <TabEmpty icon={UserPlus} title={t("portfolio.emptyTitle")} className={className}>
       <Button asChild size="cta" className="mt-5 w-full">
         <Link href="/explore">{t("portfolio.cta")}</Link>
       </Button>
@@ -245,24 +244,23 @@ function EmptyCopying({ className }: { className?: string }) {
   );
 }
 
+/** An empty tab: its icon and a short title, no sentence under it (Paul,
+ * 2026-10-25: the UI stays minimal). */
 function TabEmpty({
   icon: Icon,
   title,
-  body,
   children,
   className,
 }: {
   icon: LucideIcon;
   title: string;
-  body: string;
   children?: React.ReactNode;
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col items-center text-center", className)}>
+    <div className={cn("flex flex-col items-center text-center", className)} data-testid="tab-empty">
       <span className="flex size-20 items-center justify-center rounded-full bg-raised"><Icon className="size-9 text-primary-text" strokeWidth={2} aria-hidden /></span>
-      <p className="mt-4 font-display text-xl">{title}</p>
-      <p className="mt-2 text-sm font-bold text-muted-foreground">{body}</p>
+      <h2 className="mt-4 font-display text-xl">{title}</h2>
       {children}
     </div>
   );
@@ -510,7 +508,7 @@ function PhoneTab({ tab, copy, setTab }: { tab: Tab; copy: ReturnType<typeof use
   }
   if (tab === "activity") return <CopyActivity names={names} />;
   if (tab === "insights") {
-    return has ? <InsightsPanel overview={copy.data} leaders={leaders} onSelect={(id) => { select(id); setTab("copying"); }} desktop={false} /> : <TabEmpty icon={ChartPie} title={t("portfolio.insightsEmptyTitle")} body={t("portfolio.insightsEmptyBody")} />;
+    return has ? <InsightsPanel overview={copy.data} leaders={leaders} onSelect={(id) => { select(id); setTab("copying"); }} desktop={false} /> : <TabEmpty icon={ChartPie} title={t("portfolio.insightsEmptyTitle")} />;
   }
-  return has ? <ExposurePanel overview={copy.data} leaders={leaders} desktop={false} /> : <TabEmpty icon={ChartPie} title={t("portfolio.exposureEmptyTitle")} body={t("portfolio.exposureEmptyBody")} />;
+  return has ? <ExposurePanel overview={copy.data} leaders={leaders} desktop={false} /> : <TabEmpty icon={ChartPie} title={t("portfolio.exposureEmptyTitle")} />;
 }

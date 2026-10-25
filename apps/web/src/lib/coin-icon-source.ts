@@ -1,6 +1,6 @@
 /** Server side only: fetches and keeps Hyperliquid's market icons, so the
  * browser loads them from this origin (app/api/coin-icon/[coin]). */
-import { loadMarketNames } from "./share-card-data";
+import { loadMarketNames, loadSeenMarketNames } from "./share-card-data";
 
 const UPSTREAM = "https://app.hyperliquid.xyz/coins";
 const COIN = /^(?:[a-z0-9]{1,12}:)?[A-Za-z0-9]{1,20}$/;
@@ -38,38 +38,44 @@ export function iconCandidates(coin: string): string[] {
  * most `MAX_ENTRIES` coins. Hyperliquid answers 200 text/html for a market
  * without an icon, so only an `image/svg+xml` body under 512 KiB counts.
  */
-export function createCoinIconSource({ fetchImpl = fetch, now = Date.now, markets }: {
+export function createCoinIconSource({ fetchImpl = fetch, now = Date.now, markets, seen }: {
   fetchImpl?: Fetch; now?: () => number;
   /** The known market names (apps/api's catalog), or null when unknown.
    * Without it every well-formed name is fetched (tests). */
   markets?: () => Promise<readonly string[] | null>;
+  /** Markets apps/api's own answers name (24h volumes, the pool's coin
+   * index): every one is a real market. Used while `markets` is null. */
+  seen?: () => Promise<readonly string[] | null>;
 } = {}) {
   const cache = new Map<string, Entry>();
   const inFlight = new Map<string, Promise<CoinIcon>>();
   let known: { names: ReadonlySet<string>; until: number } | null = null;
-  let knownLoading: Promise<ReadonlySet<string> | null> | null = null;
+  let knownLoading: Promise<void> | null = null;
   /** No list was ever read: the next attempt is not before this. */
   let unknownUntil = 0;
 
   /** Only a known market is asked for upstream: an arbitrary name that fits
    * the pattern would otherwise cost one request to app.hyperliquid.xyz
-   * each (audit C). An unreadable list refuses until it can be read, and is
-   * asked for again after `MARKETS_RETRY_MS`, not on every icon request
-   * (the last list read stays in use meanwhile). */
+   * each (audit C). While the list cannot be read, the last list read and
+   * the markets apps/api's own answers name (`seen`) are known, nothing
+   * else; the list is asked for again after `MARKETS_RETRY_MS`, not on
+   * every icon request. (Stage, 2026-10-25: the catalog stayed null for ten
+   * hours and every icon was a 404; D19.) */
   async function isKnown(coin: string): Promise<boolean> {
     if (!markets) return true;
     if (!known && unknownUntil > now()) return false;
     if (!known || known.until <= now()) {
-      const failed = () => {
-        if (known) known = { names: known.names, until: now() + MARKETS_RETRY_MS };
+      knownLoading ??= (async () => {
+        const names = await markets().catch(() => null);
+        if (names) {
+          known = { names: new Set(names), until: now() + MARKETS_TTL_MS };
+          return;
+        }
+        const named = (seen ? await seen().catch(() => null) : null) ?? [];
+        const kept = new Set([...(known?.names ?? []), ...named]);
+        if (kept.size > 0) known = { names: kept, until: now() + MARKETS_RETRY_MS };
         else unknownUntil = now() + MARKETS_RETRY_MS;
-        return known?.names ?? null;
-      };
-      knownLoading ??= markets().then((names) => {
-        if (!names) return failed();
-        known = { names: new Set(names), until: now() + MARKETS_TTL_MS };
-        return known.names;
-      }).catch(failed).finally(() => { knownLoading = null; });
+      })().finally(() => { knownLoading = null; });
       await knownLoading;
     }
     return known?.names.has(coin) ?? false;
@@ -125,4 +131,4 @@ export function createCoinIconSource({ fetchImpl = fetch, now = Date.now, market
   };
 }
 
-export const coinIcons = createCoinIconSource({ markets: () => loadMarketNames() });
+export const coinIcons = createCoinIconSource({ markets: () => loadMarketNames(), seen: () => loadSeenMarketNames() });

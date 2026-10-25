@@ -173,6 +173,18 @@ export async function loadMarketNames({ apiUrl = process.env.NEXT_API_URL, fetch
   return Array.isArray(body?.markets) ? body.markets : null;
 }
 
+/** The markets apps/api's own answers name: the exchange's 24h volumes
+ * (GET /discover/markets) and the pool's coin index (GET /discover/coins,
+ * from the database). Every one is a real market; null when neither reads. */
+export async function loadSeenMarketNames({ apiUrl = process.env.NEXT_API_URL, fetchImpl = fetch }: { apiUrl?: string; fetchImpl?: Fetch } = {}): Promise<string[] | null> {
+  const [markets, index] = await Promise.all([
+    getJson<{ volumes?: Record<string, number> | null }>(fetchImpl, apiUrl, "/discover/markets", TIMEOUT_MS, undefined, true),
+    getJson<{ items?: Array<{ coin: string }> }>(fetchImpl, apiUrl, "/discover/coins", TIMEOUT_MS, undefined, true),
+  ]);
+  const names = new Set([...Object.keys(markets?.volumes ?? {}), ...(index?.items ?? []).map((item) => item.coin)]);
+  return names.size > 0 ? [...names] : null;
+}
+
 interface ProfileLike {
   displayName?: string | null;
   kol?: { displayName: string | null; avatarUrl: string | null } | null;

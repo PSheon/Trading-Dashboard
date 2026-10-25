@@ -44,6 +44,15 @@ export const DEX_LIST_TTL_MS = HOUR_MS;
  */
 export const MARKET_CATALOG_TTL_MS = HOUR_MS;
 
+/** basis: guessed — exchange 24h volumes (the trending tiles, the admin market pickers) are re-read every 5 min; verify: none needed
+ * The same read refreshes the market catalog.
+ */
+export const MARKET_VOLUME_TTL_MS = 5 * MINUTE_MS;
+
+/** basis: guessed — a volume ranking older than 15 min is not served (callers use their fallback); verify: none needed
+ */
+export const MARKET_VOLUME_STALE_MS = 15 * MINUTE_MS;
+
 /** basis: guessed — paper copy performance is sampled every minute; verify: none needed
  */
 export const COPY_SNAPSHOT_INTERVAL_MS = 60_000;

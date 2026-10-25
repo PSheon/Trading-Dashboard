@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { coinIcons, createCoinIconSource } from "../src/lib/coin-icon-source";
 import { ICONS_PER_MINUTE, iconRetryAfter, imageRetryAfter, resetImageLimiter } from "../src/lib/client-address";
 import { GET as icon } from "../src/app/api/coin-icon/[coin]/route";
+import { loadSeenMarketNames } from "../src/lib/share-card-data";
 
 beforeEach(() => resetImageLimiter());
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
@@ -46,6 +47,32 @@ it("refuses every uncached icon while the market list cannot be read", async () 
   const icons = createCoinIconSource({ fetchImpl: upstream, markets: async () => null });
   expect(await icons.get("BTC")).toBeNull();
   expect(upstream).not.toHaveBeenCalled();
+});
+
+it("while the market list is null, serves the markets apps/api's own answers name and still refuses any other name (Stage 2026-10-25, D19)", async () => {
+  let clock = 1_000_000;
+  const upstream = vi.fn<typeof fetch>(async () => svg());
+  const markets = vi.fn<() => Promise<readonly string[] | null>>(async () => null);
+  const seen = vi.fn(async () => ["BTC", "xyz:TSLA"]);
+  const icons = createCoinIconSource({ fetchImpl: upstream, markets, seen, now: () => clock });
+  expect(await icons.get("BTC")).toEqual({ svg: "<svg></svg>" });
+  expect(await icons.isKnownMarket("xyz:TSLA")).toBe(true);
+  expect(await icons.get("NOTAMARKET1")).toBeNull();
+  expect(upstream.mock.calls.map(([url]) => String(url))).toEqual(["https://app.hyperliquid.xyz/coins/BTC.svg"]);
+  expect(markets).toHaveBeenCalledTimes(1);
+  // The catalog is asked for again after a minute, and its list then rules.
+  markets.mockResolvedValue(["BTC", "ETH"]);
+  clock += 60_001;
+  expect(await icons.isKnownMarket("ETH")).toBe(true);
+  expect(await icons.isKnownMarket("xyz:TSLA")).toBe(false);
+  expect(markets).toHaveBeenCalledTimes(2);
+});
+
+it("names the markets from the api's 24h volumes and the pool's coin index", async () => {
+  const fetchImpl = vi.fn<typeof fetch>(async (url) => Response.json({ success: true, data: String(url).endsWith("/discover/markets")
+    ? { markets: null, volumes: { BTC: 1, "xyz:TSLA": 2 } } : { items: [{ coin: "HYPE" }, { coin: "BTC" }] } }));
+  expect((await loadSeenMarketNames({ apiUrl: "http://api.test", fetchImpl }))?.sort()).toEqual(["BTC", "HYPE", "xyz:TSLA"]);
+  expect(await loadSeenMarketNames({ apiUrl: "http://api.test", fetchImpl: async () => new Response("down", { status: 503 }) })).toBeNull();
 });
 
 it("asks for an unreadable market list again after a minute, not on every icon request", async () => {

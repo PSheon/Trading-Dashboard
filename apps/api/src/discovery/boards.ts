@@ -117,7 +117,10 @@ function figures(c: Candidate, market: BoardMarket, kind: "top100" | "kol" | "co
   }
   if (market === "stocks" && kind === "top100") {
     const r = realized(row.coinStats, isStockCoin);
-    if (!r) return null;
+    // A trader with no realized stock PnL (stock positions still open, or
+    // only a zero row) is no stock trader to rank: $0 / 0.00% on Stage
+    // (2026-10-25).
+    if (!r || r.pnl === 0) return null;
     return { ...c.card, metricsUpdatedAt: row.tradesAt, pnl: r.pnl, roi: r.roi, sparkline };
   }
   const pnl = window === "30d" ? num(row.pnl30d) : num(row.pnlAll);

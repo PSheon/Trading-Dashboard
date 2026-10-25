@@ -1,17 +1,24 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { HyperliquidInfoClient } from "../src/hyperliquid/hyperliquid-info.client.js";
+import { HyperliquidRestCapacityError } from "../src/hyperliquid/hyperliquid-capacity-error.js";
 import { MarketCatalogService } from '../src/hyperliquid/market-catalog.service.js';
 import { withRequestSignal } from "../src/runtime/request-context.js";
 import { MARKET_CATALOG_TTL_MS } from '../src/config/constants/cache-ttls.js';
 import { MARKET_CATALOG_RETRY_MS } from '../src/config/constants/hyperliquid.js';
 
 const universe = (names: string[], delisted: string[] = []) => ({ universe: names.map((name) => ({ name, szDecimals: 2, maxLeverage: 10, ...(delisted.includes(name) ? { isDelisted: true } : {}) })) });
+const withContexts = (u: ReturnType<typeof universe>) => [u, u.universe.map(() => ({ dayNtlVlm: "1000" }))] as const;
+/** What Stage's copy meter answered (2026-10-25): no room within the wait. */
+const exhausted = () => new HyperliquidRestCapacityError(30_000);
 
 function setup() {
+  const dexUniverse = (dex?: string) => (dex === "xyz" ? universe(["xyz:TSLA", "xyz:OLD"], ["xyz:OLD"]) : dex === "empty" ? universe([]) : universe(["BTC", "ETH", "MEGA"]));
   const info = {
     perpDexs: vi.fn(async () => [null, { name: "xyz", assetToStreamingOiCap: [["xyz:TSLA", "1"], ["xyz:NEW", "1"]] }, { name: "empty" }]),
-    meta: vi.fn(async (dex?: string) => (dex === "xyz" ? universe(["xyz:TSLA", "xyz:OLD"], ["xyz:OLD"]) : dex === "empty" ? universe([]) : universe(["BTC", "ETH", "MEGA"]))),
+    metaAndAssetCtxs: vi.fn(async (_lane: string, _rank: unknown, dex?: string): Promise<unknown> => withContexts(dexUniverse(dex))),
+    // A sweep of `meta` reads of its own never got through on Stage.
+    meta: vi.fn(async () => { throw exhausted(); }),
   };
   const catalog = new MarketCatalogService(info as unknown as HyperliquidInfoClient);
   let now = 1_000_000;
@@ -31,7 +38,34 @@ describe("MarketCatalogService", () => {
     expect(await catalog.isListed("TSLA")).toBe(false); // a HIP-3 name without its dex is no market
     expect(await catalog.isListed("btc")).toBe(false);
     expect(info.perpDexs).toHaveBeenCalledTimes(1);
-    expect(info.meta.mock.calls.map((c) => c[0])).toEqual([undefined, "xyz", "empty"]);
+    expect(info.metaAndAssetCtxs.mock.calls.map((c) => c[2])).toEqual([undefined, "xyz", "empty"]);
+  });
+
+  it("recovers from a quota-exhausted first read through the volume read the pages already make (Stage 2026-10-25, D19)", async () => {
+    const { catalog, info, advance } = setup();
+    // At start the copy meter's background lane has no room within the wait.
+    info.perpDexs.mockRejectedValueOnce(exhausted());
+    catalog.onModuleInit();
+    await vi.waitFor(() => expect(info.perpDexs).toHaveBeenCalledTimes(1));
+    await new Promise((r) => setImmediate(r));
+    expect(await catalog.markets()).toBeNull();
+    // A minute later a home load asks for the trending markets: that one
+    // read gives the volumes and the market list alike.
+    advance(MARKET_CATALOG_RETRY_MS);
+    expect(await catalog.trending()).toEqual(["BTC", "ETH", "MEGA", "xyz:TSLA"]);
+    expect(await catalog.isListed("xyz:OLD")).toBe(true);
+    expect([...(await catalog.markets())!].sort()).toEqual(["BTC", "ETH", "MEGA", "xyz:NEW", "xyz:OLD", "xyz:TSLA"]);
+    expect(info.meta).not.toHaveBeenCalled();
+  });
+
+  it("a market-list request alone retries the read once the gap has passed, and one read serves list and volumes", async () => {
+    const { catalog, info, advance } = setup();
+    info.perpDexs.mockRejectedValueOnce(exhausted());
+    expect(await catalog.markets()).toBeNull();
+    advance(MARKET_CATALOG_RETRY_MS);
+    expect((await catalog.markets())?.has("BTC")).toBe(true);
+    expect([...(await catalog.dayVolumes())!.keys()]).toContain("xyz:TSLA");
+    expect(info.perpDexs).toHaveBeenCalledTimes(2);
   });
 
   it("reads once an hour, and keeps the last good list when a re-read fails", async () => {
@@ -59,6 +93,7 @@ describe("MarketCatalogService", () => {
     expect(await catalog.isListed("NOPE123")).toBeNull();
     // Within the retry gap nothing is asked again and the answer stays unknown.
     expect(await catalog.isListed("BTC")).toBeNull();
+    expect(await catalog.trending()).toEqual([]);
     expect(info.perpDexs).toHaveBeenCalledTimes(1);
 
     const slow = setup();
@@ -72,7 +107,7 @@ describe("MarketCatalogService", () => {
   it("an empty answer from Hyperliquid is a failure, not an empty universe", async () => {
     const { catalog, info } = setup();
     info.perpDexs.mockResolvedValueOnce([null]);
-    info.meta.mockResolvedValueOnce(universe([]));
+    info.metaAndAssetCtxs.mockResolvedValueOnce(withContexts(universe([])));
     expect(await catalog.isListed("BTC")).toBeNull();
   });
 
@@ -109,7 +144,7 @@ describe("trending markets", () => {
     expect(info.metaAndAssetCtxs).toHaveBeenCalledTimes(3);
   });
 
-  it("bounds a cold read and does not publish a partial dex ranking", async () => {
+  it("bounds a cold read and does not publish a partial dex ranking or market list", async () => {
     const info = {
       perpDexs: vi.fn(async () => [null, { name: "xyz" }]),
       metaAndAssetCtxs: vi.fn(async (_lane: string, _rank: unknown, dex?: string) => {
@@ -119,16 +154,16 @@ describe("trending markets", () => {
     };
     const catalog = new MarketCatalogService(info as unknown as HyperliquidInfoClient);
     expect(await catalog.trending()).toEqual([]);
+    expect(await catalog.markets()).toBeNull();
     const blocked = new MarketCatalogService({ perpDexs: () => new Promise(() => {}) } as unknown as HyperliquidInfoClient);
     expect(await blocked.trending(1)).toEqual([]);
   });
+
   it("keeps each active market's 24h volume from the trending read for the admin's market pickers", async () => {
     const { catalog, info } = setup();
-    Object.assign(info, {
-      metaAndAssetCtxs: vi.fn(async (_lane: string, _signal: unknown, dex?: string) => dex === "xyz"
-        ? [universe(["xyz:TSLA", "xyz:OLD"], ["xyz:OLD"]), [{ dayNtlVlm: "5000000" }, { dayNtlVlm: "9" }]]
-        : dex === "empty" ? [universe([]), []] : [universe(["BTC", "ETH", "MEGA"]), [{ dayNtlVlm: "1200000000" }, { dayNtlVlm: "800000000" }, { dayNtlVlm: "0" }]]),
-    });
+    info.metaAndAssetCtxs.mockImplementation(async (_lane: string, _rank: unknown, dex?: string) => (dex === "xyz"
+      ? [universe(["xyz:TSLA", "xyz:OLD"], ["xyz:OLD"]), [{ dayNtlVlm: "5000000" }, { dayNtlVlm: "9" }]]
+      : dex === "empty" ? [universe([]), []] : [universe(["BTC", "ETH", "MEGA"]), [{ dayNtlVlm: "1200000000" }, { dayNtlVlm: "800000000" }, { dayNtlVlm: "0" }]]));
     expect(await catalog.trending()).toEqual(["BTC", "ETH", "xyz:TSLA"]);
     expect(Object.fromEntries((await catalog.dayVolumes())!)).toEqual({ BTC: 1_200_000_000, ETH: 800_000_000, "xyz:TSLA": 5_000_000 });
   });

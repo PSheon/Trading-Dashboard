@@ -84,6 +84,28 @@ describe("KOL CSV and board rules", () => {
     expect(effectiveSort({ market: "crypto", board: "top100", sort: "copyScore" }, "30d")).toBe("pnl");
     expect(effectiveSort({ market: "crypto", board: "kol", sort: "accountValue" }, "all")).toBe("accountValue");
   });
+
+  it("lists on the stocks top 100 only traders with realized stock PnL, each with the account's PnL line and the ledger's time (Stage 2026-10-25)", () => {
+    const at = new Date("2026-10-25T03:00:00Z");
+    const ledgerAt = new Date("2026-10-25T02:00:00Z");
+    const candidate = (n: number, coinStats: Record<string, { pnl: number; volume: number; trades: number; wins: number }>) => toCandidate({
+      chain: "hyperliquid", address: addr(n), poolRank: n, inPool: true, accountValue: "1000", leaderboardAccountValue: "1000", portfolioAt: at,
+      pnlAll: "500", roiAll: "0.5", pnl30d: "0", roi30d: "0", sharpe: "1", maxDrawdown: "0", returnSamples: 10, spanDays: "30", copyScore: null,
+      style: "swing", topCoins: [], coinStats, sparkline: [0, 120, 80, 500], sparkline30d: [0, 5], lastTradeAt: at, tradesFrom: at, tradesAt: ledgerAt,
+      attemptedAt: null, performanceAttemptedAt: null, lastError: null, kolName: null, kolAvatarEtag: null, kolXHandle: null, kolVerified: null,
+      kolSortOrder: null, leaderboardName: null,
+    } as Parameters<typeof toCandidate>[0]);
+    const rows = [
+      candidate(1, { "xyz:TSLA": { pnl: 40, volume: 400, trades: 2, wins: 1 }, BTC: { pnl: 300, volume: 1000, trades: 1, wins: 1 } }),
+      // A stock position still open: a zero row, no realized stock PnL.
+      candidate(2, { "xyz:GOLD": { pnl: 0, volume: 0, trades: 0, wins: 0 }, BTC: { pnl: 70, volume: 700, trades: 3, wins: 2 } }),
+      candidate(3, { BTC: { pnl: 10, volume: 100, trades: 1, wins: 1 } }),
+    ];
+    const board = buildBoard(rows, { market: "stocks", board: "top100", sort: "pnl", window: "all" }, { ready: 3, total: 3 });
+    expect(board.items.map((t) => [t.address, t.pnl, t.roi])).toEqual([[addr(1), 40, 0.1]]);
+    expect(board.items[0].sparkline).toEqual([0, 120, 80, 500]);
+    expect(board.items[0].metricsUpdatedAt).toEqual(ledgerAt);
+  });
 });
 
 describe("discovery pool, boards and KOL registry (real Postgres)", () => {
@@ -288,6 +310,22 @@ describe("discovery pool, boards and KOL registry (real Postgres)", () => {
       row(6, 1, { attemptedAt: new Date(now - 60_000) }), // just tried
     ];
     expect(pool.ledgerQueues(ledgers, visible, now)).toEqual({ refresh: [addr(5), addr(2), addr(1)], build: [addr(4)] });
+  });
+
+  it("gives a ledger that keeps failing its turn after the others, not the head of the queue every 15 min (Stage 2026-10-25)", () => {
+    const now = Date.UTC(2026, 9, 25, 4);
+    const h = 3_600_000;
+    const row = (n: number, extra: Partial<PoolQueueRow>): PoolQueueRow => ({
+      address: addr(n), poolRank: n, tradesAt: null, attemptedAt: null, lastError: null, portfolioAt: new Date(now - h), performanceAttemptedAt: null, ...extra,
+    });
+    const rows = [
+      // The oldest ledger (2026-09-30), failed 20 min ago: due again, but it had its turn.
+      row(1, { tradesAt: new Date(Date.UTC(2026, 8, 30, 14)), attemptedAt: new Date(now - 20 * 60_000), lastError: "503 BusyException" }),
+      row(2, { tradesAt: new Date(Date.UTC(2026, 9, 1, 10)), attemptedAt: new Date(Date.UTC(2026, 9, 1, 10)) }),
+      row(3, { tradesAt: new Date(Date.UTC(2026, 9, 2, 6)) }),
+    ];
+    const visible = new Set([addr(1), addr(2), addr(3)]);
+    expect(pool.ledgerQueues(rows, visible, now).refresh).toEqual([addr(2), addr(3), addr(1)]);
   });
 
   it("reports how fresh the visible rows and the pool are", async () => {

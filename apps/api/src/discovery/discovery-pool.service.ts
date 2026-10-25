@@ -188,7 +188,13 @@ export class DiscoveryPoolService {
     const backoff = now - POOL_RETRY_BACKOFF_MS;
     const due = rows.filter((row) => row.attemptedAt === null || row.attemptedAt.getTime() < backoff);
     const stale = (row: PoolQueueRow) => row.tradesAt !== null && now - row.tradesAt.getTime() >= LEDGER_REFRESH_MS;
-    const byAge = (a: PoolQueueRow, b: PoolQueueRow) => a.tradesAt!.getTime() - b.tradesAt!.getTime() || a.address.localeCompare(b.address);
+    // Oldest turn first: the last attempt, not the last success. By the
+    // ledger's age alone, a row that keeps failing stayed at the head and
+    // came back every POOL_RETRY_BACKOFF_MS; on Stage (2026-10-25) a few such
+    // rows took every tick, and 96 of the stocks top 100 still had ledgers
+    // from 2026-10-01/02 (every card stale).
+    const turn = (row: PoolQueueRow) => Math.max(row.tradesAt!.getTime(), row.attemptedAt?.getTime() ?? 0);
+    const byAge = (a: PoolQueueRow, b: PoolQueueRow) => turn(a) - turn(b) || a.address.localeCompare(b.address);
     const byRank = (a: PoolQueueRow, b: PoolQueueRow) => (a.poolRank ?? Infinity) - (b.poolRank ?? Infinity) || a.address.localeCompare(b.address);
     const refresh = [
       ...due.filter((row) => stale(row) && visible.has(row.address)).sort(byAge),

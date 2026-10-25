@@ -17,7 +17,11 @@ import { coinHref } from "@/lib/coin-slug";
 import { coinIsUnknown } from "@/lib/coin-presence";
 import { coinLabel, usdCompact } from "@/lib/format";
 import type { CoinIndexResponse } from "@/lib/contracts";
-import { useCoinBoard, useCoinIndex, type InitialRead } from "@/lib/queries";
+import { useCoinBoard, useCoinIndex, useSiteSettings, type InitialRead } from "@/lib/queries";
+
+/** The low-sample threshold before the site settings are read
+ * (`discoverySettingsSchema.lowSampleThreshold`'s default). */
+const LOW_SAMPLE_DEFAULT = 20;
 
 /**
  * CopyDog's 市場 pages (`/hyperliquid/coins`, `/hyperliquid/coins/BTC`):
@@ -127,6 +131,10 @@ export function CoinBoardView({ coin }: { coin: string }) {
   // heading, one line 「尚無市場資料。」 and no totals or table.
   const noData = query.data !== undefined && query.data.items.length === 0;
   const stats = query.data?.stats;
+  // A win rate from fewer trades than the low-sample threshold (the admin's,
+  // 20 by default) is greyed, as the trader page greys a low-sample
+  // account's figures; the ranking stays by PnL.
+  const lowSample = useSiteSettings().data?.lowSampleThreshold ?? LOW_SAMPLE_DEFAULT;
   return (
     <Column>
       <nav aria-label={t("coins.breadcrumb")} className="text-[0.8125rem] font-bold text-muted-foreground">
@@ -194,7 +202,7 @@ export function CoinBoardView({ coin }: { coin: string }) {
                           </Link>
                         </TableCell>
                         <TableCell className={cn("num text-right text-positive")}>{money(row.pnl)}</TableCell>
-                        <TableCell className={cn("num text-right")}>{rate(row.winRate)}</TableCell>
+                        <TableCell className={cn("num text-right", row.trades < lowSample && "text-subtle-foreground")} data-low-sample={row.trades < lowSample || undefined}>{rate(row.winRate)}</TableCell>
                         <TableCell className={cn("num text-right")}>{count(row.trades)}</TableCell>
                         <TableCell className={cn("num text-right")}>{money(row.volume)}</TableCell>
                       </TableRow>

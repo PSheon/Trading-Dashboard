@@ -13,7 +13,7 @@ import { useHomeBoards } from "@/lib/queries";
 /**
  * CopyDog's about-page pictures: a two-row marquee of the featured traders
  * under the hero, and small product mock-ups (its `about-mock` cards) in the
- * three steps and the feature rows. Names and avatars come from the home
+ * three steps. Names and avatars come from the home
  * page's featured traders; the figures inside the mock-ups are illustrative.
  */
 
@@ -206,65 +206,6 @@ export function CopyMock() {
         ))}
       </div>
       <div className="bg-primary py-[15px] text-center text-[15px] font-bold text-primary-foreground">Copy Trade</div>
-    </Mock>
-  );
-}
-
-/** 投資組合: one copy's live curve and figures. */
-export function PortfolioMock() {
-  const t = sample(useFeatured(), 0);
-  return (
-    <Mock>
-      <div className="flex items-center gap-2.5 pb-3">
-        {t ? <TraderAvatar trader={t} size={26} /> : <span className="size-[26px] rounded-full bg-raised" />}
-        <span className="min-w-0 truncate text-[15px] font-display">{t ? boardName(t) : "—"}</span>
-        <span className={cn(K, "ml-auto inline-flex items-center gap-[5px] text-primary-text before:size-1.5 before:rounded-full before:bg-primary")}>Live</span>
-      </div>
-      <Spark className="h-[52px]" />
-      <div className="grid grid-cols-3 gap-3 pt-3">
-        {[
-          ["Allocated", "$500", false],
-          ["PnL", "+$182.40", true],
-          ["ROI", "+36.5%", true],
-        ].map(([k, v, pos]) => (
-          <div key={String(k)} className="grid min-w-0 gap-[5px]">
-            <span className={K}>{k}</span>
-            <span className={cn("text-[15px] font-display whitespace-nowrap", pos && "text-positive")}>{v}</span>
-          </div>
-        ))}
-      </div>
-    </Mock>
-  );
-}
-
-/** 提醒: three trade alerts. */
-export function AlertsMock() {
-  const featured = useFeatured();
-  const lines: Array<[string, boolean, string, string]> = [
-    ["BTC", true, "$1.2M", "2m"],
-    ["HYPE", false, "$418K", "11m"],
-    ["ETH", true, "$95K", "28m"],
-  ];
-  return (
-    <Mock className="gap-0 px-3.5 py-1.5">
-      {lines.map(([coin, long, size, ago], i) => {
-        const t = sample(featured, i);
-        return (
-          <div key={i} className={cn("flex items-center gap-[11px] py-[13px]", i > 0 && "border-t-2 border-dotted border-border")}>
-            {t ? <TraderAvatar trader={t} size={30} /> : <span className="size-[30px] rounded-full bg-raised" />}
-            <div className="min-w-0">
-              <div className="flex min-w-0 items-center gap-1.5">
-                <span className="truncate text-[13px] font-semibold">{t ? boardName(t) : "—"}</span>
-                <span className={cn("shrink-0 font-mono text-[10px]", long ? "text-positive" : "text-negative")}>{long ? "LONG" : "SHORT"}</span>
-                <CoinIcon coin={coin} size={14} />
-                <span className="text-[13px] font-semibold">{coin}</span>
-              </div>
-              <p className="mt-[3px] text-xs text-muted-foreground">{size}</p>
-            </div>
-            <span className="ml-auto shrink-0 font-mono text-[10px] text-muted-foreground">{ago}</span>
-          </div>
-        );
-      })}
     </Mock>
   );
 }

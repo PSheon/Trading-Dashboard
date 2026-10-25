@@ -5,9 +5,23 @@ import { cn } from "cn";
 import { InfoTip } from "@/components/ui/info-tip";
 import { useI18n } from "@/i18n/provider";
 
+/** basis: guessed — Stage, 2026-10-25: a leader's 10 × equity ÷ median add
+ * came to $1.39M, a figure no copier budgets; the copy caps stop well below
+ * $100k. verify: the profiles' suggestedMinBudgetUsd p99 on Stage.
+ * (A suggestion above this is not drawn: the pill would only say "more
+ * than anyone budgets", and warn on every budget.)
+ */
+export const SUGGESTED_BUDGET_DISPLAY_CAP_USD = 100_000;
+
+/** The suggestion as drawn: null when there is none or it is above
+ * SUGGESTED_BUDGET_DISPLAY_CAP_USD. */
+export function shownSuggestion(suggested: number | null | undefined): number | null {
+  return typeof suggested === "number" && Number.isFinite(suggested) && suggested <= SUGGESTED_BUDGET_DISPLAY_CAP_USD ? suggested : null;
+}
+
 /**
  * The leader's suggested minimum budget (decision D7/D9, 2026-10-23): one
- * pill, 建議 ≥ $X, next to the budget. It turns warning when the budget it
+ * pill, 建議 ≥ $X, on its own line under the budget. It turns warning when the budget it
  * is compared with (`budget`, when known) is under the suggestion. The one
  * sentence that explains the figure lives in the hover tip (`tip`), or,
  * where no button may nest (a card that is a button), in the pill's title

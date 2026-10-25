@@ -35,7 +35,7 @@ import { Collapsible, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Switch } from "@/components/ui/switch";
 import { useTraderCopyFlow } from "./trader-copy-flow";
 import { CopyFitSummary } from "./copy-fit-summary";
-import { SuggestedBudgetPill } from "./suggested-budget-pill";
+import { shownSuggestion, SuggestedBudgetPill } from "./suggested-budget-pill";
 
 type Direction = "same" | "reverse";
 /**
@@ -187,12 +187,17 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName, li
   // its largest budget); the paper limits apply to 模擬 only.
   const { min, max } = copyAmountBounds(testnet, overview.data?.limits, deployment?.caps);
   const value = Number.parseFloat(amount);
-  // The leader's suggested minimum budget (D7/D9): a pill by the amount, warning once the typed amount is under it.
+  // The leader's suggested minimum budget (D7/D9): a pill on its own line under the amount (QA 2026-10-25: in the
+  // amount row it pushed 最大 past the card's edge), warning once the typed amount is under it; none above the cap.
   // Ratio sizing only, as the fit summary: a fixed amount per trade is checked against the minimum by its own field.
   const ratioSized = !testnet || (!fixedOnly && sizing === "ratio");
   const profile = useTraderProfile(address);
-  const suggested = ratioSized ? profile.data?.suggestedMinBudgetUsd ?? null : null;
-  const suggestedPill = suggested !== null ? <SuggestedBudgetPill suggested={suggested} budget={Number.isFinite(value) && value > 0 ? value : null} /> : null;
+  const suggested = ratioSized ? shownSuggestion(profile.data?.suggestedMinBudgetUsd) : null;
+  const suggestedLine = suggested !== null ? (
+    <div data-testid="copy-suggested-line" className={cn("flex min-w-0", sheet ? "-mt-2 justify-center" : "-mt-1.5")}>
+      <SuggestedBudgetPill suggested={suggested} budget={Number.isFinite(value) && value > 0 ? value : null} />
+    </div>
+  ) : null;
   const pct = balance > 0 ? Math.min(100, Math.round(((Number.isFinite(value) ? value : 0) / balance) * 100)) : 0;
   const paused = overview.data && (overview.data.platform.pauseNewRisk || overview.data.platform.reduceOnly || overview.data.user.pauseNewRisk || overview.data.user.reduceOnly);
 
@@ -554,7 +559,6 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName, li
             />
             <span className="leading-none font-bold text-muted-foreground" style={{ fontSize: `${fit.unit}rem` }}>USDC</span>
           </div>
-          {suggestedPill}
         </div>
       ) : (
         <div
@@ -590,7 +594,6 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName, li
           />
           {/* Orbit: the amount is the big figure, the unit a quiet suffix. */}
           <span className="shrink-0 self-center pt-[0.35em] font-display leading-none text-muted-foreground" style={{ fontSize: AMOUNT_UNIT_PX }}>USDC</span>
-          {suggestedPill}
           <button
             type="button"
             onClick={() => setFromPct(100)}
@@ -601,6 +604,7 @@ function CopyPanelForm({ address, sheet = false, leaderPositions, traderName, li
           </button>
         </div>
       )}
+      {suggestedLine}
       {amountState ? <span data-testid="copy-amount-state" className="chip-sm w-fit bg-tag-warning text-tag-warning-foreground">{amountState}</span> : null}
 
       {sheet ? (

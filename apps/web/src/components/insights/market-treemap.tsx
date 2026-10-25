@@ -7,7 +7,8 @@ import { Skeleton } from "@/components/page";
 import { CoinIcon } from "@/components/traders/coin-icon";
 import { useI18n } from "@/i18n/provider";
 import type { CohortMarket } from "@/lib/contracts";
-import { coinLabel, usdCompact } from "@/lib/format";
+import { usdCompact } from "@/lib/format";
+import { boardCoinLabel } from "@/lib/board-format";
 
 interface Item extends CohortMarket { value: number }
 interface Cell extends Item { x: number; y: number; w: number; h: number }
@@ -52,6 +53,26 @@ export function squarify(items: Item[], x = 0, y = 0, w = 100, h = 100): Cell[] 
   return out;
 }
 
+/** A display-font capital is at most this many ems wide (Fredoka's widest
+ * capitals, W and M, are ~0.66em): the estimate that keeps a label whole. */
+const LABEL_EM = 0.66;
+/** The tile's inner padding (px-4 / px-3) and the icon with its gap. */
+const TIERS = { full: { font: 24, pad: 32, icon: 20 + 8 }, small: { font: 15, pad: 24, icon: 14 + 5 } } as const;
+
+/**
+ * What a tile of `w` × `h` px can hold of `label` (QA 2026-10-25: small tiles
+ * showed "SP…", "N…"): the icon and the whole label at the tile's size, at
+ * the small size, the icon alone, or nothing (the colour only). The label is
+ * never truncated; the tile's hover title always names it.
+ */
+export function tileContent(w: number, h: number, label: string, full: boolean): "full" | "small" | "icon" | "none" {
+  const fits = (tier: (typeof TIERS)["full" | "small"]) => w - tier.pad - tier.icon >= label.length * tier.font * LABEL_EM;
+  if (full && fits(TIERS.full)) return "full";
+  if (h >= 40 && fits(TIERS.small)) return "small";
+  if (h >= 36 && w >= TIERS.small.pad + 14) return "icon";
+  return "none";
+}
+
 /** 各市場持倉方向: the eight largest markets by notional; area = notional,
  * colour = long (green) or short (red), stronger the more one-sided. */
 export function MarketTreemap({ title, markets, loading, emptyText }: { title: string; markets: CohortMarket[] | undefined; loading: boolean;
@@ -93,23 +114,30 @@ export function MarketTreemap({ title, markets, loading, emptyText }: { title: s
           const full = px.h >= 90 && px.w >= 100;
           const mid = full || (px.h >= 66 && px.w >= 80);
           const tile = long ? "var(--tag-profit)" : "var(--tag-loss)";
+          // The short market name ("xyz:SP500" → "SPX"), as on the boards.
+          const label = boardCoinLabel(c.coin, t);
+          const content = tileContent(px.w, px.h, label, full);
           return (
             <div
               key={c.coin}
               className="absolute p-0.5"
               style={{ left: `${c.x}%`, top: `${c.y}%`, width: `${c.w}%`, height: `${c.h}%` }}
-              title={`${coinLabel(c.coin)} · ${bias.toFixed(1)}% ${t("insights.cohort.long")} · ${usdCompact(c.value, { digits: 2 })}`}
+              data-testid="treemap-tile"
+              data-content={content}
+              title={`${label} · ${bias.toFixed(1)}% ${t("insights.cohort.long")} · ${usdCompact(c.value, { digits: 2 })}`}
             >
               <div
                 className={cn("flex h-full w-full flex-col justify-between overflow-hidden rounded-[22px]", long ? "text-tag-profit-foreground" : "text-tag-loss-foreground", full ? "px-4 py-3.5" : "px-3 py-2.5")}
                 style={{ backgroundColor: `color-mix(in srgb, ${tile} ${Math.round(55 + strength * 45)}%, var(--card))` }}
               >
                 <div className="min-w-0">
-                  <div className={cn("flex min-w-0 items-center font-display", full ? "gap-2 text-2xl" : "gap-[5px] text-[15px]")}>
-                    <CoinIcon coin={c.coin} size={full ? 20 : 14} />
-                    <span className="truncate">{coinLabel(c.coin)}</span>
-                  </div>
-                  {full ? (
+                  {content === "none" ? null : (
+                    <div className={cn("flex min-w-0 items-center font-display", content === "full" ? "gap-2 text-2xl" : "gap-[5px] text-[15px]")}>
+                      <CoinIcon coin={c.coin} size={content === "full" ? 20 : 14} />
+                      {content === "icon" ? null : <span className="whitespace-nowrap">{label}</span>}
+                    </div>
+                  )}
+                  {full && content !== "none" ? (
                     <div className="mt-1 text-xs font-extrabold">
                       {long ? `${bias.toFixed(0)}% ${t("insights.cohort.long")}` : `${(100 - bias).toFixed(0)}% ${t("insights.cohort.short")}`}
                     </div>

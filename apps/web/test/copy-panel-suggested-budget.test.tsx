@@ -7,10 +7,11 @@ import { CopyPanel } from "../src/components/trader/copy-panel";
 import { I18nProvider } from "../src/i18n/provider";
 import { catalogs } from "../src/i18n/messages";
 import { LOCALES } from "../src/i18n/config";
+import { SUGGESTED_BUDGET_DISPLAY_CAP_USD } from "../src/components/trader/suggested-budget-pill";
 
 /**
  * Decisions D7/D9 (2026-10-23): the trader page's copy panel shows one pill
- * by the budget field, 建議 ≥ $X, from the profile's hourly figure. It turns
+ * on its own line under the budget field, 建議 ≥ $X, from the profile's hourly figure. It turns
  * warning once the typed budget is under X; its one-sentence explanation is
  * in the hover tip only. No figure: no pill. Nothing else is added.
  */
@@ -53,10 +54,9 @@ async function type(value: string) {
 }
 const pill = () => container.querySelector<HTMLElement>('[data-testid="copy-suggested-budget"]');
 
-it("shows 建議 ≥ $300 by the budget, quiet until the typed budget is under it, warning then, quiet again at it", async () => {
+it("shows 建議 ≥ $300 under the budget, quiet until the typed budget is under it, warning then, quiet again at it", async () => {
   await render();
-  const row = container.querySelector('[data-testid="copy-amount-row"]')!;
-  expect(row.contains(pill())).toBe(true);
+  expect(pill()!.closest('[data-testid="copy-suggested-line"]')).not.toBeNull();
   expect(pill()!.textContent).toContain("建議 ≥ $300");
   expect(pill()!.dataset.below).toBeUndefined();
   expect(pill()!.className).toContain("bg-raised");
@@ -87,13 +87,44 @@ it("without a figure there is no pill, and the panel is otherwise the same", asy
   await render();
   expect(pill()).toBeNull();
   expect(withPill).not.toBe(container.innerHTML);
-  expect(withPill.replace(/<span data-testid="copy-suggested-budget"[\s\S]*?<\/span><\/span>/, "")).toBe(container.innerHTML);
+  expect(withPill.replace(/<div data-testid="copy-suggested-line"[^>]*><span data-testid="copy-suggested-budget"[\s\S]*?<\/span><\/span><\/div>/, "")).toBe(container.innerHTML);
 });
 
-it("the phone sheet shows the same pill under the amount", async () => {
+it("the phone sheet shows the same pill on its own line under the amount", async () => {
   await render(true);
   expect(pill()!.textContent).toContain("建議 ≥ $300");
+  expect(pill()!.closest('[data-testid="copy-suggested-line"]')).not.toBeNull();
+  expect(container.querySelector("#copy-amount-sheet")!.parentElement!.parentElement!.contains(pill())).toBe(false);
   expect(container.querySelector('[data-testid="copy-amount-row"]')).toBeNull();
+});
+
+/** QA on Stage, 2026-10-25: in the amount row the pill pushed 最大 past the
+ * card's right edge at 1440 px. The row holds the amount, USDC and 最大 only;
+ * the pill is the line right under it. */
+it("keeps the amount row to the amount, USDC and 最大; the pill is the next line", async () => {
+  await render();
+  const row = container.querySelector<HTMLElement>('[data-testid="copy-amount-row"]')!;
+  expect(row.contains(pill())).toBe(false);
+  expect(row.querySelector("button")!.textContent).toBe(zh.trader.copy.max);
+  expect(row.nextElementSibling!.getAttribute("data-testid")).toBe("copy-suggested-line");
+  expect(row.nextElementSibling!.contains(pill())).toBe(true);
+});
+
+/** Stage showed 建議 ≥ $1,390,000 (huge equity ÷ a tiny median add). Above
+ * SUGGESTED_BUDGET_DISPLAY_CAP_USD ($100k) no pill is drawn; at the cap it is. */
+it("draws no pill for a suggestion above the $100k cap, and draws it at the cap", async () => {
+  expect(SUGGESTED_BUDGET_DISPLAY_CAP_USD).toBe(100_000);
+  state.suggested = 1_390_000;
+  await render();
+  expect(pill()).toBeNull();
+  expect(container.querySelector('[data-testid="copy-suggested-line"]')).toBeNull();
+  expect(container.textContent).not.toContain("1,390,000");
+  state.suggested = 100_000;
+  await render();
+  expect(pill()!.textContent).toContain("建議 ≥ $100,000");
+  state.suggested = 100_001;
+  await render();
+  expect(pill()).toBeNull();
 });
 
 it("every language has the pill text with its amount, and the one-sentence tip", () => {

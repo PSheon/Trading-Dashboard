@@ -5,6 +5,7 @@ import { ArrowDown, ArrowRight, ArrowUpRight, Share2 } from "lucide-react";
 import { useMemo } from "react";
 import { SortHead, useSorted, type SortDir as Dir } from "@/components/ui/sort-head";
 import { Segmented } from "@/components/ui/segmented";
+import { InfoTip } from "@/components/ui/info-tip";
 import { DataList } from "@/components/ui/data-list";
 import { PAGE_SIZE, TablePager, usePaged } from "@/components/ui/table-pager";
 import { cn } from "cn";
@@ -487,7 +488,13 @@ export function TradesTab({ address }: { address: string }) {
     const dense = first.coverage.truncated && first.coverage.from !== null;
     body =
       dense ? (
-        <Empty title={t("trader.denseTitle")} body={t("trader.denseDesc", { since: shortTime(first.coverage.from) })} />
+        // One pill; the sentence (since when nothing closed) on hover (Paul, 2026-10-26).
+        <div className="flex justify-center px-6 py-12">
+          <span data-testid="trader-dense-pill" className="chip-sm bg-raised text-muted-foreground">
+            {t("trader.denseTitle")}
+            <InfoTip label={t("common.moreInfo")} className="size-4 text-current hover:text-current" iconClassName="size-3">{t("trader.denseDesc", { since: shortTime(first.coverage.from) })}</InfoTip>
+          </span>
+        </div>
       ) : (
         <Empty title={t("trader.tradesEmptyTitle")} />
       );

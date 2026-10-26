@@ -1720,7 +1720,7 @@ export const zhCN: Messages = {
       noOpenDesc: "你跟单的交易员的未平仓头寸会显示在这里。",
     },
     hedge: {
-      title: "反向持仓提示",
+      title: "反向持仓",
       body: "{trader} 当前在 {coins} 上的持仓与你跟单的另一位交易员方向相反。每个跟单都有自己的钱包，两边的头寸都会保留：价格变动相互抵消，但各自支付手续费与资金费。",
       dismiss: "关闭",
     },

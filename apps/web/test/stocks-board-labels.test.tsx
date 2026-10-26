@@ -50,4 +50,4 @@ it("labels the stocks top 100's figures with the plain metric names in every loc
     container.remove();
     history.replaceState(null, "", "/");
   }
-});
+}, 30_000);

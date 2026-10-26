@@ -428,7 +428,7 @@ export function PerformanceTab({
   const { summary } = analytics;
   const { best, worst } = summary;
   if (best.length === 0 && summary.coins.length === 0) {
-    return <Empty title={t("trader.perfEmptyTitle")} body={t("trader.perfEmptyDesc")} />;
+    return <Empty title={t("trader.perfEmptyTitle")} />;
   }
   return (
     <div className="flex flex-col gap-2">
@@ -489,7 +489,7 @@ export function TradesTab({ address }: { address: string }) {
       dense ? (
         <Empty title={t("trader.denseTitle")} body={t("trader.denseDesc", { since: shortTime(first.coverage.from) })} />
       ) : (
-        <Empty title={t("trader.tradesEmptyTitle")} body={t("trader.tradesEmptyDesc")} />
+        <Empty title={t("trader.tradesEmptyTitle")} />
       );
   } else {
     body = (

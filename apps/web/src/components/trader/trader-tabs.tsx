@@ -301,7 +301,7 @@ const BALANCE_KEYS: Record<BalanceKey, (b: SpotBalance) => number | string> = {
 export function BalancesTab({ balances }: { balances: SpotBalance[] }) {
   const { t } = useI18n();
   const { sorted, sort, onSort } = useSorted<SpotBalance, BalanceKey>(balances, BALANCE_KEYS, { key: "value", dir: "desc" });
-  if (balances.length === 0) return <Empty title={t("trader.empty.balancesTitle")} body={t("trader.empty.balancesDesc")} />;
+  if (balances.length === 0) return <Empty title={t("trader.empty.balancesTitle")} />;
   const head = { sort, onSort };
   return (
     <Table dense className="text-xs">
@@ -362,7 +362,7 @@ export function OrdersTab({ address }: { address: string }) {
   const { rows: page, pager } = usePaged(sorted, sort);
   if (query.isError && !query.data) return <LoadError onRetry={() => query.refetch()} />;
   if (!query.data) return <Loading cols={(["coin", "type", "orderSide", "size", "price", "value", "trigger"] as const).map((k) => t(`trader.cols.${k}`))} />;
-  if (rows.length === 0) return <Empty title={t("trader.empty.ordersTitle")} body={t("trader.empty.ordersDesc")} />;
+  if (rows.length === 0) return <Empty title={t("trader.empty.ordersTitle")} />;
   const head = { sort, onSort };
   return (
     <>
@@ -569,7 +569,7 @@ export function FillsTab({ rows, truncated = false }: { rows: TraderFill[]; trun
   // Ten a page: a page of 2,000 fills that don't merge no longer builds
   // ~27,000 nodes on open and on every re-sort.
   const { rows: page, pager } = usePaged(sorted, sort);
-  if (rows.length === 0) return <Empty title={t("trader.empty.fillsTitle")} body={t("trader.empty.fillsDesc")} />;
+  if (rows.length === 0) return <Empty title={t("trader.empty.fillsTitle")} />;
   const head = { sort, onSort };
   return (
     <>
@@ -698,7 +698,7 @@ export function TransfersTab({ address }: { address: string }) {
   const { sorted, sort, onSort } = useSorted<TraderTransfer, TransferKey>(rows, TRANSFER_KEYS, { key: "time", dir: "desc" });
   if (query.isError && !query.data) return <LoadError onRetry={() => query.refetch()} />;
   if (!query.data) return <Loading left={2} cols={(["time", "type", "coin", "amount", "from", "to", "hash"] as const).map((k) => t(`trader.cols.${k}`))} />;
-  if (rows.length === 0) return <Empty title={t("trader.empty.transfersTitle")} body={t("trader.empty.transfersDesc")} />;
+  if (rows.length === 0) return <Empty title={t("trader.empty.transfersTitle")} />;
   const head = { sort, onSort };
   const party = (who: string | null) => (who ? (who === address.toLowerCase() ? t("trader.self") : truncateAddress(who)) : "-");
   // CopyDog: a bridge deposit or withdrawal has no token and no parties, so

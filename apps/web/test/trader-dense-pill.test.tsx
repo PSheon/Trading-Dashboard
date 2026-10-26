@@ -37,6 +37,9 @@ it("is the 高頻帳戶 pill with the since-sentence in its hover tip; no paragr
   const [before, after] = zh.trader.denseDesc.split("{since}");
   expect(description.textContent!.startsWith(before) && description.textContent!.endsWith(after)).toBe(true);
   expect(description.textContent).not.toContain("{since}");
+  // The date reads in the page's language inside a sentence (2026-10-26: was "Oct 19, 04:27" in a zh-TW sentence).
+  expect(description.textContent).toContain("2026年10月19日");
+  expect(description.textContent).not.toMatch(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b/);
   expect((pill!.textContent ?? "").replace(description.textContent!, "")).toBe(zh.trader.denseTitle);
   expect(container.querySelectorAll("p")).toHaveLength(0);
 

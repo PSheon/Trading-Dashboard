@@ -461,7 +461,7 @@ type LedgerKey = keyof typeof LEDGER_KEYS;
  * a page (the api sends 50 at a time; its live page has no status filter). Net PnL
  * includes funding, as CopyDog shows it. */
 export function TradesTab({ address }: { address: string }) {
-  const { t } = useI18n();
+  const { t, format } = useI18n();
   const query = useTraderTrades(address, "closed");
   const rows = useMemo(() => query.data?.pages.flatMap((p) => p.items) ?? [], [query.data]);
   const first: TraderTradesResponse | undefined = query.data?.pages[0];
@@ -492,7 +492,7 @@ export function TradesTab({ address }: { address: string }) {
         <div className="flex justify-center px-6 py-12">
           <span data-testid="trader-dense-pill" className="chip-sm bg-raised text-muted-foreground">
             {t("trader.denseTitle")}
-            <InfoTip label={t("common.moreInfo")} className="size-4 text-current hover:text-current" iconClassName="size-3">{t("trader.denseDesc", { since: shortTime(first.coverage.from) })}</InfoTip>
+            <InfoTip label={t("common.moreInfo")} className="size-4 text-current hover:text-current" iconClassName="size-3">{t("trader.denseDesc", { since: format.stamp(first.coverage.from) })}</InfoTip>
           </span>
         </div>
       ) : (

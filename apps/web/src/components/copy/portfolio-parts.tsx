@@ -15,6 +15,7 @@ import { CoinIcon } from "@/components/traders/coin-icon";
 import { RoiPill } from "@/components/traders/bits";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { InfoTip } from "@/components/ui/info-tip";
 import { TablePager, usePaged } from "@/components/ui/table-pager";
 import { TradeShareDialog, copyCardSource, type TradeCardSource } from "@/components/trader/trade-share-dialog";
 import { useI18n } from "@/i18n/provider";
@@ -476,18 +477,21 @@ export function ExposurePanel({ overview, leaders, desktop }: { overview: { stra
 }
 
 /** CopyDog's 反向持倉提示 after a copy starts, worded for Orbie's separate
- * copy wallets: the opposite positions both stay open. */
+ * copy wallets: the opposite positions both stay open. One warning pill
+ * (反向持倉 · BTC, ETH) and its close button; the sentence is in the
+ * pill's hover tip (Paul, 2026-10-26). */
 export function HedgeNotice({ trader, coins, onDismiss }: { trader: string; coins: string[]; onDismiss: () => void }) {
   const { t } = useI18n();
+  const labels = coins.map(coinLabel).join(", ");
   return (
-    <div role="status" className="rounded-xl border border-warning/40 bg-warning/10 p-3">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-sm font-bold text-warning">{t("pf.hedge.title")}</p>
-        <button type="button" onClick={onDismiss} aria-label={t("pf.hedge.dismiss")} className="relative inline-flex size-6 items-center justify-center rounded-full outline-none after:absolute after:-inset-2.5 after:content-[''] hover:bg-raised focus-visible:ring-2 focus-visible:ring-ring">
-          <X className="size-3.5" />
-        </button>
-      </div>
-      <p className="mt-1.5 text-xs text-muted-foreground">{t("pf.hedge.body", { trader, coins: coins.map(coinLabel).join(", ") })}</p>
+    <div role="status" className="flex items-center justify-between gap-2">
+      <span data-testid="copy-hedge-pill" className="chip-sm min-w-0 bg-tag-warning text-tag-warning-foreground">
+        <span className="truncate">{t("pf.hedge.title")} · {labels}</span>
+        <InfoTip label={t("common.moreInfo")} className="size-4 text-current hover:text-current" iconClassName="size-3">{t("pf.hedge.body", { trader, coins: labels })}</InfoTip>
+      </span>
+      <button type="button" onClick={onDismiss} aria-label={t("pf.hedge.dismiss")} className="relative inline-flex size-6 shrink-0 items-center justify-center rounded-full outline-none after:absolute after:-inset-2.5 after:content-[''] hover:bg-raised focus-visible:ring-2 focus-visible:ring-ring">
+        <X className="size-3.5" />
+      </button>
     </div>
   );
 }

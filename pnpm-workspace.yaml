@@ -33,6 +33,8 @@ overrides:
   'undici@>=7.0.0 <7.30.1': 7.30.1
   'undici@>=8.0.0 <8.12.2': 8.12.3
   'fast-uri@>=3.0.0 <3.1.9': 3.1.9
+  # 2026-10-28 GHSA-6pq8-jhm2-2vcw (qs.stringify comma-array DoS; via supertest > superagent, tests only).
+  'qs@>=6.7.0 <6.16.1': 6.16.1
   # Kit's legacy loader only uses transform APIs; covered by dependency smoke tests.
   '@esbuild-kit/core-utils@3.3.2>esbuild': 0.25.12
   # These exact MetaMask consumers use v4/validate; retain dual CJS/ESM exports.

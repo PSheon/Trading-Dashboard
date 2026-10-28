@@ -51,7 +51,11 @@ for (const path of ["/", "/explore", "/portfolio", "/favorites", "/settings", "/
     });
     const legal = await footer.getByRole("link", { name: "Terms of use", exact: true }).boundingBox();
     const bar = await floating.boundingBox();
-    return legal!.y + legal!.height - bar!.y;
+    // The trader page swaps its skeleton's bar for the copy bar when the
+    // profile loads; a box read across that swap is null (CI run
+    // 40274727643). Not measured yet: poll again.
+    if (!legal || !bar) return Number.POSITIVE_INFINITY;
+    return legal.y + legal.height - bar.y;
   }).toBeLessThanOrEqual(0);
   await expectNoSidewaysScroll(page);
 });

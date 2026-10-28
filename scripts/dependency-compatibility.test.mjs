@@ -135,3 +135,34 @@ test('legacy WalletConnect bundles do not reference removed query-string', async
     }
   }
 });
+
+test('wallet dependencies pinned to zod 3 resolve patched zod 4 and still build and parse their schemas', async () => {
+  const consumers = [
+    ...packages('@privy-io/api-base', ['1.11.0']),
+    ...packages('@coinbase/cdp-sdk', ['1.57.0']),
+    ...packages('@reown/appkit-wallet', ['1.7.8', '1.8.9']),
+    ...packages('x402', ['0.7.3']),
+  ];
+  assert.equal(new Set(consumers.map(([, pkg]) => `${pkg.name}@${pkg.version}`)).size, 5,
+    'review the scoped zod overrides when wallet dependencies change');
+  const modules = {
+    '@privy-io/api-base': 'dist/esm/index.mjs',
+    '@coinbase/cdp-sdk': '_esm/policies/types.js',
+    '@reown/appkit-wallet': 'dist/esm/src/W3mFrameSchema.js',
+    x402: 'dist/esm/types/index.mjs',
+  };
+  for (const [directory, pkg] of consumers) {
+    const require = createRequire(join(directory, 'package.json'));
+    assert.equal(require('zod/package.json').version, '4.6.7', pkg.name);
+    // Their schemas are built at import time, so a zod 3 API that zod 4 dropped would throw here.
+    const module = await import(pathToFileURL(join(directory, modules[pkg.name])));
+    if (pkg.name === '@privy-io/api-base') {
+      assert.deepEqual(module.APIError.parse({ error: 'x', code: 'invalid_data' }), { error: 'x', code: 'invalid_data' });
+      assert.equal(module.APIError.safeParse({ error: 'x', code: 'not_a_code' }).success, false);
+    }
+    if (pkg.name === 'x402') {
+      assert.equal(module.NetworkSchema.safeParse('base').success, true);
+      assert.equal(module.NetworkSchema.safeParse('not-a-network').success, false);
+    }
+  }
+});

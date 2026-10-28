@@ -19,7 +19,7 @@ export const adminLiveAccountsSchema = z.object({ items: z.array(adminLiveAccoun
  * confirmed credited, since it was sent; `explorerFailingSince`: since when
  * its confirmation could not reach Hyperliquid's explorer (null otherwise). */
 export const adminLiveTransferSchema = z.object({
-  id: z.string().uuid(), userId: z.number().int(), accountId: z.string(), strategyId: z.number().int(), direction: z.enum(['to_account', 'to_main']),
+  id: z.guid(), userId: z.number().int(), accountId: z.string(), strategyId: z.number().int(), direction: z.enum(['to_account', 'to_main']),
   status: z.string(), amount: z.string(), source: addr, destination: addr, stopId: z.string().nullable(), transactionHash: z.string().nullable(),
   attemptedAt: iso.nullable(), createdAt: iso, updatedAt: iso,
   awaitingCreditSince: iso.nullable().optional(), explorerFailingSince: iso.nullable().optional(),
@@ -67,7 +67,7 @@ export const adminResolveCopyFundingSchema = z.discriminatedUnion('evidence', [
   z.object({ evidence: z.literal('ledger_absent_after_nonce_expiry'), reason: z.string().trim().min(3).max(500) }).strict(),
 ]);
 export const adminResolvedCopyFundingSchema = z.object({
-  id: z.string().uuid(), status: z.enum(['credited', 'rejected']), evidence: z.enum(['ledger_receipt', 'ledger_absent_after_nonce_expiry']),
+  id: z.guid(), status: z.enum(['credited', 'rejected']), evidence: z.enum(['ledger_receipt', 'ledger_absent_after_nonce_expiry']),
 }).strict();
 export type AdminResolvedCopyFunding = z.infer<typeof adminResolvedCopyFundingSchema>;
 export type AdminLiveAccount = z.infer<typeof adminLiveAccountSchema>;

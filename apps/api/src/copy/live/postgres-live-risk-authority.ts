@@ -144,7 +144,7 @@ export async function loadLivePreparationAuthority(session:LiveRiskDatabaseSessi
     accountAddress:address(a.address),network:a.network,scopes:effectiveGrantScopes(g.scopes,g.revokeRequestedAt),validFrom:g.validFrom.getTime(),expiresAt:g.expiresAt.getTime(),revokedAt:g.revokedAt?.getTime()??null,exchangeApprovedAt:g.exchangeApprovedAt?.getTime()??null};
   const currentAuthorization=assertWalletAuthorization(current,{authorizationId:g.id,userId:a.userId,strategyId:s.id,walletId:w.privyWalletId,network:a.network,accountAddress:address(a.address),reduceOnly:false},now);
   riskSourceRequire(settings.copyStartMode==='delta','live_risk_adoption_unproven');
-  riskSourceRequire(policy&&Object.keys(copyRiskLimitsSchema.innerType().shape).every(k=>Object.hasOwn(policy.limits,k)),'live_risk_policy_missing');
+  riskSourceRequire(policy&&Object.keys(copyRiskLimitsSchema.shape).every(k=>Object.hasOwn(policy.limits,k)),'live_risk_policy_missing');
   // The deployment's caps and allowlist hold at order time too (security
   // review): the stricter of each cap and the policy, and only a listed owner.
   // A mainnet order needs the deployment's registered policy (fail closed).

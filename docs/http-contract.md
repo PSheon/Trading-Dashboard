@@ -102,11 +102,10 @@ OpenAPI validity. The export creates controllers with inert providers: no AppMod
 database connection, env file, background job or network listener is started.
 Compiled bootstrap tests compare the running app's document to the offline export.
 
-The Zod 3 response adapter remains pinned to `zod-to-json-schema@3.25.2`.
-It now belongs to API dependencies so local runtime Swagger and offline export share
-one generator. It is deprecated upstream; replace it during a Zod 4 migration.
-Production does not invoke/load the document builder. Native request DTO metadata
-does not depend on that adapter.
+Response schemas are converted with Zod 4's own `z.toJSONSchema` (output side,
+JSON Schema 2020-12) since the Zod 4 migration (2026-10-28), so local runtime Swagger
+and the offline export share one generator. Production does not invoke/load the
+document builder. Native request DTO metadata does not depend on it.
 
 Swagger metadata and class-validator constraints remain two declarations.
 Representative constraint tests plus a property-coverage gate detect omissions;

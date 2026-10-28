@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { millisSchema } from './primitives.js';
+import { isoUtcSchema, millisSchema } from './primitives.js';
 import { copyIdempotencyKeySchema } from './schema/copy.js';
 
 export const prepareCopyAccountModeSchema = z.object({ idempotencyKey: copyIdempotencyKeySchema }).strict();
@@ -15,8 +15,8 @@ export const copyAccountModeOperationSchema = z.object({
   accountAddress: z.string().regex(/^0x[0-9a-f]{40}$/), target: z.literal('disabled'), revision: z.number().int().positive(),
   submissionState: z.enum(['prepared', 'signing', 'unknown', 'accepted', 'rejected']),
   targetState: z.enum(['unknown', 'supported', 'unproven', 'unsupported']),
-  issue: z.string().nullable(), observedAt: z.string().datetime().nullable(),
-  attemptedAt: z.string().datetime().nullable(), createdAt: z.string().datetime(), updatedAt: z.string().datetime(),
+  issue: z.string().nullable(), observedAt: isoUtcSchema.nullable(),
+  attemptedAt: isoUtcSchema.nullable(), createdAt: isoUtcSchema, updatedAt: isoUtcSchema,
 });
 export type CopyAccountModeOperation = z.infer<typeof copyAccountModeOperationSchema>;
 export const copyAccountModeOverviewSchema = z.object({ available: z.boolean(), network: z.enum(['testnet', 'mainnet']), operations: z.array(copyAccountModeOperationSchema) });

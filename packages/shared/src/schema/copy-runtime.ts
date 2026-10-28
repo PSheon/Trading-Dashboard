@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { recordSchema } from "../primitives.js";
 
 export const copyPerformanceWindowSchema = z.enum(["1d", "7d", "30d", "all"]);
 export type CopyPerformanceWindow = z.infer<typeof copyPerformanceWindowSchema>;
@@ -17,7 +18,7 @@ export const copyPerformanceResponseSchema = z.object({
 export type CopyPerformanceResponse = z.infer<typeof copyPerformanceResponseSchema>;
 export const copyEventSchema = z.object({
   id: z.string().regex(/^\d+$/), strategyId: z.number().int().nullable(), type: z.string(),
-  payload: z.record(z.unknown()), createdAt: z.coerce.date(),
+  payload: recordSchema(z.string(), z.unknown()), createdAt: z.coerce.date(),
 });
 export const copyEventsResponseSchema = z.object({
   items: z.array(copyEventSchema), nextCursor: z.string().regex(/^\d+$/),

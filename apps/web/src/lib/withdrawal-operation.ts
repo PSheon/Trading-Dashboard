@@ -4,7 +4,7 @@ import { walletWithdrawalInputSchema, walletWithdrawalSchema, type WalletWithdra
 const operationSchema = z.object({
   destination: z.string().regex(/^0x[0-9a-f]{40}$/),
   amount: z.string().regex(/^\d+(?:\.\d{1,6})?$/),
-  nonce: z.number().int().positive().safe(),
+  nonce: z.number().int().positive(),
   status: z.enum(["prepared", "unknown", "accepted", "rejected"]),
 }).strict();
 export type WithdrawalOperation = z.infer<typeof operationSchema>;

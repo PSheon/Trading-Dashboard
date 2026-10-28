@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { liveCopySetupAbortSchema, requestLiveCopySetupAbortSchema, type LiveCopySetupAbort } from '@trading-dashboard/shared/contracts';
 
-const selectionSchema = z.object({ id: z.string().uuid(), kind: z.enum(['start', 'edit', 'renewal']),
+const selectionSchema = z.object({ id: z.guid(), kind: z.enum(['start', 'edit', 'renewal']),
   strategyId: z.number().int().positive(), accountId: z.string().min(1).max(128).nullable() }).strict();
 export type SetupAbortSelection = z.infer<typeof selectionSchema>;
 const attemptSchema = z.object({ setup: selectionSchema, network: z.enum(['testnet', 'mainnet']), request: requestLiveCopySetupAbortSchema }).strict();

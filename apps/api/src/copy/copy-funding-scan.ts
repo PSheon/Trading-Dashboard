@@ -5,7 +5,7 @@ import { backoffMs, FUNDING_RETRY_POLICY } from "./live/error-class.js";
  * row so restarts and replicas honour it. */
 export const fundingBackoffMs = (failures: number): number => backoffMs(Math.max(failures, 1) - 1, FUNDING_RETRY_POLICY);
 const hash = z.string().regex(/^0x[0-9a-f]{64}$/);
-const time = z.number().int().nonnegative().safe();
+const time = z.number().int().nonnegative();
 const units = z.string().max(32).regex(/^\d+(?:\.\d{1,6})?$/);
 // Only fundingCreditEvidence's fields; invalid stay null and duplicates stay duplicated, so
 // nothing becomes credit evidence by omission.

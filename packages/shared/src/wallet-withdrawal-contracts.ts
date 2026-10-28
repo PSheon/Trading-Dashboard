@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isoUtcSchema } from "./primitives.js";
 
 /** Exact USDC units. Amounts never pass through floating point arithmetic. */
 export function withdrawalUnits(value: string): bigint {
@@ -15,13 +16,13 @@ const amountSchema = z.string().max(32).regex(/^\d+(?:\.\d{1,6})?$/).refine((val
   return `${units / 1_000_000n}${fraction ? `.${fraction}` : ""}`;
 });
 export const walletWithdrawalInputSchema = z.object({ destination: z.string().regex(/^0x[0-9a-fA-F]{40}$/).transform((address) => address.toLowerCase()), amount: amountSchema }).strict();
-export const walletWithdrawalImportSchema = walletWithdrawalInputSchema.extend({ nonce: z.number().int().positive().safe() }).strict();
+export const walletWithdrawalImportSchema = walletWithdrawalInputSchema.extend({ nonce: z.number().int().positive() }).strict();
 export const walletWithdrawalSchema = z.object({
-  id: z.string().uuid(), network: z.enum(["testnet", "mainnet"]), address: z.string().regex(/^0x[0-9a-f]{40}$/),
-  destination: z.string().regex(/^0x[0-9a-f]{40}$/), amount: z.string(), nonce: z.number().int().positive().safe(),
+  id: z.guid(), network: z.enum(["testnet", "mainnet"]), address: z.string().regex(/^0x[0-9a-f]{40}$/),
+  destination: z.string().regex(/^0x[0-9a-f]{40}$/), amount: z.string(), nonce: z.number().int().positive(),
   // not_executed: an operator confirmed, after Hyperliquid's nonce window,
   // that the ledger has no such withdrawal (it can never execute).
-  status: z.enum(["prepared", "unknown", "accepted", "rejected", "cancelled", "not_executed"]), createdAt: z.string().datetime(), updatedAt: z.string().datetime(),
+  status: z.enum(["prepared", "unknown", "accepted", "rejected", "cancelled", "not_executed"]), createdAt: isoUtcSchema, updatedAt: isoUtcSchema,
   canCancel: z.boolean().optional(),
 });
 export const walletWithdrawalClaimSchema = z.object({ operation: walletWithdrawalSchema, claimed: z.boolean() });
@@ -37,16 +38,16 @@ export const WITHDRAWAL_NONCE_WINDOW_MS = 2 * 86_400_000 + 3_600_000;
 
 /** A main-wallet withdrawal whose outcome is not known (admin). */
 export const adminUnresolvedWithdrawalSchema = z.object({
-  id: z.string().uuid(), userId: z.number().int(), email: z.string().nullable(), network: z.enum(["testnet", "mainnet"]),
+  id: z.guid(), userId: z.number().int(), email: z.string().nullable(), network: z.enum(["testnet", "mainnet"]),
   address: z.string(), destination: z.string(), amount: z.string(), nonce: z.number().int(),
-  attempted: z.boolean(), createdAt: z.string().datetime(),
+  attempted: z.boolean(), createdAt: isoUtcSchema,
   /** When an operator may resolve it (the nonce window has passed). */
-  resolvableAt: z.string().datetime(),
+  resolvableAt: isoUtcSchema,
 }).strict();
 export const adminUnresolvedWithdrawalsSchema = z.object({ items: z.array(adminUnresolvedWithdrawalSchema) }).strict();
 export const adminResolveWithdrawalSchema = z.object({ reason: z.string().trim().min(3).max(500) }).strict();
 export const adminResolvedWithdrawalSchema = z.object({
-  id: z.string().uuid(), status: z.enum(["accepted", "not_executed"]), evidence: z.enum(["ledger_match", "ledger_absent_after_nonce_window"]),
+  id: z.guid(), status: z.enum(["accepted", "not_executed"]), evidence: z.enum(["ledger_match", "ledger_absent_after_nonce_window"]),
 }).strict();
 export type AdminUnresolvedWithdrawals = z.infer<typeof adminUnresolvedWithdrawalsSchema>;
 export type AdminResolvedWithdrawal = z.infer<typeof adminResolvedWithdrawalSchema>;

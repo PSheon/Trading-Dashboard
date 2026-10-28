@@ -2,7 +2,7 @@ import { BadRequestException, Inject, Injectable, NotFoundException } from '@nes
 import { and, desc, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { copyExecutionAccounts, copyFollowerReceipts, copyFollowerLedger, copyFollowerAccountState, copyFollowerScans, users, copyLiveExecutions, copyLiveIntentProvenance, copyLiveMandates, copyLiveSignalLegs, copyLiveSourceFills, copyLiveRiskReservations, copyLiveExecutionEvidence, copyStrategyVersions, copyRiskPolicies } from '@trading-dashboard/shared/database';
-import type { CopyFollowerActivityQuery } from '@trading-dashboard/shared/contracts';
+import { isoUtcSchema, type CopyFollowerActivityQuery } from '@trading-dashboard/shared/contracts';
 import { DRIZZLE_CLIENT } from '../db/db.constants.js';
 import type { DrizzleDb } from '../db/drizzle.provider.js';
 
@@ -12,7 +12,7 @@ import type { FollowerAdjustmentEvidence } from './copy-follower-adjustment.js';
 
 type Account = { id: string; strategyId: number; network: 'testnet' | 'mainnet'; address: string; privyUserId: string };
 const cursorSchema = z.object({ v: z.literal(1), userId: z.number().int().positive(), accountId: z.string().min(1).max(128), network: z.enum(['testnet', 'mainnet']),
-  accountAddress: z.string().regex(/^0x[0-9a-f]{40}$/), beforeTime: z.string().datetime(), beforeKey: z.string().min(1).max(350) }).strict();
+  accountAddress: z.string().regex(/^0x[0-9a-f]{40}$/), beforeTime: isoUtcSchema, beforeKey: z.string().min(1).max(350) }).strict();
 export function followerActivityCursor(userId: number, account: Account, row: { providerTime: Date; key: string }): string {
   return Buffer.from(JSON.stringify(cursorSchema.parse({ v: 1, userId, accountId: account.id, network: account.network, accountAddress: account.address, beforeTime: row.providerTime.toISOString(), beforeKey: row.key }))).toString('base64url');
 }

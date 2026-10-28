@@ -36,7 +36,7 @@ export const auditQuerySchema = z.object({
 export type AuditQuery = z.infer<typeof auditQuerySchema>;
 export const auditEntrySchema = z.object({
   id: auditId, actorKind: z.enum(["user", "service", "system"]), actorUserId: z.number().int().nullable(),
-  event: z.string(), target: z.string(), before: z.unknown().nullable(), after: z.unknown().nullable(),
+  event: z.string(), target: z.string(), before: z.unknown().nullable().optional(), after: z.unknown().nullable().optional(),
   createdAt: isoDatetimeOffsetSchema,
 });
 export const auditResponseSchema = z.object({ items: z.array(auditEntrySchema), nextCursor: auditId.nullable() });

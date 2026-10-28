@@ -10,7 +10,7 @@
  * field; the minimum order is a platform risk limit here.
  */
 import { z } from "zod";
-import { decimalStringSchema } from "../primitives.js";
+import { decimalStringSchema, partialRecordSchema } from "../primitives.js";
 
 import {
   copyControlCommandEnum,
@@ -350,8 +350,8 @@ export const COPY_STUCK_ORDER_ATTEMPTS = 5;
 export const adminCopyOverviewSchema = z.object({
   mode: copyTradingModeSchema,
   platform: copyControlStateSchema.extend({ updatedAt: z.coerce.date().nullable() }),
-  strategies: z.record(copyStrategyStatusSchema, z.number().int()),
-  orders24h: z.record(copyOrderStatusSchema, z.number().int()),
+  strategies: partialRecordSchema(copyStrategyStatusSchema, z.number().int()),
+  orders24h: partialRecordSchema(copyOrderStatusSchema, z.number().int()),
   outbox: z.object({
     pending: z.number().int(),
     failed: z.number().int(),

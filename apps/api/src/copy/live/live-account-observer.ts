@@ -355,7 +355,7 @@ export class HyperliquidLiveAccountObserver {
       const wsSpan = liveSpan('observer_ws');
       const [rawMetas, rawAggregate] = await Promise.all([metadataRead, aggregate().finally(() => wsSpan())]);
       const metas = z.array(metaSchema.nullable()).max(MAX_LIVE_PERP_DEXES).parse(rawMetas);
-      const sourceStates = z.object({ clearinghouseStates: z.array(z.tuple([z.string(), z.record(z.unknown())]))
+      const sourceStates = z.object({ clearinghouseStates: z.array(z.tuple([z.string(), z.record(z.string(), z.unknown())]))
         .max(MAX_LIVE_PERP_DEXES) }).parse(rawAggregate);
       for (const [, row] of sourceStates.clearinghouseStates) {
         if (row.user !== undefined && (typeof row.user !== 'string' || address(row.user) !== user) ||

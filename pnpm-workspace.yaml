@@ -12,13 +12,6 @@ syncInjectedDepsAfterScripts:
 auditConfig:
   ignoreCves:
     - CVE-2026-93687
-  # zod < 4.6.6 (GHSA-mrhx-c7xc-m3w5, memory exhaustion on oversized constrained collections): every
-  # installed zod is 3.25 and no 3.x patch exists; the 3→4 migration is scheduled after the 7-day
-  # mainnet acceptance (docs/decisions-2026-10-23.md D16). Exposure is bounded: the api parses JSON
-  # bodies under express's 100 kB default (apps/api/test/body-limit.spec.ts) and provider payloads
-  # are capped by row before validation (SOURCE_PAGE_ROWS).
-  ignoreGhsas:
-    - GHSA-mrhx-c7xc-m3w5
 
 ignoredBuiltDependencies:
   - sharp
@@ -46,6 +39,14 @@ overrides:
   # Published CJS/ESM/UMD bundles use URLSearchParams, not this stale dependency.
   '@walletconnect/utils@2.21.0>query-string': '-'
   '@walletconnect/utils@2.21.1>query-string': '-'
+  # GHSA-mrhx-c7xc-m3w5 (zod < 4.6.6, memory exhaustion on oversized constrained collections): these
+  # web-only wallet dependencies pin zod 3 with no zod 4 release; their schemas use only APIs zod 4 keeps
+  # (covered by dependency smoke tests).
+  '@privy-io/api-base@1.11.0>zod': 4.6.7
+  '@coinbase/cdp-sdk@1.57.0>zod': 4.6.7
+  '@reown/appkit-wallet@1.7.8>zod': 4.6.7
+  '@reown/appkit-wallet@1.8.9>zod': 4.6.7
+  'x402@0.7.3>zod': 4.6.7
   # GHSA-68fv-2mgg-jv7q (event-loop DoS on indexed source-map offsets): patch release, same API.
   'source-map-js@>=1.0.0 <1.2.2': 1.2.2
 

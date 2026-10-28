@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { hash64Schema, millisSchema, nonzeroAddressSchema, revisionSchema } from './primitives.js';
+import { hash64Schema, isoUtcSchema, millisSchema, nonzeroAddressSchema, revisionSchema } from './primitives.js';
 import { copyIdempotencyKeySchema, copyStrategySettingsSchema, copyStrategyStatusSchema, liveCopyBudgetSchema } from './schema/copy.js';
 import { liveCopySetupIntentSchema } from './copy-live-setup-contracts.js';
 
@@ -22,7 +22,7 @@ export const liveCopyStrategySchema = z.object({
   id: version, mode: z.literal('actual'), network: z.enum(['testnet', 'mainnet']),
   sourceNetwork: z.enum(['testnet', 'mainnet']), leaderAddress: address, budgetUsd: liveCopyBudgetSchema,
   status: copyStrategyStatusSchema, version, settings,
-  pauseNewRisk: z.boolean(), reduceOnly: z.boolean(), createdAt: z.string().datetime(),
+  pauseNewRisk: z.boolean(), reduceOnly: z.boolean(), createdAt: isoUtcSchema,
 }).strict();
 export type LiveCopyStrategy = z.infer<typeof liveCopyStrategySchema>;
 export const liveCopyMandateIntentSchema = z.object({
@@ -49,8 +49,8 @@ export const liveCopyMandateSchema = z.object({
   id: id, accountId: id, strategyId: version, mode: z.literal('actual'), network: z.enum(['testnet', 'mainnet']),
   accountAddress: address, sourceNetwork: z.enum(['testnet', 'mainnet']), leaderAddress: address,
   budgetUsd: liveCopyBudgetSchema, strategyVersion: version, state: liveCopyMandateStateSchema, revision: version,
-  activationCursor: z.string().datetime().nullable(), expiresAt: z.string().datetime(),
-  createdAt: z.string().datetime(), updatedAt: z.string().datetime(),
+  activationCursor: isoUtcSchema.nullable(), expiresAt: isoUtcSchema,
+  createdAt: isoUtcSchema, updatedAt: isoUtcSchema,
 }).strict();
 export type LiveCopyMandate = z.infer<typeof liveCopyMandateSchema>;
 export const liveCopyOverviewSchema = z.object({
@@ -82,19 +82,19 @@ export const liveCopyPortfolioItemSchema = z.object({
   /** The network the copy executes on. One that isn't the deployment's
    * (`liveCopyPortfolioSchema.network`) is history here: shown, never worked. */
   network: z.enum(['testnet', 'mainnet']).optional(),
-  status: copyStrategyStatusSchema, stage: liveCopyStageSchema, createdAt: z.string().datetime(),
+  status: copyStrategyStatusSchema, stage: liveCopyStageSchema, createdAt: isoUtcSchema,
   accountId: id.nullable(), accountAddress: address.nullable(),
   mandate: z.object({ id, state: liveCopyMandateStateSchema, revision: version }).strict().nullable(),
-  stop: z.object({ id: z.string().uuid(), state: z.enum(['requested', 'cancelling', 'closing', 'blocked', 'flat', 'stopped']), issue: z.string().nullable(), revision: version }).strict().nullable(),
-  pendingTransfer: z.object({ id: z.string().uuid(), direction: z.enum(['to_account', 'to_main']), status: z.enum(['prepared', 'unknown', 'accepted']), amount: z.string() }).strict().nullable(),
+  stop: z.object({ id: z.guid(), state: z.enum(['requested', 'cancelling', 'closing', 'blocked', 'flat', 'stopped']), issue: z.string().nullable(), revision: version }).strict().nullable(),
+  pendingTransfer: z.object({ id: z.guid(), direction: z.enum(['to_account', 'to_main']), status: z.enum(['prepared', 'unknown', 'accepted']), amount: z.string() }).strict().nullable(),
   /** The latest leg the worker refused, with its reason (e.g. a price deviation). */
-  lastRefusal: z.object({ reason: z.string(), at: z.string().datetime() }).strict().nullable(),
+  lastRefusal: z.object({ reason: z.string(), at: isoUtcSchema }).strict().nullable(),
   /** SQL observations of this consent generation. A filled exchange ACK is
    * still confirming until its reservation has a verified settlement release.
    * sourceThrough is source coverage, not a promise of execution latency. */
   executionSummary: z.object({ pending: z.number().int().nonnegative(), confirming: z.number().int().nonnegative(),
-    oldestPendingAt: z.string().datetime().nullable(), lastCompletedAt: z.string().datetime().nullable(),
-    sourceThrough: z.string().datetime().nullable(), observedAt: z.string().datetime() }).strict().nullable().optional(),
+    oldestPendingAt: isoUtcSchema.nullable(), lastCompletedAt: isoUtcSchema.nullable(),
+    sourceThrough: isoUtcSchema.nullable(), observedAt: isoUtcSchema }).strict().nullable().optional(),
   /** The account's funds return to the main wallet by themselves after a
    * stop (the worker's policy-bound signer); idle withdrawals need no
    * signature. Optional while older APIs roll out. */
@@ -104,7 +104,7 @@ export const liveCopyPortfolioItemSchema = z.object({
   sweep: z.object({ amount: z.string(), status: z.enum(['prepared', 'unknown', 'accepted', 'credited', 'rejected', 'cancelled']) }).strict().nullable().optional(),
   /** The copy's latest one-click setup (start, edit or renewal) while it is
    * unfinished, or when it ended without finishing (failed / expired). */
-  setup: z.object({ id: z.string().uuid(), kind: z.enum(['start', 'edit', 'renewal']),
+  setup: z.object({ id: z.guid(), kind: z.enum(['start', 'edit', 'renewal']),
     stage: z.enum(['provisioning', 'awaiting_consent', 'consented', 'funding_submitted', 'funded', 'mode_set', 'agent_active', 'builder_ready', 'running', 'failed', 'expired', 'cancelled']),
     issue: z.string().nullable(),
     abortRequested: z.boolean().optional(),
@@ -112,7 +112,7 @@ export const liveCopyPortfolioItemSchema = z.object({
     /** The consent to sign while it is due (awaiting_consent, not expired): 繼續設定 opens the confirm sheet with it. */
     consent: liveCopySetupIntentSchema.nullable().optional() }).strict().nullable().optional(),
   /** When the current generation ends (30 days); 續期 is offered in its last three days. */
-  expiresAt: z.string().datetime().nullable().optional(),
+  expiresAt: isoUtcSchema.nullable().optional(),
   renewalDue: z.boolean().optional(),
   /** The generation came from a one-click setup consent: its stop cancels
    * its orders with no further consent. */
@@ -126,10 +126,10 @@ export const liveCopyPortfolioSchema = z.object({ network: z.enum(['testnet', 'm
 
 /** Close one position of a running testnet copy (CopyDog's close-position). */
 export const requestLiveManualCloseSchema = z.object({
-  idempotencyKey: z.string().uuid(), coin: z.string().min(1).max(129).regex(/^(?:[^:\s/@\p{Cc}\p{Cf}]{1,40}:)?[^:\s/@\p{Cc}\p{Cf}]{1,80}$/u),
+  idempotencyKey: z.guid(), coin: z.string().min(1).max(129).regex(/^(?:[^:\s/@\p{Cc}\p{Cf}]{1,40}:)?[^:\s/@\p{Cc}\p{Cf}]{1,80}$/u),
 }).strict();
 export const liveManualCloseSchema = z.object({
-  id: z.string().uuid(), accountId: id, strategyId: version, coin: z.string(), state: z.enum(['requested', 'done', 'refused']),
-  reason: z.string().nullable(), orders: z.number().int().min(0).max(10), createdAt: z.string().datetime(), updatedAt: z.string().datetime(),
+  id: z.guid(), accountId: id, strategyId: version, coin: z.string(), state: z.enum(['requested', 'done', 'refused']),
+  reason: z.string().nullable(), orders: z.number().int().min(0).max(10), createdAt: isoUtcSchema, updatedAt: isoUtcSchema,
 }).strict();
 export const liveManualClosesSchema = z.object({ items: z.array(liveManualCloseSchema).max(50) }).strict();

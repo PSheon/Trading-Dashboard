@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isoUtcSchema, recordSchema } from "./primitives.js";
 
 export const API_CONTRACT_HEADER = "x-api-contract";
 export const API_CONTRACT_VERSION = "1";
@@ -8,14 +9,14 @@ export const paginationSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("cursor"), limit: z.number().int().positive(), total: z.number().int().nonnegative(),
     nextCursor: z.string().nullable(), hasMore: z.boolean() }),
 ]);
-export const responseMetaSchema = z.object({ requestId: z.string(), path: z.string(), timestamp: z.string().datetime(), pagination: paginationSchema.optional() });
+export const responseMetaSchema = z.object({ requestId: z.string(), path: z.string(), timestamp: isoUtcSchema, pagination: paginationSchema.optional() });
 export const successEnvelopeSchema = z.object({
   success: z.literal(true), statusCode: z.number().int(), message: z.string(),
-  data: z.unknown(), meta: responseMetaSchema,
+  data: z.unknown().optional(), meta: responseMetaSchema,
 });
 export const errorEnvelopeSchema = z.object({
   success: z.literal(false), statusCode: z.number().int(), message: z.string(),
-  error: z.object({ code: z.string(), details: z.record(z.unknown()).optional(),
+  error: z.object({ code: z.string(), details: recordSchema(z.string(), z.unknown()).optional(),
     fields: z.array(z.object({ path: z.string(), message: z.string() })).optional() }),
   meta: responseMetaSchema,
 });

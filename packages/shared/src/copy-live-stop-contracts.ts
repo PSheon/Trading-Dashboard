@@ -13,7 +13,7 @@ export type RequestLiveCopyStop = z.infer<typeof requestLiveCopyStopSchema>;
 /** A durable local barrier is separate from cancelled orders, flat positions
  * and returned funds. Only the latter verified stages may report stopped. */
 export const liveCopyStopSchema = z.object({
-  id: z.string().uuid(), accountId: id, mandateId: id, strategyId: revision,
+  id: z.guid(), accountId: id, mandateId: id, strategyId: revision,
   network: z.enum(['testnet', 'mainnet']), accountAddress: z.string().regex(/^0x[0-9a-f]{40}$/),
   originalMandateRevision: revision, revision,
   state: z.enum(['requested', 'cancelling', 'closing', 'blocked', 'flat', 'stopped']),

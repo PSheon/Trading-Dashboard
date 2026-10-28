@@ -119,7 +119,7 @@ function assess(input: LiveAccountRiskInput): LiveAccountRiskAssessment {
     reservations.own.strategyVersion === id.strategyVersion && reservations.own.policyVersion === id.policyVersion &&
     reservations.own.authorizationVersion === id.authorizationVersion, 'live_risk_version');
   // Shared schemas contain API defaults. A final financial gate requires every stored field explicitly.
-  for (const key of Object.keys(copyRiskLimitsSchema.innerType().shape)) requireProof(Object.hasOwn(policy.limits, key), 'live_risk_evidence_invalid');
+  for (const key of Object.keys(copyRiskLimitsSchema.shape)) requireProof(Object.hasOwn(policy.limits, key), 'live_risk_evidence_invalid');
   const limits = copyRiskLimitsSchema.parse(policy.limits), settings = copyStrategySettingsSchema.parse(strategy.settings);
   const allocated = money(strategy.allocatedUsd);
   for (const scope of ['platform', 'user', 'strategy'] as const) {

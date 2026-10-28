@@ -8,9 +8,23 @@
  */
 
 import { z } from "zod";
-import { hash64Schema, isoDatetimeOffsetSchema } from "../primitives.js";
+import { hash64Schema, isoDatetimeOffsetSchema, isoUtcSchema, partialRecordSchema, recordSchema, urlStringSchema } from "../primitives.js";
 import { appSettingsKeyEnum, localeEnum, userRoleEnum } from "../enums.js";
 import { PERMISSIONS } from "../permissions.js";
+
+/** `schema.partial()` as zod 3 parsed it: an absent key stays absent.
+ * zod 4's `.partial()` fills an absent key from the field's `.default()`,
+ * which would turn a PATCH of one field into a reset of its siblings. */
+function patchOf<Shape extends z.ZodRawShape, Config extends z.core.$ZodObjectConfig>(schema: z.ZodObject<Shape, Config>) {
+  const shape: Record<string, z.ZodType> = {};
+  for (const [key, field] of Object.entries(schema.shape) as [string, z.ZodType][]) {
+    const optional = (field instanceof z.ZodDefault ? field.unwrap() as z.ZodType : field).optional();
+    const probe = z.object({ [key]: optional }).safeParse({});
+    if (!probe.success || key in probe.data) throw new Error(`patchOf: "${key}" still fills an absent key`);
+    shape[key] = optional;
+  }
+  return schema.extend(shape) as unknown as z.ZodObject<{ -readonly [K in keyof Shape]: z.ZodOptional<Shape[K]> }, Config>;
+}
 
 export const addressSchema = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
 
@@ -85,7 +99,7 @@ export const leaderListItemSchema = z.object({
   listId: z.number().int(),
   address: z.string(),
   rank: z.number().int(),
-  statsJson: z.record(z.string(), z.unknown()).nullable().optional(),
+  statsJson: recordSchema(z.string(), z.unknown()).nullable().optional(),
 });
 export type LeaderListItem = z.infer<typeof leaderListItemSchema>;
 
@@ -114,7 +128,7 @@ export const fillSchema = z.object({
   closedPnl: z.union([z.string(), z.number()]).nullable().optional(),
   hash: z.string().nullable().optional(),
   ts: z.coerce.date(),
-  raw: z.record(z.string(), z.unknown()),
+  raw: recordSchema(z.string(), z.unknown()),
 });
 export type Fill = z.infer<typeof fillSchema>;
 
@@ -139,9 +153,9 @@ export const alertRuleSchema = z.object({
   userId: z.number().int().nullable().optional(),
   scope: alertRuleScopeSchema,
   kind: alertRuleKindSchema,
-  paramsJson: z.record(z.string(), z.unknown()),
+  paramsJson: recordSchema(z.string(), z.unknown()),
   cooldownS: z.number().int(),
-  quietHours: z.record(z.string(), z.unknown()).nullable().optional(),
+  quietHours: recordSchema(z.string(), z.unknown()).nullable().optional(),
   tiers: z.array(tierSchema),
   enabled: z.boolean(),
 });
@@ -156,7 +170,7 @@ export const alertSchema = z.object({
   address: z.string().nullable().optional(),
   coin: z.string().nullable().optional(),
   actionId: z.union([z.bigint(), z.string(), z.number()]).nullable().optional(),
-  payloadJson: z.record(z.string(), z.unknown()),
+  payloadJson: recordSchema(z.string(), z.unknown()),
   sentAt: z.coerce.date().nullable().optional(),
   sendStatus: sendStatusSchema,
   pxAtSend: z.union([z.string(), z.number()]).nullable().optional(),
@@ -175,7 +189,7 @@ export const importLeaderListRequestSchema = z.object({
   source: z.string().trim().min(1).max(64).default("copydog"),
   fileName: z.string().trim().min(1).max(255),
   /** Raw parsed rows; column mapping happens server-side per A1. */
-  rows: z.array(z.record(z.string(), z.unknown())).min(1).max(1000),
+  rows: z.array(recordSchema(z.string(), z.unknown())).min(1).max(1000),
 }).strict();
 export type ImportLeaderListRequest = z.infer<
   typeof importLeaderListRequestSchema
@@ -255,9 +269,9 @@ export const upsertAlertRuleRequestSchema = z.object({
   id: z.number().int().min(1).max(2_147_483_647).optional(),
   scope: alertRuleScopeSchema,
   kind: alertRuleKindSchema,
-  paramsJson: z.record(z.string(), z.unknown()),
+  paramsJson: recordSchema(z.string(), z.unknown()),
   cooldownS: z.number().int().nonnegative(),
-  quietHours: z.record(z.string(), z.unknown()).nullable().optional(),
+  quietHours: recordSchema(z.string(), z.unknown()).nullable().optional(),
   tiers: z.array(tierSchema),
   enabled: z.boolean().default(true),
 }).strict();
@@ -337,7 +351,7 @@ export const equityIntervalSchema = z.enum(["hour", "5m"]);
 export type EquityInterval = z.infer<typeof equityIntervalSchema>;
 
 export const leaderDetailQuerySchema = z.object({
-  equityInterval: equityIntervalSchema.default("hour").optional(),
+  equityInterval: equityIntervalSchema.optional(),
 }).strict();
 export type LeaderDetailQuery = z.infer<typeof leaderDetailQuerySchema>;
 
@@ -430,7 +444,7 @@ export const walletBucketSchema = z.object({
   tokensAvailable: z.number(),
   reserveTokens: z.number(),
   queued: z.object({ live: z.number().int(), background: z.number().int() }),
-  consumers: z.record(z.number()),
+  consumers: recordSchema(z.string(), z.number()),
 });
 export const heartbeatResponseSchema = z.object({
   feedConnected: z.boolean(),
@@ -456,10 +470,10 @@ export const heartbeatResponseSchema = z.object({
     reserveCapacity: z.number(),
     /** 1 = background jobs run at their full allowance; lower while pages are busy. */
     backgroundFactor: z.number(),
-    consumers: z.record(z.number()),
+    consumers: recordSchema(z.string(), z.number()),
     /** The weight-per-minute cap each capped consumer is held to now: its
      * setting, scaled so that all caps fit the effective budget. */
-    caps: z.record(z.number()).optional(),
+    caps: recordSchema(z.string(), z.number()).optional(),
   }).optional(),
   /** The wallet network's own bucket (real-money copy work), when it has
    * one: its trailing-minute spend per consumer and what it holds. Additive. */
@@ -723,9 +737,9 @@ export const traderProfileResponseSchema = z.object({
    * not be interpreted as zero; positions may contain only available dexes. */
   dataQuality: z.object({
     partial: z.boolean(),
-    sources: z.record(z.object({
+    sources: recordSchema(z.string(), z.object({
       status: z.enum(["available", "unavailable"]),
-      asOf: z.string().datetime().nullable(),
+      asOf: isoUtcSchema.nullable(),
       stale: z.boolean(),
       maxAgeMs: z.number().int().nonnegative(),
     })),
@@ -941,7 +955,7 @@ export const sparklinesQuerySchema = z.object({
 /** Address → PnL series; [] when its fetch failed. Addresses whose
  * portfolio isn't ready within the api's deadline (8 s) are left out and
  * keep loading into the cache: ask again for them. */
-export const sparklinesResponseSchema = z.record(z.string(), z.array(seriesPointSchema));
+export const sparklinesResponseSchema = recordSchema(z.string(), z.array(seriesPointSchema));
 export type SparklinesResponse = z.infer<typeof sparklinesResponseSchema>;
 
 /** GET /traders/:address/fills?limit= — recent fills, perp and spot, as
@@ -1391,7 +1405,7 @@ export type TelegramStatus = z.infer<typeof telegramStatusSchema>;
 export const telegramLinkResponseSchema = z.object({
   /** Always the official bot's deep link: the page opens it in a new tab,
    * so anything else would be an open redirect. */
-  url: z.string().url().startsWith("https://t.me/"),
+  url: urlStringSchema.startsWith("https://t.me/"),
   expiresAt: z.coerce.date(),
 });
 export type TelegramLinkResponse = z.infer<typeof telegramLinkResponseSchema>;
@@ -1734,7 +1748,7 @@ export const adminSettingsSnapshotSchema = adminSettingsSchema.extend({
 export type AdminSettingsSnapshot = z.infer<typeof adminSettingsSnapshotSchema>;
 
 export const patchAdminSettingsRequestSchema = z.object({
-  general: generalSettingsSchema.partial().extend({
+  general: patchOf(generalSettingsSchema).extend({
     announcement: announcementSettingsSchema.extend({
       text: localizedTextSchema.strict(),
       label: announcementLabelSchema.strict().optional(),
@@ -1742,10 +1756,10 @@ export const patchAdminSettingsRequestSchema = z.object({
     }).strict().optional(),
     maintenance: maintenanceSettingsSchema.extend({ message: localizedTextSchema.strict() }).strict().optional(),
   }).strict().optional(),
-  discovery: discoverySettingsSchema.partial().strict().optional(),
-  notifications: notificationSettingsSchema.partial().strict().optional(),
-  revenue: revenueSettingsSchema.partial().strict().optional(),
-  expectedRevisions: z.record(z.enum(appSettingsKeyEnum), settingsRevisionSchema).optional(),
+  discovery: patchOf(discoverySettingsSchema).strict().optional(),
+  notifications: patchOf(notificationSettingsSchema).strict().optional(),
+  revenue: patchOf(revenueSettingsSchema).strict().optional(),
+  expectedRevisions: partialRecordSchema(z.enum(appSettingsKeyEnum), settingsRevisionSchema).optional(),
 }).strict().superRefine((value, ctx) => {
   const keys = appSettingsKeyEnum.filter(key => value[key] !== undefined);
   if (!keys.length) ctx.addIssue({ code: "custom", message: "At least one settings field is required" });
@@ -2017,7 +2031,7 @@ export type CoinIndexRow = z.infer<typeof coinIndexRowSchema>;
  * at hand (the admin's market pickers show it). */
 export const marketNamesResponseSchema = z.object({
   markets: z.array(z.string()).nullable(),
-  volumes: z.record(z.string(), z.number()).optional(),
+  volumes: recordSchema(z.string(), z.number()).optional(),
 });
 export type MarketNamesResponse = z.infer<typeof marketNamesResponseSchema>;
 
@@ -2141,13 +2155,13 @@ const xHandleSchema = z.string().regex(/^[A-Za-z0-9_]{1,15}$/);
 export const kolInputSchema = z.object({
   address: addressSchema,
   displayName: z.string().trim().min(1).max(64).nullable().default(null),
-  avatarUrl: z.string().url().max(512).refine((u) => u.startsWith("https://"), "https only").nullable().default(null),
+  avatarUrl: urlStringSchema.max(512).refine((u) => u.startsWith("https://"), "https only").nullable().default(null),
   xHandle: xHandleSchema.nullable().default(null),
   verified: z.boolean().default(false),
   sortOrder: z.number().int().min(0).max(1_000_000).default(0),
 }).strict();
 export type KolInput = z.infer<typeof kolInputSchema>;
-export const kolPatchSchema = kolInputSchema.omit({ address: true }).partial().strict();
+export const kolPatchSchema = patchOf(kolInputSchema.omit({ address: true })).strict();
 export type KolPatch = z.infer<typeof kolPatchSchema>;
 
 /** POST /admin/kols/import — CSV with a header row: address, display_name,

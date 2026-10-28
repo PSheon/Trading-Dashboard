@@ -60,7 +60,7 @@ export function planLiveReservation(raw: LiveReservationBoundsInput): Readonly<L
     requireValue(address(intent.accountAddress) === accountAddress && intent.userId === id.userId && intent.strategyId === id.strategyId &&
       intent.walletId === id.walletId && intent.authorizationId === id.authorizationId && policy.version === id.policyVersion);
     fresh(input.localSource.checkedAt, now, id.network); digest(input.localSource.sourceDigest);
-    for (const key of Object.keys(copyRiskLimitsSchema.innerType().shape)) requireValue(Object.hasOwn(policy.limits, key));
+    for (const key of Object.keys(copyRiskLimitsSchema.shape)) requireValue(Object.hasOwn(policy.limits, key));
     const limits = copyRiskLimitsSchema.parse(policy.limits);
     requireValue(intent.market); assertMarketIdentity(market); assertMarketIdentity(intent.market); assertMarketIdentity(quote.market);
     requireValue(market.network === id.network && market.asset === intent.asset && market.sizeDecimals === intent.sizeDecimals &&

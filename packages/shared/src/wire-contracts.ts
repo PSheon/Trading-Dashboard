@@ -7,7 +7,7 @@ import { traderSearchResponseSchema } from "./trader-search-contracts.js";
 import { appliedDiscoverySchema, deploymentTuningSchema, settingsRuntimeSchema, auditResponseSchema } from "./settings-ops-contracts.js";
 import { backfillJobSchema, backfillJobsResponseSchema } from "./job-contracts.js";
 import { z } from "zod";
-import { decimalStringSchema, isoDatetimeOffsetSchema } from "./primitives.js";
+import { decimalStringSchema, isoDatetimeOffsetSchema, recordSchema } from "./primitives.js";
 import { adminResolvedWithdrawalSchema, adminUnresolvedWithdrawalsSchema, walletWithdrawalSchema, walletWithdrawalClaimSchema } from "./wallet-withdrawal-contracts.js";
 import { copyExecutionAccountSchema, copyExecutionWalletsSchema, copyWalletGrantSchema } from "./copy-wallet-contracts.js";
 import { copyFundingSchema, copyFundingClaimSchema, copyFundingOverviewSchema, copyReturnChallengeSchema, copyBuilderApprovalSchema } from "./copy-funding-contracts.js";
@@ -115,8 +115,8 @@ export const retentionStatusSchema = z.object({
   running: z.boolean(),
   lastStartedAt: iso.nullable(), lastFinishedAt: iso.nullable(),
   lastStatus: z.enum(["ok", "partial", "failed"]).nullable(),
-  removed: z.record(z.string(), z.number().int()).nullable(),
-  cutoffs: z.record(z.string(), iso).nullable(),
+  removed: recordSchema(z.string(), z.number().int()).nullable(),
+  cutoffs: recordSchema(z.string(), iso).nullable(),
   lastError: z.string().nullable(), durationMs: z.number().int().nullable(),
 });
 export type RetentionStatus = z.infer<typeof retentionStatusSchema>;

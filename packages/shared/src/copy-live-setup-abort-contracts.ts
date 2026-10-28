@@ -11,11 +11,11 @@ export type RequestLiveCopySetupAbort = z.infer<typeof requestLiveCopySetupAbort
 /** Progress of the original setup and its original money operations. The
  * request never supplies a destination, amount, consent or new signature. */
 export const liveCopySetupAbortSchema = z.object({
-  id: z.string().uuid(), setupId: identifier, kind: z.enum(['start', 'edit', 'renewal']),
+  id: z.guid(), setupId: identifier, kind: z.enum(['start', 'edit', 'renewal']),
   strategyId: z.number().int().positive(), accountId: identifier.nullable(), network: networkSchema,
   state: z.enum(['requested', 'reconciling', 'refunding', 'delegated', 'blocked', 'completed']), issue,
   deposit: copyFundingSchema.nullable(), refund: copyFundingSchema.nullable(),
-  stop: z.object({ id: z.string().uuid(), state: z.enum(['requested', 'cancelling', 'closing', 'blocked', 'flat', 'stopped']), issue }).strict().nullable(),
+  stop: z.object({ id: z.guid(), state: z.enum(['requested', 'cancelling', 'closing', 'blocked', 'flat', 'stopped']), issue }).strict().nullable(),
   createdAt: isoUtcSchema, updatedAt: isoUtcSchema,
 }).strict().superRefine((value, ctx) => {
   const invalid = (message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, message });

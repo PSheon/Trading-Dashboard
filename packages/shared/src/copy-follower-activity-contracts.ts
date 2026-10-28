@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { coinSchema, decimal18Schema } from './primitives.js';
+import { coinSchema, decimal18Schema, isoUtcSchema } from './primitives.js';
 import { copyFollowerStatementSchema } from './copy-follower-contracts.js';
 
 const decimal = decimal18Schema;
@@ -8,12 +8,12 @@ const coin = coinSchema;
 /** A `decimal18Schema` string as integer units of 10^-18 (the web's follower snapshot sums with it too). */
 export function decimalUnits(v: string): bigint { const neg = v.startsWith('-'), [whole, fraction = ''] = (neg ? v.slice(1) : v).split('.'); return BigInt(whole + fraction.padEnd(18, '0')) * (neg ? -1n : 1n); }
 const units = decimalUnits;
-const common = { key: z.string().min(1).max(350), coin, time: z.string().datetime(), tradingCashDelta: decimal };
+const common = { key: z.string().min(1).max(350), coin, time: isoUtcSchema, tradingCashDelta: decimal };
 const adjustment = z.object({ requestedFraction: decimal.refine(v => units(v) > 0 && units(v) < 10n ** 18n),
   // Original requested follower reduction after carry and lot rounding; the
   // planned full close is independent of how much the receipt actually filled.
   requestedSize: decimal.refine(v => units(v) >= 0), plannedSize: decimal.refine(v => units(v) > 0),
-  reason: z.literal('minimum_reduce_full_close'), admittedAt: z.string().datetime() }).strict()
+  reason: z.literal('minimum_reduce_full_close'), admittedAt: isoUtcSchema }).strict()
   .refine(v => units(v.requestedSize) < units(v.plannedSize));
 const fill = z.object({ ...common, kind: z.literal('fill'), attribution: z.enum(['execution', 'account']), executionKey: z.string().min(1).max(350).nullable(),
   oid: id, tid: id, side: z.enum(['B', 'A']), size: decimal.refine(v => units(v) > 0), price: decimal.refine(v => units(v) > 0),

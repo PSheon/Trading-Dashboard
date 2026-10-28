@@ -283,7 +283,7 @@ function wire<T>(schema: ZodTypeAny, value: unknown): T {
   return JSON.parse(JSON.stringify(result.data)) as T;
 }
 
-function query(schema: ZodTypeAny, search: URLSearchParams) {
+function query<S extends ZodTypeAny>(schema: S, search: URLSearchParams): z.output<S> {
   const result = schema.safeParse(Object.fromEntries(search.entries()));
   if (!result.success) throw new ApiError(400, result.error.message);
   return result.data;

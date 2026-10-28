@@ -4,7 +4,7 @@ import { isoUtcSchema, liveCopySetupAbortSchema, networkSchema } from '@trading-
 
 /** E3 #1: each schema a primitive replaced must accept and refuse exactly what
  * its hand-written copy did. The "old" side is the copy as it stood. */
-const fields = liveCopySetupAbortSchema.innerType().shape;
+const fields = liveCopySetupAbortSchema.shape;
 const cases: [string, z.ZodTypeAny, z.ZodTypeAny, z.ZodTypeAny, unknown[]][] = [
   ['network', z.enum(['testnet', 'mainnet']), networkSchema, fields.network,
     ['testnet', 'mainnet', 'Mainnet', 'TESTNET', 'devnet', '', ' mainnet', 'mainnet ', null, undefined, 0, 1, true, {}, ['mainnet']]],

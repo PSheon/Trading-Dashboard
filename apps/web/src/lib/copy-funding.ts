@@ -29,7 +29,7 @@ export function useReserveCopyFunding() {
     assertSession(session); return result;
   }, onSettled: () => client.invalidateQueries({ queryKey: key, exact: true }) });
 }
-const fundingRecoverySchema = z.array(z.string().uuid());
+const fundingRecoverySchema = z.array(z.guid());
 /** Only original operation identifiers are stored, never signatures or credentials. */
 export function createFundingJournal(scope: string, storage: Pick<Storage, "getItem" | "setItem">) {
   const key = `copy-funding-uncertainty:v1:${encodeURIComponent(scope)}`;

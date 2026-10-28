@@ -3,7 +3,7 @@ import { z } from 'zod';
 const attemptSchema = z.object({
   request: z.string().regex(/^[a-f0-9]{64}$/),
   key: z.string().regex(/^[A-Za-z0-9_-]{16,128}$/),
-  setupId: z.string().uuid().nullable(),
+  setupId: z.guid().nullable(),
   network: z.enum(['testnet', 'mainnet']).nullable(),
   confirmationPending: z.boolean(),
 }).strict();

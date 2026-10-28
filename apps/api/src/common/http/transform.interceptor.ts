@@ -34,7 +34,7 @@ export class TransformInterceptor implements NestInterceptor {
       const pagination = contract.pagination;
       let page;
       if (pagination) {
-        const query = pagination.query.parse(req.query);
+        const query = pagination.query.parse(req.query) as { limit: number; offset: number };
         const result = output as { total: number; items: unknown[]; nextCursor?: string | null };
         page = pagination.type === "offset"
           ? { type: "offset", limit: query.limit, offset: query.offset, total: result.total,

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { hash64Schema, millisSchema, nonzeroAddressSchema, revisionSchema } from './primitives.js';
+import { hash64Schema, isoUtcSchema, millisSchema, nonzeroAddressSchema, revisionSchema } from './primitives.js';
 import { copyFundingSchema } from './copy-funding-contracts.js';
 import { copyIdempotencyKeySchema, copyStrategySettingsSchema, liveCopyBudgetSchema } from './schema/copy.js';
 
@@ -54,7 +54,7 @@ export const liveCopySetupIntentSchema = z.object({
    * start always has one; an edit of a copy without one carries ''). */
   masterPolicyId: z.string().max(128), masterPolicyFingerprint: z.union([hash, z.literal('')]),
   /** The deposit the main wallet signs with this consent (start only; empty otherwise). */
-  fundingOperationId: z.union([z.string().uuid(), z.literal('')]), fundingNonce: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), fundingAmount: z.string().max(32),
+  fundingOperationId: z.union([z.guid(), z.literal('')]), fundingNonce: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), fundingAmount: z.string().max(32),
   nonce: millis, consentExpiresAt: millis, setupDeadline: millis,
 }).strict().superRefine((value, ctx) => {
   if (value.consentExpiresAt <= value.nonce || value.consentExpiresAt > value.nonce + LIVE_SETUP_CONSENT_WINDOW_MS ||
@@ -104,7 +104,7 @@ export const liveCopySetupStageSchema = z.enum(['provisioning', 'awaiting_consen
 export type LiveCopySetupStage = z.infer<typeof liveCopySetupStageSchema>;
 export const LIVE_SETUP_TERMINAL: readonly LiveCopySetupStage[] = ['running', 'failed', 'expired', 'cancelled'];
 export const liveCopySetupSchema = z.object({
-  id: z.string().uuid(), kind: liveCopySetupKindSchema, strategyId: version, accountId: id.nullable(), leaderAddress: address,
+  id: z.guid(), kind: liveCopySetupKindSchema, strategyId: version, accountId: id.nullable(), leaderAddress: address,
   sourceNetwork: z.enum(['testnet', 'mainnet']), budgetUsd: liveCopyBudgetSchema, settings: copyStrategySettingsSchema,
   stage: liveCopySetupStageSchema, issue: z.string().max(80).nullable(),
   /** Permanent owner-requested barrier; financial completion is separate. */
@@ -112,8 +112,8 @@ export const liveCopySetupSchema = z.object({
   /** Set while the owner's signature is due (awaiting_consent). */
   consent: liveCopySetupIntentSchema.nullable(),
   funding: copyFundingSchema.nullable(),
-  mandateId: id.nullable(), setupDeadline: z.string().datetime().nullable(),
-  createdAt: z.string().datetime(), updatedAt: z.string().datetime(),
+  mandateId: id.nullable(), setupDeadline: isoUtcSchema.nullable(),
+  createdAt: isoUtcSchema, updatedAt: isoUtcSchema,
 }).strict();
 export type LiveCopySetup = z.infer<typeof liveCopySetupSchema>;
 export const liveCopySetupsSchema = z.object({ items: z.array(liveCopySetupSchema).max(50) }).strict();

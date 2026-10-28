@@ -2,28 +2,37 @@ import { swaggerEnabled } from "./swagger-policy.js";
 import type { INestApplication } from "@nestjs/common";
 import { MetadataScanner, ModulesContainer, Reflector } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule, type OpenAPIObject, type OperationObject, type ResponseObject, type SchemaObject } from "@nestjs/swagger";
-import { zodToJsonSchema } from "zod-to-json-schema";
-import type { ZodTypeAny } from "zod";
-import { httpRouteContracts, responseMetaSchema, errorEnvelopeSchema } from "@trading-dashboard/shared/contracts";
+import { z } from "zod";
+import { errorEnvelopeSchema, httpRouteContracts, isoDatetimeOffsetSchema, isoUtcSchema, responseMetaSchema, urlStringSchema } from "@trading-dashboard/shared/contracts";
 import { IS_PUBLIC_KEY } from "../common/auth/public.decorator.js";
 import { requiredPermissions } from "../common/auth/permissions.js";
 
 const SWAGGER_PATH = "docs";
-/** Zod 3 exports draft-07 tuples; OAS 3.1 uses JSON Schema 2020-12. */
-function to2020(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(to2020);
+/** JSON Schema 2020-12 (OAS 3.1's dialect) of what a client reads: every zod schema documented here is a
+ * response, an event or an envelope, so `io: "output"`. */
+function withoutDialect(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutDialect);
   if (!value || typeof value !== "object") return value;
-  const result = Object.fromEntries(Object.entries(value).filter(([key]) => key !== "$schema")
-    .map(([key, child]) => [key, to2020(child)]));
-  if (result.type === "array" && Array.isArray(result.items)) {
-    result.prefixItems = result.items;
-    result.items = result.additionalItems ?? false;
-    delete result.additionalItems;
-  }
-  return result;
+  return Object.fromEntries(Object.entries(value).filter(([key]) => key !== "$schema").map(([key, child]) => [key, withoutDialect(child)]));
 }
-const schema = (value: ZodTypeAny): SchemaObject =>
-  to2020(zodToJsonSchema(value, { target: "jsonSchema7", $refStrategy: "none" })) as SchemaObject;
+const urlCheck = urlStringSchema._zod.def.checks?.[0];
+const options: NonNullable<Parameters<typeof z.toJSONSchema>[1]> = {
+  target: "draft-2020-12", io: "output", unrepresentable: "any",
+  override: ({ zodSchema, jsonSchema }) => {
+    const def = zodSchema._zod.def as { type: string; in?: z.ZodType; out?: z.ZodType; checks?: unknown[] };
+    // `z.coerce.date()` reads an ISO string off the wire.
+    if (def.type === "date") Object.assign(jsonSchema, { type: "string", format: "date-time" });
+    // The ISO and URL primitives check with a pattern or a refinement: document their format instead.
+    if (zodSchema === isoUtcSchema || zodSchema === isoDatetimeOffsetSchema) { delete jsonSchema.pattern; jsonSchema.format = "date-time"; }
+    if (urlCheck && def.checks?.includes(urlCheck)) jsonSchema.format = "uri";
+    // A transform's result has no JSON Schema: document the shape it is computed from, as zod-to-json-schema did.
+    if (def.type === "pipe" && def.in && def.out?._zod.def.type === "transform") {
+      for (const key of Object.keys(jsonSchema)) delete jsonSchema[key];
+      Object.assign(jsonSchema, withoutDialect(z.toJSONSchema(def.in, options)));
+    }
+  },
+};
+const schema = (value: z.ZodType): SchemaObject => withoutDialect(z.toJSONSchema(value, options)) as SchemaObject;
 
 /** Same source for live Swagger, the offline artifact and contract tests. */
 export function buildOpenApiDocument(app: INestApplication): OpenAPIObject {
